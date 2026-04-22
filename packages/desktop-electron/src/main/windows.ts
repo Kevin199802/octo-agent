@@ -96,7 +96,15 @@ export function createMainWindow(globals: Globals) {
 
   win.once("ready-to-show", () => {
     win.show()
+    if (!app.isPackaged) {
+      win.webContents.openDevTools()
+    }
   })
+
+  // 打包版调试：OCTO_DEVTOOLS=1 打开 DevTools
+  if (process.env.OCTO_DEVTOOLS === "1") {
+    win.webContents.openDevTools()
+  }
 
   return win
 }

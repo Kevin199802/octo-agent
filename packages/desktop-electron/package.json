@@ -1,5 +1,5 @@
 {
-  "name": "@opencode-ai/desktop-electron",
+  "name": "@octo/desktop",
   "private": true,
   "version": "1.4.7",
   "type": "module",
@@ -35,6 +35,8 @@
   "devDependencies": {
     "@actions/artifact": "4.0.0",
     "@lydell/node-pty": "catalog:",
+    "@octo/ui": "workspace:*",
+    "@vitejs/plugin-vue": "^5.2.3",
     "@opencode-ai/app": "workspace:*",
     "@opencode-ai/ui": "workspace:*",
     "@solid-primitives/i18n": "2.2.1",

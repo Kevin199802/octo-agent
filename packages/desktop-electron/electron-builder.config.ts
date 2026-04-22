@@ -26,36 +26,28 @@ const channel = (() => {
   return "dev"
 })()
 
+const isCi = process.env.GITHUB_ACTIONS === "true"
+
 const getBase = (): Configuration => ({
-  artifactName: "opencode-electron-${os}-${arch}.${ext}",
+  artifactName: "Octo Agent-${version}-${arch}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
   },
   files: ["out/**/*", "resources/**/*"],
-  extraResources: [
-    {
-      from: "native/",
-      to: "native/",
-      filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
-    },
-  ],
   mac: {
     category: "public.app-category.developer-tools",
     icon: `resources/icons/icon.icns`,
-    hardenedRuntime: true,
+    // 签名 & 公证只在 CI 环境开启；本地内网分发直接跳过
+    identity: isCi ? undefined : null,
+    hardenedRuntime: isCi,
     gatekeeperAssess: false,
-    entitlements: "resources/entitlements.plist",
-    entitlementsInherit: "resources/entitlements.plist",
-    notarize: true,
-    target: ["dmg", "zip"],
-  },
-  dmg: {
-    sign: true,
+    notarize: isCi,
+    target: ["dmg"],
   },
   protocols: {
-    name: "OpenCode",
-    schemes: ["opencode"],
+    name: "Octo Agent",
+    schemes: ["octo-agent"],
   },
   win: {
     icon: `resources/icons/icon.ico`,
@@ -84,29 +76,28 @@ function getConfig() {
     case "dev": {
       return {
         ...base,
-        appId: "ai.opencode.desktop.dev",
-        productName: "OpenCode Dev",
-        rpm: { packageName: "opencode-dev" },
+        appId: "ai.octoagent.desktop.dev",
+        productName: "Octo Dev",
+        protocols: { name: "Octo Dev", schemes: ["octo-agent-dev"] },
+        rpm: { packageName: "octo-dev" },
       }
     }
     case "beta": {
       return {
         ...base,
-        appId: "ai.opencode.desktop.beta",
-        productName: "OpenCode Beta",
-        protocols: { name: "OpenCode Beta", schemes: ["opencode"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
-        rpm: { packageName: "opencode-beta" },
+        appId: "ai.octoagent.desktop.beta",
+        productName: "Octo Beta",
+        protocols: { name: "Octo Beta", schemes: ["octo-agent"] },
+        rpm: { packageName: "octo-beta" },
       }
     }
     case "prod": {
       return {
         ...base,
-        appId: "ai.opencode.desktop",
-        productName: "OpenCode",
-        protocols: { name: "OpenCode", schemes: ["opencode"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
-        rpm: { packageName: "opencode" },
+        appId: "ai.octoagent.desktop",
+        productName: "Octo Agent",
+        protocols: { name: "Octo Agent", schemes: ["octo-agent"] },
+        rpm: { packageName: "octo-agent" },
       }
     }
   }

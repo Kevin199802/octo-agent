@@ -19,17 +19,17 @@ try {
 process.env.OPENCODE_DISABLE_EMBEDDED_WEB_UI = "true"
 
 const APP_NAMES: Record<string, string> = {
-  dev: "OpenCode Dev",
-  beta: "OpenCode Beta",
-  prod: "OpenCode",
+  dev: "Octo Dev",
+  beta: "Octo Beta",
+  prod: "Octo Agent",
 }
 const APP_IDS: Record<string, string> = {
-  dev: "ai.opencode.desktop.dev",
-  beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
+  dev: "ai.octoagent.desktop.dev",
+  beta: "ai.octoagent.desktop.beta",
+  prod: "ai.octoagent.desktop",
 }
-app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "OpenCode Dev")
-app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"))
+app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "Octo Dev")
+app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? APP_IDS[CHANNEL] : "ai.octoagent.desktop.dev"))
 const { autoUpdater } = pkg
 
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
@@ -298,7 +298,9 @@ async function getSidecarPort() {
 function sqliteFileExists() {
   const xdg = process.env.XDG_DATA_HOME
   const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".local", "share")
-  return existsSync(join(base, "opencode", "opencode.db"))
+  const dir = join(base, "opencode")
+  // 实际文件名是 opencode-local.db，同时兼容旧版 opencode.db
+  return existsSync(join(dir, "opencode-local.db")) || existsSync(join(dir, "opencode.db"))
 }
 
 function setupAutoUpdater() {

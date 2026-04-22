@@ -1,5 +1,6 @@
 import { defineConfig } from "electron-vite"
-import appPlugin from "@opencode-ai/app/vite"
+import vue from "@vitejs/plugin-vue"
+import { resolve } from "node:path"
 import * as fs from "node:fs/promises"
 
 const channel = (() => {
@@ -57,17 +58,32 @@ export default defineConfig({
     },
   },
   renderer: {
-    plugins: [appPlugin],
-    publicDir: "../../../app/public",
-    root: "src/renderer",
+    plugins: [vue()],
+    root: resolve("../octo-ui"),
     define: {
       "import.meta.env.VITE_OPENCODE_CHANNEL": JSON.stringify(channel),
+    },
+    resolve: {
+      alias: {
+        "@": resolve("../octo-ui/src"),
+      },
+    },
+    server: {
+      port: 5175,
+      strictPort: true,
+      proxy: {
+        "/api": {
+          target: "http://127.0.0.1:4096",
+          changeOrigin: true,
+          ws: true,
+          rewrite: (path) => path.replace(/^\/api/, ""),
+        },
+      },
     },
     build: {
       rollupOptions: {
         input: {
-          main: "src/renderer/index.html",
-          loading: "src/renderer/loading.html",
+          main: resolve("../octo-ui/index.html"),
         },
       },
     },
