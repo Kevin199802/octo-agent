@@ -24,6 +24,12 @@ if (!process.env.OPENCODE_CONFIG) {
   process.env.OPENCODE_CONFIG = join(homedir(), ".config", "octo", "octo.config.json")
 }
 
+// 禁止 opencode 读 ~/.claude/CLAUDE.md(Claude Code 全局记忆),避免身份混淆和场景污染
+// Octo 的全局指令应放 ~/.config/octo/AGENTS.md,项目指令放 <project>/AGENTS.md
+if (!process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT) {
+  process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT = "true"
+}
+
 const APP_NAMES: Record<string, string> = {
   dev: "Octo Dev",
   beta: "Octo Beta",
