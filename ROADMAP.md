@@ -34,15 +34,39 @@ docs/specs/
 
 ---
 
-## P1 — Phase 2（用研 Agent 功能）
+## P1 — Phase 2(可配置 + 多 Agent 体验)
 
-> 待设计稿确认后拆分 spec，新建 `docs/specs/agents/agent-research.md`。
+> 顺序优先级:UI 刷新 → Provider 配置 → Multi-Agent 体验 → Skill 系统 → MCP 集成。
+
+| 规模 | 领域 | Spec | 说明 |
+|-----|------|------|------|
+| `[M]` | ui | [UI 风格刷新 brief](docs/specs/ui/octo-ui-redesign-brief.md) | 引入 Tailwind 4、浅色主题、Sidebar/ChatView 重做。**用 Codex/Antigravity 接力** |
+| `[M]` | ui | [Settings — Provider 配置](docs/specs/ui/provider-config.md) | UI 化 provider/model 增删改、连通性测试、激活模型切换;不再需手编 JSON |
+| `[L]` | agents | [多 Agent 协作](docs/specs/agents/multi-agent.md) | 内置 4 个 primary agent;subagent 自动调度可视化;权限授权对话框 |
+| `[L]` | agents | [Skill 系统](docs/specs/agents/skill-system.md) | 技能库页面、平台/项目级 skill、在线创建向导、文件编辑 |
+| `[M]` | agents | [MCP 集成 — 内网数据访问](docs/specs/agents/mcp-integration.md) | UI 配置 MCP server、状态监控、OAuth 流程、tool 调试面板 |
+| `[S]` | infra | 主进程注入 `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=true` | 防止读到用户 `~/.claude/CLAUDE.md` 污染 |
 
 ---
 
-## P2 — Phase 3（多 Agent 协作）
+## P2 — Phase 3(高阶能力)
 
-> 待 Phase 2 验证后规划。
+| 规模 | 领域 | Spec | 说明 |
+|-----|------|------|------|
+| `[M]` | agents | Agent 编辑器(GUI 创建/编辑 agent) | multi-agent.md §5.6/5.7 |
+| `[M]` | agents | Skill 关联 agent / 上传 zip / URL 拉取 | skill-system.md §5.4-5.6 |
+| `[M]` | ui | 上下文压缩可视化 + 手动触发 | learning/context-and-memory.md §2.5 |
+| `[S]` | ui | 浅色/深色主题切换 | redesign-brief 已铺路 |
+| `[M]` | infra | API Key 加密存储(electron-safe-storage) | provider-config.md §13 |
+
+---
+
+## P3 — Phase 4(规划中)
+
+- 项目级"主 session"长期记忆机制(类似 Claude Project)
+- Skill marketplace / 团队分享
+- 显式 Agent 工作流编排(模式 C)
+- 多端配置同步、用量统计
 
 ---
 
@@ -56,6 +80,8 @@ _暂无_
 
 | 规模 | 领域 | Spec | 说明 |
 |-----|------|------|------|
+| `[L]` | docs | 架构与学习文档体系 | architecture.md / learning/ 4 篇 / specs/ 5 篇 + brief |
+| `[S]` | infra | 配置文件路径隔离 `~/.config/octo/octo.config.json` | 主进程注入 `OPENCODE_CONFIG` |
 | `[M]` | infra | [开发环境 — Mode A 浏览器调试](docs/specs/infra/dev-environment.md) | Monorepo 脚手架、Electron 品牌重命名、octo-ui Vite 工程、opencode 后端连通 |
-| `[L]` | ui | [octo-ui 前端架构](docs/specs/ui/octo-ui.md) | Vue3 + Pinia + Vue Router；SDK 集成；HomeView + SessionView 流式对话 |
-| `[M]` | agents | [Multi-Agent Shell 骨架](docs/specs/agents/multi-agent-shell.md) | shell 注册表、Agent 接口、ResearchAgent 占位、3 个存根 Agent |
+| `[L]` | ui | Vue 3 UI 重写(ChatView 复读修复 + Sidebar + tokens) | SSE+REST 双层、思维链折叠、删除废弃 view |
+| `[L]` | ui | [octo-ui 前端架构](docs/specs/ui/octo-ui.md) | Vue3 + Vue Router;SDK 集成 |
