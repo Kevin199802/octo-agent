@@ -14,10 +14,15 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 
 ## 目录
 
-- [opencode-internals.md](opencode-internals.md) — opencode 后端工作原理:HTTP 路由、SSE 事件、Part 类型、SQLite 表、Provider 接入
+按从基础到进阶顺序读:
 
-> 后续待写(随实际开发推进):
+1. [opencode-internals.md](opencode-internals.md) — opencode 后端工作原理:HTTP 路由、SSE 事件、Part 类型、SQLite 表、Provider 接入
+2. [agent-mental-model.md](agent-mental-model.md) — Agent 是什么、agent loop、primary vs subagent、多 agent 三种模式
+3. [skill-and-mcp.md](skill-and-mcp.md) — Skill 与 MCP 区别与联系、MCP 三种传输、Skill 包结构、安全模型
+4. [provider-protocols.md](provider-protocols.md) — Anthropic / OpenAI / Google 协议差异、thinking/reasoning 怎么传、国内网关兼容性
+5. [context-and-memory.md](context-and-memory.md) — 上下文压缩、`AGENTS.md` 项目记忆、共享记忆设计
+
+> 后续可能补:
 >
-> - `agent-mental-model.md` — Agent 是什么、跟 LLM 调用的区别、为什么需要 shell
-> - `provider-protocols.md` — Anthropic vs OpenAI 兼容协议差异、thinking/reasoning 怎么传
-> - `electron-vite-build.md` — electron-vite 的 main/preload/renderer 三段构建模型
+> - `electron-vite-build.md` — main/preload/renderer 三段构建模型(暂不重要)
+> - `effect-ts-primer.md` — opencode 用 Effect.js,看源码会遇到
