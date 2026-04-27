@@ -18,6 +18,12 @@ try {
 
 process.env.OPENCODE_DISABLE_EMBEDDED_WEB_UI = "true"
 
+// Octo 自有配置文件,跟 opencode CLI 完全隔离
+// 用户编辑 ~/.config/octo/octo.config.json,opencode 后端读取这个文件
+if (!process.env.OPENCODE_CONFIG) {
+  process.env.OPENCODE_CONFIG = join(homedir(), ".config", "octo", "octo.config.json")
+}
+
 const APP_NAMES: Record<string, string> = {
   dev: "Octo Dev",
   beta: "Octo Beta",
