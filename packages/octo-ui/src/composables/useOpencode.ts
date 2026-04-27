@@ -25,17 +25,21 @@ export function useOpencode(): OpencodeClient {
 }
 
 export async function initOpencodeClient(): Promise<void> {
-  let baseUrl: string
-  if (import.meta.env.DEV) {
-    baseUrl = "/api"
-  } else if (window.api) {
+  // Electron 模式(包括 dev)优先用 preload 注入的真实 url + 认证。
+  // opencode Server.listen 用动态端口,不能依赖 vite proxy 的 4096 写死。
+  if (window.api) {
     const { url, username, password } = await window.api.awaitInitialization(() => {})
-    baseUrl = url
     const auth = btoa(`${username}:${password}`)
-    client = createOpencodeClient({ baseUrl, headers: { Authorization: `Basic ${auth}` } })
+    client = createOpencodeClient({ baseUrl: url, headers: { Authorization: `Basic ${auth}` } })
     return
-  } else {
-    baseUrl = "http://127.0.0.1:4096"
   }
-  client = createOpencodeClient({ baseUrl })
+
+  // 纯浏览器 dev(无 Electron preload):走 vite proxy
+  if (import.meta.env.DEV) {
+    client = createOpencodeClient({ baseUrl: "/api" })
+    return
+  }
+
+  // 兜底
+  client = createOpencodeClient({ baseUrl: "http://127.0.0.1:4096" })
 }
