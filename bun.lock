@@ -27,29 +27,8 @@
         "turbo": "2.8.13",
       },
     },
-    "packages/agent/coding": {
-      "name": "@octo/agent-coding",
-      "version": "0.0.1",
-      "dependencies": {
-        "@octo/shell": "workspace:*",
-      },
-    },
-    "packages/agent/report": {
-      "name": "@octo/agent-report",
-      "version": "0.0.1",
-      "dependencies": {
-        "@octo/shell": "workspace:*",
-      },
-    },
     "packages/agent/research": {
       "name": "@octo/agent-research",
-      "version": "0.0.1",
-      "dependencies": {
-        "@octo/shell": "workspace:*",
-      },
-    },
-    "packages/agent/synthesis": {
-      "name": "@octo/agent-synthesis",
       "version": "0.0.1",
       "dependencies": {
         "@octo/shell": "workspace:*",
@@ -346,6 +325,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@opencode-ai/sdk": "workspace:*",
+        "marked": "^15.0.0",
         "pinia": "^2.3.1",
         "vue": "^3.5.13",
         "vue-router": "^4.5.0",
@@ -1540,13 +1520,7 @@
 
     "@npmcli/run-script": ["@npmcli/run-script@10.0.4", "", { "dependencies": { "@npmcli/node-gyp": "^5.0.0", "@npmcli/package-json": "^7.0.0", "@npmcli/promise-spawn": "^9.0.0", "node-gyp": "^12.1.0", "proc-log": "^6.0.0" } }, "sha512-mGUWr1uMnf0le2TwfOZY4SFxZGXGfm4Jtay/nwAa2FLNAKXUoUwaGwBMNH36UHPtinWfTSJ3nqFQr0091CxVGg=="],
 
-    "@octo/agent-coding": ["@octo/agent-coding@workspace:packages/agent/coding"],
-
-    "@octo/agent-report": ["@octo/agent-report@workspace:packages/agent/report"],
-
     "@octo/agent-research": ["@octo/agent-research@workspace:packages/agent/research"],
-
-    "@octo/agent-synthesis": ["@octo/agent-synthesis@workspace:packages/agent/synthesis"],
 
     "@octo/desktop": ["@octo/desktop@workspace:packages/desktop-electron"],
 
