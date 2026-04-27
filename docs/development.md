@@ -1,74 +1,29 @@
-# Octo Agent — 开发环境配置与调试指南
+# Octo Agent — 开发、调试、打包指南
 
-## 技术栈与工具要求
+> 上次同步:2026-04-27。环境:macOS,Apple Silicon。Linux/Windows 需调整。
 
-Octo Agent 使用 **Electron**（非 Tauri），因此**不需要 Rust / rustc / Cargo**。
+里程碑跟踪与验收清单见仓库根 [ROADMAP.md](../ROADMAP.md)。架构与目录边界见 [docs/architecture.md](architecture.md)。
 
-| 工具 | 版本要求 | 用途 |
+---
+
+## 1. 环境要求
+
+| 工具 | 版本 | 用途 |
 |---|---|---|
 | Bun | 1.3+ | 包管理器、脚本运行器 |
-| Node.js | 20+ | Electron 主进程运行时 |
-| Git | 任意 | 版本控制 |
-| Xcode CLI Tools | 最新（macOS） | 原生模块编译（node-pty） |
-
----
-
-## 一、安装 Bun 并配置 PATH
+| Node.js | 20+ | Electron 主进程、native 模块编译 |
+| Xcode CLI Tools | 最新 | macOS 上 node-pty 等 native 模块编译 |
+| Git | 任意 | — |
 
 ```bash
-curl -fsSL https://bun.sh/install | bash
-source ~/.zshrc        # 让 PATH 立即生效
-bun --version          # 应输出 1.3.x
-```
-
-如果 `bun: command not found`，检查 `~/.zshrc` 是否有 `BUN_INSTALL` 的 PATH 配置，没有则手动追加：
-
-```bash
-echo 'export BUN_INSTALL="$HOME/.bun"' >> ~/.zshrc
-echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
+bun --version          # 1.3.x
+node --version         # v20+
+xcode-select -p        # 应输出路径,无输出则: xcode-select --install
 ```
 
 ---
 
-## 二、安装 Xcode CLI Tools（macOS）
-
-node-pty 编译原生模块时需要：
-
-```bash
-xcode-select --install   # 弹出 GUI 安装向导，约 5 分钟
-xcode-select --version   # 验证
-```
-
----
-
-## 三、LLM API Key 配置
-
-开发阶段需要配置真实 LLM provider，否则后端会使用内部占位模型（`opencode/big-pickle`），无法正常对话。
-
-**推荐方式：`~/.opencode/config.json`**（持久化，重启后仍有效）
-
-```bash
-mkdir -p ~/.opencode
-cat > ~/.opencode/config.json <<'EOF'
-{
-  "providers": {
-    "anthropic": {
-      "apiKey": "sk-ant-xxxx"
-    }
-  },
-  "model": "anthropic/claude-sonnet-4-6"
-}
-EOF
-```
-
-也可以用 DeepSeek 或 Google Gemini，详见 [docs/specs/infra/dev-environment.md](docs/specs/infra/dev-environment.md) 第 3 节。
-
-> **注意**：`~/.opencode/` 是 opencode 后端读取 provider 配置的位置，和系统上可能已安装的 opencode CLI 共用同一目录，但不会冲突——provider 配置共享是预期行为，会话数据按目录隔离。
-
----
-
-## 四、首次安装依赖
+## 2. 首次准备
 
 ```bash
 git clone https://github.com/Kevin199802/octo-agent.git
@@ -76,123 +31,174 @@ cd octo-agent
 bun install
 ```
 
-预期输出末尾：`N packages installed [Xs]`，无 error。
+### LLM Provider 配置
+
+Octo Agent 主进程会**强制注入** `OPENCODE_CONFIG=~/.config/octo/octo.config.json`,因此 opencode 后端**只读这个文件**(跟系统上可能装的 opencode CLI 完全隔离)。第一次需要手动建:
+
+```bash
+mkdir -p ~/.config/octo
+```
+
+最小配置示例(以百炼 Anthropic 兼容网关 + Qwen 为例):
+
+```jsonc
+// ~/.config/octo/octo.config.json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {                                        // 注意是单数
+    "bailian": {
+      "npm": "@ai-sdk/anthropic",
+      "options": {
+        "baseURL": "https://coding.dashscope.aliyuncs.com/apps/anthropic/v1",
+        "apiKey": "sk-xxx"
+      },
+      "models": {
+        "qwen3-coder-plus": {
+          "name": "Qwen3 Coder Plus",
+          "limit": { "context": 1000000, "output": 65536 }
+        }
+      }
+    }
+  },
+  "model": "bailian/qwen3-coder-plus"
+}
+```
+
+**踩坑提示**:
+
+- schema 用 Zod `.strict()`,**任何未知字段都会让 session 创建报 500**。常见错误:写成 `providers`(复数)、`apiKey` 写到 provider 顶层而不是 `options` 下、字段名拼写错误
+- 若 UI 提示 `opencode/big-pickle`,说明配置没生效(后端在用占位模型),先检查路径和 schema
+- 切换 provider/model **需要重启 dev**(opencode 不支持配置热重载)
+
+完整字段说明、provider 协议差异、常见网关写法详见 [learning/opencode-internals.md](learning/opencode-internals.md)。
 
 ---
 
-## 五、开发调试方式
+## 3. 日常开发(Mode B:Electron 集成)
 
-### 模式 A：纯前端调试（推荐日常开发）
-
-两个终端分别启动，修改 Vue 文件后浏览器自动热更新，无需重启后端：
+**推荐主路径**。一条命令同时拉起 opencode 后端 + Vite renderer + Electron 窗口,改 Vue 文件 HMR,改 main 进程自动重启。
 
 ```bash
-# 终端 1：启动 opencode 后端（注意是 dev:serve，不是 dev）
+bun run --cwd packages/desktop-electron dev
+```
+
+期望:
+
+- 终端打印 `opencode server listening on http://127.0.0.1:4096`
+- Vite 在端口 **5175** 启动(strictPort,被占用会直接报错)
+- 弹出 Electron 窗口,显示 octo-ui 首页
+
+### 调试
+
+| 想干什么 | 怎么做 |
+|---|---|
+| 打开 renderer DevTools | Electron 窗口聚焦后按 `Cmd + Option + I` |
+| 看主进程日志 | 启动 `dev` 的那个终端 |
+| 看后端 (opencode) 日志 | 同上,主进程 stdout 包含 |
+| 改前端立即生效 | 直接改 `packages/octo-ui/src/**/*`,Vite HMR |
+| 改 main 进程立即生效 | 改 `packages/desktop-electron/src/main/**`,electron-vite 自动重启 |
+| 强制刷新 renderer | DevTools 里 `Cmd + R` 或菜单 View → Reload |
+| 仅重启后端 | 目前不支持单独重启,只能整个 dev 重跑 |
+
+### `predev` 钩子
+
+`bun run dev` 之前会跑 `scripts/predev.ts`,做两件事:
+
+1. 拷贝应用图标
+2. 在 `packages/opencode` 跑一次 `bun script/build-node.ts`,产出 Node bundle 给 main 进程 import
+
+opencode 源码没改时第一次跑过就够了,后续 dev 仍会重复。如果想跳过:`cd packages/desktop-electron && bunx electron-vite dev`。
+
+---
+
+## 4. 仅前端调试(Mode A:可选)
+
+只调样式 / 组件结构、不需要后端连通时用。两个终端:
+
+```bash
+# 终端 1:opencode 后端
 bun run dev:serve
-# 期望输出：opencode server listening on http://127.0.0.1:4096
+# 期望: opencode server listening on http://127.0.0.1:4096
 
-# 终端 2：启动 octo-ui dev server
+# 终端 2:octo-ui Vite
 bun --cwd packages/octo-ui dev
-# 期望输出：VITE ready, Local: http://localhost:5174/
+# 期望: VITE ready, Local: http://localhost:5173/
 ```
 
-浏览器打开 `http://localhost:5174`：
-- Vue 文件保存后**自动热更新（HMR）**，无需刷新
-- 用 Chrome DevTools（F12）调试，与普通前端开发完全一样
-- Vite proxy 将 `/api/*` 请求去掉前缀后转发到 `http://127.0.0.1:4096`
+浏览器开 `http://localhost:5173`,Chrome DevTools 调试。
 
-### 模式 B：Electron 集成调试
+> Vite proxy 把 `/api/*` 去前缀转发到 `127.0.0.1:4096`。如果首页报"后端连接失败:HTML",检查 `packages/octo-ui/vite.config.ts` 的 proxy 是否配了 `rewrite: (path) => path.replace(/^\/api/, "")` 和 `ws: true`。
 
-验证 Electron 主进程 + renderer 集成时使用。
-
-**首次运行前**，需要手动下载 Electron 二进制（Bun 不自动执行 postinstall）：
-
-```bash
-node packages/desktop-electron/node_modules/electron/install.js
-```
-
-完成后启动：
-
-```bash
-bun --cwd packages/desktop-electron dev
-```
-
-- Electron 窗口内使用 Vue3 UI，支持 HMR
-- 打开 Chrome DevTools：`Cmd + Option + I`（macOS）或菜单 View → Toggle DevTools
-- 主进程日志在**启动的终端**里输出
-- Renderer 日志在 **Electron DevTools Console** 里
+Mode A 走的是浏览器,**不会触发 Electron 主进程逻辑**(IPC、native 模块、文件对话框),那些功能只能 Mode B 验证。
 
 ---
 
-## 六、各里程碑人工验收步骤
-
-### M1 — Monorepo 脚手架
+## 5. 构建与打包
 
 ```bash
-bun pm ls --all | grep "@octo/"
-# 预期：6 行 @octo/* workspace:packages/...
+# 1) 编译 main + preload + renderer 到 packages/desktop-electron/out/
+bun run --cwd packages/desktop-electron build
 
-bun turbo typecheck --filter="@octo/*"
-# 预期：6 successful, 0 errors
+# 2) 打 macOS 包(DMG + zip,产物在 packages/desktop-electron/dist/)
+bun run --cwd packages/desktop-electron package:mac
 ```
 
-### M3 — octo-ui 工程搭建
+可用脚本(见 [packages/desktop-electron/package.json](../packages/desktop-electron/package.json)):
 
-```bash
-bun --cwd packages/octo-ui dev
-```
+| 脚本 | 作用 |
+|---|---|
+| `build` | electron-vite 编译,产出 `out/` |
+| `package` | electron-builder 打当前平台 |
+| `package:mac` / `package:win` / `package:linux` | 指定平台 |
 
-浏览器打开 `http://localhost:5174`：
-- 页面能正常加载（不是空白或 404）
-- 修改任意 `.vue` 文件保存后页面自动刷新
+**没有 `build:mac` 这个脚本**,直接用 `build && package:mac`。
 
-### M4 — SDK 后端连通
+### 打包后白屏 / 启动失败排查
 
-先启动后端（`bun run dev:serve`），再启动前端（`bun --cwd packages/octo-ui dev`）：
+1. 在 [packages/desktop-electron/src/main/windows.ts](../packages/desktop-electron/src/main/windows.ts) 临时加 `mainWindow.webContents.openDevTools()`,重打看 Console 报错
+2. 看 `out/renderer/index.html` 是否引用了正确的 `assets/*.js`(路径错会白屏)
+3. 看主进程日志(macOS 上 `~/Library/Logs/<AppName>/main.log`)
+4. 确认 `electron.vite.config.ts` 中 renderer 的 `root` 与 `build.rollupOptions.input` 都指向 `packages/octo-ui`
 
-- 首页显示当前项目目录名（不是"连接后端中…"）
-- DevTools Network 面板能看到 `/api/project/current` 返回 200
+### macOS 签名
 
-### M6 — 核心对话 UI
-
-- 首页点"新建会话"跳转到 SessionView
-- 发送消息后，AI 回复以流式方式逐字出现
-- 刷新后历史消息保留
-
-### M8 — Electron 集成
-
-先执行 `node packages/desktop-electron/node_modules/electron/install.js`，再：
-
-```bash
-bun --cwd packages/desktop-electron dev
-```
-
-- Electron 窗口内能看到 octo-ui 首页
-- DevTools Console 无红色错误
-- 创建会话 → 发送消息 → 能收到 AI 回复
-
-### M9 — 构建产物
-
-```bash
-cd packages/desktop-electron
-bun run build && bun run package:mac
-```
-
-- `dist/` 目录出现 `.dmg` 文件
-- 双击安装，启动后能完成一次对话
+未配置开发者证书时打包会跳过签名,产物可以本地用,**首次打开右键"打开"绕过 Gatekeeper**。如需正式签名,在 `packages/desktop-electron/electron-builder.config.ts` 配 `mac.identity`。
 
 ---
 
-## 七、常见问题
+## 6. 常见问题
 
-| 问题 | 原因 | 解决 |
+| 现象 | 原因 | 解决 |
 |---|---|---|
-| `bun: command not found` | PATH 未更新 | `source ~/.zshrc` 或重开终端 |
-| `bun install` 报 tree-sitter 编译失败 | 缺少 Xcode CLI Tools | `xcode-select --install` |
-| 首页一直显示"连接后端中…" | 后端未启动，或 proxy 配置错误 | 确认 `bun run dev:serve` 正在运行；`lsof -i :4096` 检查端口 |
-| 首页报错"后端连接失败：HTML" | Vite proxy 缺少 `rewrite` 配置 | 确认 `vite.config.ts` proxy 有 `rewrite: (path) => path.replace(/^\/api/, "")` |
-| `Error: Electron uninstall` | Electron 二进制未下载 | `node packages/desktop-electron/node_modules/electron/install.js` |
-| AI 回复为 `opencode/big-pickle` | 未配置真实 LLM provider | 配置 `~/.opencode/config.json`，见第三节 |
-| opencode 后端 4096 端口被占 | 端口冲突 | `OPENCODE_PORT=4097 bun run dev:serve` |
-| Vue HMR 不生效 | Vite proxy websocket 未开启 | 确认 `vite.config.ts` 中 proxy 有 `ws: true` |
-| macOS 打包签名报错 | `CodeSign failed` | `electron-builder.config.ts` 加 `mac: { identity: null }` |
+| `Error: Electron uninstall` (dev 启动时) | electron 包 postinstall 没跑 | `node packages/desktop-electron/node_modules/electron/install.js`,或仓库根重 `bun install` |
+| 创建会话报 500 | config.json schema 错误或路径不对 | 路径必须是 `~/.config/octo/octo.config.json`,`provider`(单数),`apiKey` 在 `options` 下 |
+| AI 回复显示 `opencode/big-pickle` | 配置没生效,后端用占位模型 | 同上,检查后端 stdout 里有没有"loaded provider"日志 |
+| 5175 端口冲突 | Vite strictPort 被占 | `lsof -i :5175` 找到占用进程 kill,或改 [electron.vite.config.ts](../packages/desktop-electron/electron.vite.config.ts) 的 `server.port` |
+| 4096 端口冲突 | 已在跑 opencode CLI / 上次 dev 没退干净 | `lsof -i :4096` 杀掉,或 `OPENCODE_PORT=4097 bun run dev:serve` |
+| `bun install` tree-sitter 编译失败 | Xcode CLI Tools 未装 | `xcode-select --install` |
+| Vue HMR 不生效 | proxy ws 没开 | 确认 vite proxy 配了 `ws: true` |
+| 改了 config.json 没效果 | 后端在内存里缓存了配置 | 重启后端(整个 dev 重跑) |
+| 切了模型仍是旧回复 | 同上 | 同上 |
+| 打包后白屏 | renderer 资源路径问题 | 见第 5 节排查清单 |
+
+---
+
+## 7. Git 工作流
+
+- 当前主分支:`main`,日常分支:`dev`
+- **未经明确确认禁止 commit / push**(见 [CLAUDE.md](../CLAUDE.md))
+- commit message 用中文
+- 禁改的目录见 [architecture.md §3](architecture.md#3-修改边界与上游改动清单)
+
+---
+
+## 8. 进一步阅读
+
+- [架构总览](architecture.md)
+- [opencode 后端原理(深度)](learning/opencode-internals.md)
+- [ROADMAP](../ROADMAP.md)
+- [ADR-001 Electron vs Tauri](adr/001-electron-vs-tauri.md)
+- [ADR-002 Vue 3 替换 SolidJS](adr/002-vue3-ui-rewrite.md)
+- [ADR-003 LLM Provider 接入](adr/003-openai-compat-provider.md)
+- [Spec — 开发环境](specs/infra/dev-environment.md)
+- [Spec — 构建与发布](specs/infra/build-release.md)
