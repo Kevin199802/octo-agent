@@ -1,26 +1,42 @@
 <template>
   <div class="chat">
-    <!-- 空状态 -->
     <template v-if="!sessionId">
-      <div class="empty-state">
-        <div class="empty-icon">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle cx="12" cy="12" r="10" stroke="#3b82f6" stroke-width="1.5"/>
-            <circle cx="12" cy="12" r="4" fill="#3b82f6" opacity="0.8"/>
-          </svg>
+      <section class="landing-state">
+        <div class="landing-panel">
+          <div class="landing-badge">Octo Workspace</div>
+          <h2>你好!我是 Octo AI。</h2>
+          <p>请描述你的设计需求,我将会根据你的描述自动执行任务</p>
+          <button class="start-btn" @click="createAndStart">新建对话</button>
         </div>
-        <h2>有什么可以帮你的？</h2>
-        <p>开始一段新对话，或从左侧选择历史记录</p>
-        <button class="start-btn" @click="createAndStart">新建对话</button>
-      </div>
+      </section>
     </template>
 
-    <!-- 聊天区域 -->
     <template v-else>
       <div class="messages" ref="messagesEl">
-        <div v-if="messages.length === 0 && !sending" class="messages-empty">
-          发送消息开始对话
-        </div>
+        <section v-if="showWelcomeState" class="welcome-state">
+          <div class="welcome-badge">Octo AI</div>
+          <h2>你好!我是 Octo AI。</h2>
+          <p>请描述你的设计需求,我将会根据你的描述自动执行任务</p>
+          <ul class="capability-list">
+            <li>
+              <strong>通用问答:</strong>
+              <span>回答各类问题</span>
+            </li>
+            <li>
+              <strong>用研助手:</strong>
+              <span>模拟用户访谈,生成用研报告</span>
+            </li>
+            <li>
+              <strong>代码助手:</strong>
+              <span>阅读修改代码</span>
+            </li>
+            <li>
+              <strong>评审助手:</strong>
+              <span>文档与代码评审</span>
+            </li>
+          </ul>
+          <p class="welcome-footnote">每种类型对应右侧一个 agent。</p>
+        </section>
 
         <div
           v-for="msg in messages"
@@ -28,18 +44,17 @@
           class="message-row"
           :class="`message-row--${msg.role}`"
         >
-          <!-- assistant 消息 -->
           <template v-if="msg.role === 'assistant'">
-            <div class="msg-avatar">
+            <div class="msg-avatar" aria-hidden="true">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="#3b82f6" stroke-width="1.8"/>
-                <circle cx="12" cy="12" r="4" fill="#3b82f6"/>
+                <circle cx="12" cy="12" r="7.5" stroke="currentColor" stroke-width="1.8" />
+                <circle cx="12" cy="12" r="2.5" fill="currentColor" />
               </svg>
             </div>
-            <div class="msg-body">
-              <div class="msg-label">Octo Agent</div>
 
-              <!-- 思维链（折叠） -->
+            <div class="msg-body">
+              <div class="msg-label">Octo AI</div>
+
               <div v-if="msg.reasoning" class="reasoning-block">
                 <button class="reasoning-toggle" @click="msg.reasoningOpen = !msg.reasoningOpen">
                   <svg
@@ -47,7 +62,7 @@
                     stroke="currentColor" stroke-width="2" stroke-linecap="round"
                     :style="{ transform: msg.reasoningOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }"
                   >
-                    <polyline points="9 18 15 12 9 6"/>
+                    <polyline points="9 18 15 12 9 6" />
                   </svg>
                   <span>思维过程</span>
                   <span class="reasoning-len">{{ Math.round(msg.reasoning.length / 4) }} tokens</span>
@@ -56,11 +71,15 @@
               </div>
 
               <div v-if="msg.text" class="msg-content md" v-html="renderMd(msg.text)" />
-              <span v-if="msg.streaming && !msg.text" class="cursor">▋</span>
+              <span v-if="msg.streaming && !msg.text && !msg.error" class="cursor">▋</span>
+
+              <div v-if="msg.error" class="msg-error" role="alert">
+                <div class="msg-error-title">⚠️ 调用出错</div>
+                <pre class="msg-error-detail">{{ msg.error }}</pre>
+              </div>
             </div>
           </template>
 
-          <!-- user 消息 -->
           <template v-else>
             <div class="msg-body msg-body--user">
               <div class="msg-content msg-content--user">{{ msg.text }}</div>
@@ -68,47 +87,66 @@
           </template>
         </div>
 
-        <!-- 正在思考 -->
         <div v-if="sending && !hasStreamingMsg" class="message-row message-row--assistant">
-          <div class="msg-avatar">
+          <div class="msg-avatar" aria-hidden="true">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="#3b82f6" stroke-width="1.8"/>
-              <circle cx="12" cy="12" r="4" fill="#3b82f6"/>
+              <circle cx="12" cy="12" r="7.5" stroke="currentColor" stroke-width="1.8" />
+              <circle cx="12" cy="12" r="2.5" fill="currentColor" />
             </svg>
           </div>
           <div class="msg-body">
-            <div class="msg-label">Octo Agent</div>
+            <div class="msg-label">Octo AI</div>
             <div class="typing">
-              <span/><span/><span/>
+              <span />
+              <span />
+              <span />
             </div>
           </div>
         </div>
       </div>
 
-      <!-- 输入区 -->
-      <div class="composer">
-        <div class="composer-inner">
+      <div class="composer-shell">
+        <div class="composer">
           <textarea
             ref="inputEl"
             v-model="input"
-            placeholder="给 Octo Agent 发消息…"
+            placeholder="描述你想生成的内容,输入 / 唤起技能,或通过 + 添加上下文"
             :disabled="sending"
             rows="1"
             @keydown.enter.exact.prevent="send"
             @input="autoResize"
           />
-          <button
-            class="send-btn"
-            :disabled="sending || !input.trim()"
-            @click="send"
-            title="发送 (Enter)"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="19" x2="12" y2="5"/>
-              <polyline points="5 12 12 5 19 12"/>
-            </svg>
-          </button>
+
+          <div class="composer-toolbar">
+            <button class="tool-btn" type="button" title="添加内容" :disabled="sending">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </button>
+
+            <button class="agent-pill" type="button" title="Agent 选择器" :disabled="sending">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 4.5 14 9l5 .7-3.6 3.5.9 5-4.3-2.3-4.3 2.3.9-5L5 9.7 10 9l2-4.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+              </svg>
+              <span>通用问答</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+
+            <button
+              class="send-btn"
+              :disabled="sending || !input.trim()"
+              @click="send"
+              title="发送 (Enter)"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 5v14M12 5l-5 5M12 5l5 5" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
         </div>
+
         <div v-if="error" class="composer-error">{{ error }}</div>
       </div>
     </template>
@@ -116,7 +154,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue"
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { marked } from "marked"
 import { useOpencode } from "@/composables/useOpencode"
@@ -130,6 +168,40 @@ interface ChatMessage {
   reasoning: string
   reasoningOpen: boolean
   streaming: boolean
+  error?: string
+}
+
+type MessagePart = {
+  type?: string
+  text?: string
+}
+
+type MessageErrorData = {
+  name?: string
+  data?: { message?: string; providerID?: string }
+}
+
+type SessionMessageRecord = {
+  info?: {
+    id?: string
+    role?: "user" | "assistant"
+    error?: MessageErrorData
+  }
+  parts?: MessagePart[]
+}
+
+type StreamEvent = {
+  type?: string
+  properties?: {
+    field?: string
+    delta?: string
+    messageID?: string
+    part?: {
+      type?: string
+      messageID?: string
+    }
+    error?: MessageErrorData
+  }
 }
 
 const route = useRoute()
@@ -144,7 +216,8 @@ const messagesEl = ref<HTMLElement>()
 const inputEl = ref<HTMLTextAreaElement>()
 
 const sessionId = computed(() => route.params.id as string | undefined)
-const hasStreamingMsg = computed(() => messages.value.some(m => m.streaming))
+const hasStreamingMsg = computed(() => messages.value.some((message) => message.streaming))
+const showWelcomeState = computed(() => messages.value.length === 0 && !sending.value)
 
 let abortController: AbortController | null = null
 
@@ -155,15 +228,45 @@ function renderMd(text: string): string {
 
 async function scrollToBottom() {
   await nextTick()
-  if (messagesEl.value) {
-    messagesEl.value.scrollTop = messagesEl.value.scrollHeight
-  }
+  if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
 }
 
 function autoResize() {
   if (!inputEl.value) return
   inputEl.value.style.height = "auto"
-  inputEl.value.style.height = Math.min(inputEl.value.scrollHeight, 180) + "px"
+  inputEl.value.style.height = `${Math.min(inputEl.value.scrollHeight, 220)}px`
+}
+
+function formatMessageError(error: MessageErrorData): string {
+  const name = error.name ?? "Error"
+  const message = error.data?.message ?? "(无详细信息)"
+  const provider = error.data?.providerID ? ` · provider: ${error.data.providerID}` : ""
+  return `${name}${provider}\n${message}`
+}
+
+function parseMessages(input: unknown): ChatMessage[] {
+  if (!Array.isArray(input)) return []
+  return input
+    .map((item) => {
+      const record = item as SessionMessageRecord
+      if (!record.info?.id || !record.info.role || !Array.isArray(record.parts)) return null
+      const text = record.parts.filter((part) => part.type === "text").map((part) => part.text ?? "").join("")
+      const reasoning = record.parts.filter((part) => part.type === "reasoning").map((part) => part.text ?? "").join("")
+      const error = record.info.error ? formatMessageError(record.info.error) : undefined
+      // 没有任何文字也没有错误的消息(空步骤)才丢弃
+      if (!text.trim() && !reasoning.trim() && !error) return null
+      const message: ChatMessage = {
+        id: record.info.id,
+        role: record.info.role,
+        text,
+        reasoning,
+        reasoningOpen: false,
+        streaming: false,
+      }
+      if (error) message.error = error
+      return message
+    })
+    .filter((message): message is ChatMessage => message !== null)
 }
 
 async function loadMessages() {
@@ -171,79 +274,71 @@ async function loadMessages() {
   if (!id) return
   try {
     const res = await client.session.messages({ path: { id } })
-    if (!res.data) return
-    messages.value = res.data
-      .filter((item: any) => item?.info?.role && item?.parts)
-      .map((item: any) => {
-        const text = item.parts
-          .filter((p: any) => p.type === "text")
-          .map((p: any) => p.text ?? "")
-          .join("")
-        const reasoning = item.parts
-          .filter((p: any) => p.type === "reasoning")
-          .map((p: any) => p.text ?? "")
-          .join("")
-        return {
-          id: item.info.id,
-          role: item.info.role as "user" | "assistant",
-          text,
-          reasoning,
-          reasoningOpen: false,
-          streaming: false,
-        }
-      })
-      .filter((m: ChatMessage) => m.text.trim() !== "" || m.reasoning.trim() !== "")
+    messages.value = parseMessages(res.data)
     scrollToBottom()
   } catch {
-    // session 为空时忽略
+    // ignore empty session load failures
   }
+}
+
+function ensureStreamingMessage(messageID: string) {
+  if (messages.value.find((message) => message.id === messageID)) return
+  messages.value.push({
+    id: messageID,
+    role: "assistant",
+    text: "",
+    reasoning: "",
+    reasoningOpen: true,
+    streaming: true,
+  })
+  scrollToBottom()
 }
 
 function startEventStream() {
   abortController = new AbortController()
+
   ;(async () => {
     try {
-      const { stream } = await client.event.subscribe({ signal: abortController!.signal } as any)
-      for await (const event of stream) {
-        if (!event) continue
-        const e = event as any
+      const { stream } = await client.event.subscribe({ signal: abortController.signal } as never)
+      for await (const rawEvent of stream) {
+        const event = rawEvent as StreamEvent | null
+        if (!event?.type) continue
 
-        if (e.type === "message.part.updated") {
-          const part = e.properties?.part
-          if (part?.type === "step-start" && part.messageID) {
-            if (!messages.value.find(m => m.id === part.messageID)) {
-              messages.value.push({
-                id: part.messageID,
-                role: "assistant",
-                text: "",
-                reasoning: "",
-                reasoningOpen: true,
-                streaming: true,
-              })
-              scrollToBottom()
-            }
-          }
+        if (event.type === "message.part.updated") {
+          const part = event.properties?.part
+          if (part?.type === "step-start" && part.messageID) ensureStreamingMessage(part.messageID)
         }
 
-        if (e.type === "message.part.delta") {
-          const { messageID, delta, field } = e.properties ?? {}
-          if (!messageID || !delta || field !== "text") continue
-          const msg = messages.value.find(m => m.id === messageID && m.role === "assistant")
-          if (msg) {
-            msg.text += delta
-            msg.streaming = true
-            scrollToBottom()
-          }
+        if (event.type === "message.part.delta") {
+          const messageID = event.properties?.messageID
+          const delta = event.properties?.delta
+          if (!messageID || !delta || event.properties?.field !== "text") continue
+          const message = messages.value.find((item) => item.id === messageID && item.role === "assistant")
+          if (!message) continue
+          message.text += delta
+          message.streaming = true
+          scrollToBottom()
         }
 
-        if (e.type === "session.idle") {
-          // 重新从 REST API 加载，确保消息内容和角色完全正确
+        if (event.type === "session.idle") {
           await loadMessages()
           sending.value = false
         }
+
+        if (event.type === "session.error") {
+          const errPayload = event.properties?.error
+          if (errPayload) {
+            error.value = formatMessageError(errPayload)
+          } else {
+            error.value = "对话中断,请查看服务端日志"
+          }
+          sending.value = false
+          // 也尝试拉取最新消息,可能已经把 error 写到 assistant message 上
+          await loadMessages()
+        }
       }
     } catch {
-      // SSE 连接断开，静默处理
+      // ignore stream disconnects
     }
   })()
 }
@@ -255,9 +350,7 @@ async function send() {
   error.value = ""
   sending.value = true
   input.value = ""
-  if (inputEl.value) {
-    inputEl.value.style.height = "auto"
-  }
+  if (inputEl.value) inputEl.value.style.height = "auto"
 
   messages.value.push({
     id: `user-${Date.now()}`,
@@ -274,8 +367,8 @@ async function send() {
       path: { id: sessionId.value },
       body: { parts: [{ type: "text", text }] },
     })
-  } catch (e) {
-    error.value = String(e)
+  } catch (cause) {
+    error.value = String(cause)
     sending.value = false
   }
 }
@@ -283,26 +376,30 @@ async function send() {
 async function createAndStart() {
   try {
     const res = await client.session.create({ body: {} })
-    if (res.data?.id) {
-      router.push(`/session/${res.data.id}`)
-    }
-  } catch (e) {
-    error.value = String(e)
+    if (res.data?.id) router.push(`/session/${res.data.id}`)
+  } catch (cause) {
+    error.value = String(cause)
   }
 }
 
-watch(sessionId, async (id) => {
-  if (id) {
+watch(
+  sessionId,
+  async (id) => {
+    if (!id) {
+      messages.value = []
+      sending.value = false
+      error.value = ""
+      return
+    }
     messages.value = []
     sending.value = false
     error.value = ""
     await loadMessages()
-  }
-}, { immediate: true })
+  },
+  { immediate: true },
+)
 
-onMounted(() => {
-  startEventStream()
-})
+onMounted(startEventStream)
 
 onUnmounted(() => {
   abortController?.abort()
@@ -314,250 +411,428 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-app);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent-bg) 72%, transparent), transparent 32%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-app) 76%, var(--bg-soft)), var(--bg-app));
 }
 
-/* 空状态 */
-.empty-state {
-  flex: 1;
+.landing-state,
+.welcome-state {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  gap: 12px;
-  padding: 2rem;
-  text-align: center;
-  color: var(--text-secondary);
 }
-.empty-icon {
-  opacity: 0.6;
-  margin-bottom: 4px;
-}
-.empty-state h2 {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-.empty-state p {
-  font-size: 0.875rem;
-  margin: 0;
-}
-.start-btn {
-  margin-top: 8px;
-  padding: 8px 20px;
-  background: var(--accent);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.start-btn:hover { background: var(--accent-hover); }
 
-/* 消息列表 */
+.landing-state {
+  flex: 1;
+  padding: 40px;
+}
+
+.landing-panel {
+  width: min(100%, 560px);
+  margin: 0 auto;
+  padding: 40px;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: linear-gradient(180deg, var(--bg-elevated), color-mix(in srgb, var(--bg-elevated) 72%, var(--accent-bg)));
+  box-shadow: var(--shadow-card);
+}
+
+.landing-badge,
+.welcome-badge {
+  width: fit-content;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.landing-badge {
+  margin-bottom: 22px;
+}
+
+.landing-panel h2,
+.welcome-state h2 {
+  font-size: clamp(32px, 4vw, 40px);
+  line-height: 1.08;
+  color: var(--text-primary);
+}
+
+.landing-panel p,
+.welcome-state p {
+  max-width: 560px;
+  margin-top: 14px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.start-btn {
+  margin-top: 28px;
+  padding: 12px 18px;
+  border: none;
+  border-radius: 14px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.start-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 0 8px;
-  display: flex;
-  flex-direction: column;
+  padding: 38px 0 12px;
 }
 
-.messages-empty {
-  text-align: center;
+.welcome-state {
+  max-width: 780px;
+  margin: 0 auto 18px;
+  padding: 12px 32px 28px;
+}
+
+.welcome-badge {
+  margin-bottom: 18px;
+}
+
+.capability-list {
+  width: 100%;
+  margin-top: 26px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+
+.capability-list li {
+  display: flex;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg-elevated) 82%, var(--accent-bg));
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-soft);
+  flex-wrap: wrap;
+}
+
+.capability-list strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.capability-list span,
+.welcome-footnote {
+  font-size: 14px;
+}
+
+.welcome-footnote {
+  margin-top: 20px;
   color: var(--text-muted);
-  font-size: 13px;
-  margin-top: 32px;
 }
 
 .message-row {
   display: flex;
-  gap: 12px;
-  padding: 6px 24px;
-  max-width: 800px;
-  width: 100%;
+  gap: 14px;
+  max-width: 860px;
   margin: 0 auto;
+  padding: 10px 32px;
 }
+
 .message-row--user {
   justify-content: flex-end;
 }
 
 .msg-avatar {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding-top: 3px;
+  border-radius: 11px;
+  background: var(--accent-bg);
+  color: var(--accent);
   flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .msg-body {
   flex: 1;
   min-width: 0;
 }
+
 .msg-body--user {
   display: flex;
   justify-content: flex-end;
 }
 
 .msg-label {
+  margin-bottom: 8px;
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .msg-content {
-  font-size: 14px;
-  line-height: 1.7;
   color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.8;
   word-break: break-word;
 }
+
 .msg-content--user {
+  max-width: min(620px, 100%);
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  border-radius: 22px;
   background: var(--bg-msg-user);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 10px 14px;
-  max-width: 480px;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--text-primary);
+  box-shadow: var(--shadow-soft);
   white-space: pre-wrap;
 }
 
-/* 打字指示器 */
+.reasoning-block {
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-elevated) 90%, var(--bg-soft));
+}
+
+.reasoning-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.reasoning-len {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.reasoning-content {
+  padding: 0 14px 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .typing {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 0;
-  height: 24px;
+  gap: 6px;
+  height: 28px;
 }
+
 .typing span {
-  display: block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted);
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 40%, var(--text-muted));
   animation: typing-bounce 1.2s infinite ease-in-out;
 }
-.typing span:nth-child(2) { animation-delay: 0.15s; }
-.typing span:nth-child(3) { animation-delay: 0.3s; }
-@keyframes typing-bounce {
-  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
-  40% { transform: translateY(-4px); opacity: 1; }
+
+.typing span:nth-child(2) {
+  animation-delay: 0.15s;
 }
 
-/* 流式光标 */
+.typing span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
 .cursor {
   display: inline-block;
-  animation: blink 0.8s step-end infinite;
   color: var(--text-secondary);
-  margin-left: 1px;
+  animation: blink 0.8s step-end infinite;
 }
-@keyframes blink { 50% { opacity: 0; } }
 
-/* 输入区 */
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.composer-shell {
+  padding: 18px 24px 22px;
+}
+
 .composer {
-  padding: 12px 24px 20px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-app);
-}
-.composer-inner {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-input);
-  border-radius: var(--radius-lg);
-  padding: 10px 10px 10px 14px;
-  max-width: 800px;
+  max-width: 860px;
   margin: 0 auto;
-  transition: border-color 0.15s;
+  padding: 16px 16px 14px;
+  border: 1px solid var(--border-input);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--bg-elevated) 90%, var(--accent-bg));
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.composer-inner:focus-within {
-  border-color: #3b3b3b;
+
+.composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent), var(--shadow-card);
 }
+
 textarea {
-  flex: 1;
-  background: none;
+  width: 100%;
+  min-height: 88px;
+  max-height: 220px;
+  resize: none;
   border: none;
   outline: none;
-  resize: none;
+  background: transparent;
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.6;
-  max-height: 180px;
-  overflow-y: auto;
-  padding: 0;
+  font-size: 15px;
+  line-height: 1.75;
 }
-textarea::placeholder { color: var(--text-muted); }
-textarea:disabled { opacity: 0.5; }
 
-.send-btn {
-  width: 32px;
-  height: 32px;
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
+textarea:disabled {
+  opacity: 0.6;
+}
+
+.composer-toolbar {
   display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.tool-btn,
+.send-btn,
+.agent-pill {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.tool-btn,
+.send-btn {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent);
-  color: white;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+  border-radius: 12px;
   flex-shrink: 0;
-  transition: background 0.15s, opacity 0.15s;
+  cursor: pointer;
 }
-.send-btn:hover:not(:disabled) { background: var(--accent-hover); }
-.send-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.agent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tool-btn:hover:not(:disabled),
+.agent-pill:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.send-btn {
+  margin-left: auto;
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.tool-btn:disabled,
+.agent-pill:disabled,
+.send-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
 
 .composer-error {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #ef4444;
-  max-width: 800px;
-  margin-left: auto;
-  margin-right: auto;
+  max-width: 860px;
+  margin: 10px auto 0;
+  color: var(--danger);
+  font-size: 13px;
 }
 
-/* 思维链 */
-.reasoning-block {
-  margin-bottom: 10px;
+.msg-error {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
-.reasoning-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-family: var(--font-sans);
-  padding: 4px 0;
-  transition: color 0.15s;
-}
-.reasoning-toggle:hover { color: var(--text-secondary); }
-.reasoning-len {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.reasoning-content {
-  margin-top: 6px;
-  padding: 10px 12px;
-  background: #0f0f0f;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+.msg-error-title {
+  color: var(--danger);
   font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.65;
-  max-height: 400px;
-  overflow-y: auto;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.msg-error-detail {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 960px) {
+  .landing-state {
+    padding: 24px;
+  }
+
+  .landing-panel,
+  .welcome-state,
+  .message-row,
+  .composer-shell {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
 }
 </style>
