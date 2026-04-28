@@ -40,12 +40,11 @@ docs/specs/
 
 | 规模 | 领域 | Spec | 说明 |
 |-----|------|------|------|
-| `[M]` | ui | [UI 风格刷新 brief](docs/specs/ui/octo-ui-redesign-brief.md) | 引入 Tailwind 4、浅色主题、Sidebar/ChatView 重做。**用 Codex/Antigravity 接力** |
+| `[L]` | ui | [任务面板](docs/specs/ui/task-panel.md) | 右侧时间线 + Artifact tab,实时显示 agent 工作过程 |
 | `[M]` | ui | [Settings — Provider 配置](docs/specs/ui/provider-config.md) | UI 化 provider/model 增删改、连通性测试、激活模型切换;不再需手编 JSON |
 | `[L]` | agents | [多 Agent 协作](docs/specs/agents/multi-agent.md) | 内置 4 个 primary agent;subagent 自动调度可视化;权限授权对话框 |
 | `[L]` | agents | [Skill 系统](docs/specs/agents/skill-system.md) | 技能库页面、平台/项目级 skill、在线创建向导、文件编辑 |
 | `[M]` | agents | [MCP 集成 — 内网数据访问](docs/specs/agents/mcp-integration.md) | UI 配置 MCP server、状态监控、OAuth 流程、tool 调试面板 |
-| `[S]` | infra | 主进程注入 `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=true` | 防止读到用户 `~/.claude/CLAUDE.md` 污染 |
 
 ---
 
@@ -80,8 +79,11 @@ _暂无_
 
 | 规模 | 领域 | Spec | 说明 |
 |-----|------|------|------|
-| `[L]` | docs | 架构与学习文档体系 | architecture.md / learning/ 4 篇 / specs/ 5 篇 + brief |
+| `[M]` | ui | [UI 风格刷新](docs/specs/ui/octo-ui-redesign-brief.md) | 浅色主题、Tailwind 4、Sidebar/ChatView/Settings 改造,Codex 完成 |
+| `[S]` | ui | ChatView 错误渲染 | 修复 LLM 调用错误被静默丢弃,显示 AuthError/APIError 详情 |
+| `[S]` | infra | 主进程注入 `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=true` | 防止读到用户 `~/.claude/CLAUDE.md` 污染 |
+| `[S]` | ui | Electron 模式优先用 preload 注入的真实端口 | 修复 vite proxy 写死 4096 但 opencode 用动态端口的 500 |
+| `[L]` | docs | 架构与学习文档体系 | architecture.md / learning/ 5 篇 / specs/ 6 篇 + brief |
 | `[S]` | infra | 配置文件路径隔离 `~/.config/octo/octo.config.json` | 主进程注入 `OPENCODE_CONFIG` |
 | `[M]` | infra | [开发环境 — Mode A 浏览器调试](docs/specs/infra/dev-environment.md) | Monorepo 脚手架、Electron 品牌重命名、octo-ui Vite 工程、opencode 后端连通 |
 | `[L]` | ui | Vue 3 UI 重写(ChatView 复读修复 + Sidebar + tokens) | SSE+REST 双层、思维链折叠、删除废弃 view |
-| `[L]` | ui | [octo-ui 前端架构](docs/specs/ui/octo-ui.md) | Vue3 + Vue Router;SDK 集成 |
