@@ -1,127 +1,172 @@
 # Octo Agent — 架构
 
-> 上次同步:2026-04-27。本文档描述**当前真实架构**,任何分歧以代码为准。
+> 上次同步:2026-05-01(M1 达成,octo-app 渲染入口跑通)。任何分歧以代码为准。
 
-## 1. 顶层结构
+---
 
-Octo Agent 是基于 [opencode](https://github.com/anomalyco/opencode) monorepo 二次开发的桌面应用,壳子用 Electron,前端用 Vue 3 重写,后端 opencode 内嵌为 Node 模块。
+## 1. 一图看懂
 
 ```
-┌──────────────── Electron 主进程 (packages/desktop-electron) ────────────────┐
-│                                                                              │
-│   ┌──────────── Renderer (Vue 3, packages/octo-ui) ────────────┐             │
-│   │                                                            │             │
-│   │   Sidebar.vue  ChatView.vue  SettingsView.vue              │             │
-│   │           │                                                │             │
-│   │           ▼                                                │             │
-│   │   composables/useOpencode.ts ── @opencode-ai/sdk ──┐       │             │
-│   └────────────────────────────────────────────────────┼───────┘             │
-│                                                       HTTP + SSE             │
-│                                                        ▼                     │
-│                                  内嵌 opencode server (127.0.0.1:4096)        │
-│                                  来自 packages/opencode 的 Node bundle        │
-│                                                        │                     │
-└────────────────────────────────────────────────────────┼─────────────────────┘
-                                                         ▼
-                                            外部 LLM Provider
-                                            (百炼/DeepSeek/Anthropic/...)
+┌─────────────────────── Electron 主进程 ───────────────────────┐
+│  packages/desktop-electron/  (上游壳子,仅品牌+接线+调试)          │
+│   ├─ 启动 BrowserWindow                                         │
+│   ├─ 内嵌 opencode Server (Node 模块,同进程)                     │
+│   └─ 注入 OPENCODE_CONFIG=~/.config/octo/octo.config.json       │
+│                                                                  │
+│   ┌─────────────────── Renderer ───────────────────┐             │
+│   │  packages/octo-app/   (Octo 自研入口,SolidJS)    │             │
+│   │   ├─ src/main.tsx                               │             │
+│   │   │   (boot 复制自上游 desktop renderer,自维护)  │             │
+│   │   └─ 挂载 <AppInterface> ← @opencode-ai/app     │             │
+│   │       (整套 IDE UI: Chat/Tools/Dialogs/Agent)    │             │
+│   └─────────┬──────────────────────────────────────┘             │
+│             │ HTTP + SSE                                          │
+│             ▼                                                     │
+│   ┌──────────────────────────────────────┐                       │
+│   │  内嵌 opencode Server (动态端口)       │                       │
+│   │  来自 packages/opencode (上游冻结)     │                       │
+│   │   ├─ Hono HTTP routes                │                       │
+│   │   ├─ SSE event bus                   │                       │
+│   │   └─ SQLite (Drizzle ORM)            │                       │
+│   └─────────┬────────────────────────────┘                       │
+│             │ Vercel AI SDK                                       │
+└─────────────┼────────────────────────────────────────────────────┘
+              ▼
+   外部 LLM Provider (Anthropic / DeepSeek / 通义 / Google / ...)
 ```
 
-**关键点**:opencode 不是 sidecar 二进制,是 `import("virtual:opencode-server")` 加载的 Node 模块,跟 Electron 主进程**同进程**,只是再开一个本地 HTTP 服务给 renderer 用。详见 [ADR-001](adr/001-electron-vs-tauri.md)。
-
-opencode 后端的内部工作原理(SQLite 表、HTTP 路由、SSE 协议、provider 接入)详见 [learning/opencode-internals.md](learning/opencode-internals.md)。
+opencode 不是 sidecar 二进制,是 `import("virtual:opencode-server")` 加载的 Node 模块,**与 Electron 主进程同进程**,只是再开一个本地 HTTP 服务给 renderer 用。详见 [ADR-001](adr/001-electron-vs-tauri.md);后端内部细节见 [learning/opencode-internals.md](learning/opencode-internals.md)。
 
 ---
 
-## 2. 包清单
+## 2. 包总览(改动政策一表清)
 
-### 2.1 自研包(可改)
+> 这是定位任何代码归属的**唯一入口表**。看到一个目录拿不准能不能改,先查这里。
 
-| 包 | 路径 | 类比 Claude Code | 类比 VS Code | 真正职责 |
-|---|---|---|---|---|
-| `@octo/ui` | [packages/octo-ui/](../packages/octo-ui/) | 终端里的对话窗 | renderer 窗口 | 用户**看到 / 点 / 输入**的所有东西。纯渲染层 |
-| `@octo/shell` | [packages/shell/](../packages/shell/) | skill / agent runtime | extension host | 任务调度:"该派给哪个 agent;多 agent 流水线如何编排" |
-| `@octo/agent-research` | [packages/agent/research/](../packages/agent/research/) | `general-purpose` 这种 sub-agent | 一个具体 extension | 用研业务封装(prompt + 工具集 + 工作流) |
+### 2.1 Octo 自研 — 自由改
 
-> Phase 1 现状:`shell` 和 `agent-research` 是空壳,ChatView 直连 opencode。Phase 2 接入用研流水线时启用,Phase 3 多 agent 协作扩展。
+新功能往这里加。无审批。
 
-### 2.2 上游包(冻结,见 CLAUDE.md)
-
-| 包 | 路径 | 用途 |
+| 包 | 路径 | 角色 |
 |---|---|---|
-| `opencode` | [packages/opencode/](../packages/opencode/) | AI Agent 后端。Hono HTTP + SSE + SQLite,内置多 provider |
-| `@opencode-ai/desktop` | [packages/desktop-electron/](../packages/desktop-electron/) | Electron 主进程 + preload,我们做最小化品牌/接线/调试改动 |
-| `@opencode-ai/sdk` | [packages/sdk/js/](../packages/sdk/js/) | 由 OpenAPI 自动生成的客户端 |
+| `@octo/app` | [packages/octo-app/](../packages/octo-app/) | **渲染入口**(SolidJS)。boot 代码 `src/main.tsx` 复用上游 platform 抽象,组合 `@opencode-ai/app` 的 `AppInterface` 挂完整 UI;Octo 业务页面以后加在这里 |
+| `@octo/shell` | [packages/shell/](../packages/shell/) | Agent 任务调度层(规划中,Phase 2 启用) |
+| `@octo/agent-research` | [packages/agent/research/](../packages/agent/research/) | 用研业务封装(Phase 2 起接入) |
+| `docs/`、`ROADMAP.md`、`CLAUDE.md` | 文档 | 全部自由维护 |
 
-### 2.3 仓库内但**完全不用**的包
+> Phase 2 引入 synthesis / report / coding 子 agent 时,放在 `packages/agent/<name>/`。
 
-`packages/app`(SolidJS UI)、`packages/ui`(SolidJS 组件库)、`packages/desktop`(Tauri 壳)、`packages/console/*`、`packages/enterprise`、`packages/web`、`packages/slack`、`sdks/vscode` —— 历史遗留,不删除是为了便于跟上游同步,**不要 import 也不要修改**。
+### 2.2 上游核心 — **一行不动**
 
----
+包括 SolidJS UI 组件库、完整 app、后端引擎、SDK、上游 renderer 与 IPC 桥。**任何改动都会成为内网合入冲突源头**——多团队并行修改这些目录,我们改了上游就分不清"哪行是 Octo 哪行是上游"。Octo 端有 UI 定制需求时走 §3 的"四层降级"(CSS 覆盖优先,Layer 4 改上游需 ADR 决议)。
 
-## 3. 修改边界与上游改动清单
+| 包 / 路径 | 用途 |
+|---|---|
+| `packages/opencode/` | AI Agent 后端引擎(Hono HTTP + SSE + SQLite) |
+| `packages/sdk/` | OpenAPI 自动生成的 TS 客户端 + JSON schema |
+| `packages/ui/`(`@opencode-ai/ui`) | SolidJS 组件库(`SessionTurn`、`MessagePart`、`prompt-input`、`TextShimmer`、各 dialog) |
+| `packages/app/`(`@opencode-ai/app`) | SolidJS 完整 app(`AppInterface` 挂载完整 UI;`@opencode-ai/app/vite` 提供 vite plugin 组) |
+| `packages/desktop-electron/src/renderer/` | 上游 desktop renderer(参考代码,octo-app 的 boot 复制自此) |
+| `packages/desktop-electron/src/preload/` | IPC 桥 |
 
-### 3.1 三档边界
+### 2.3 上游接线壳 — 限改(品牌/接线/调试)
 
-**自由修改** —— 自研包全部 + 文档:
+仅允许"应用叫什么"、"指向哪个前端"、"如何启动"层面的修改,绝不改业务逻辑。改动必须同步登记到 §4.4。
 
-- `packages/octo-ui/`、`packages/shell/`、`packages/agent/*`
-- `docs/`、`ROADMAP.md`、`CLAUDE.md`
-- `.github/workflows/`(自研 workflow,**不含** `upstream/` 目录里归档的)
+| 文件 | 改动政策 |
+|---|---|
+| `packages/desktop-electron/src/main/` | 主进程入口、品牌名、env 注入 |
+| `packages/desktop-electron/electron.vite.config.ts` | renderer 接线(指向 octo-app),plugins |
+| `packages/desktop-electron/electron-builder.config.ts` | 打包品牌 |
+| `packages/desktop-electron/package.json` | 加必要依赖(`@octo/app`、`vite-plugin-solid` 等) |
+| 仓库根 [package.json](../package.json) | `workspaces` + dev 脚本 |
+| [turbo.json](../turbo.json) | 任务编排 |
 
-**仅允许品牌 / 接线 / 调试钩子修改** —— 上游壳子:
+### 2.4 仓库内但完全不用 — 既不动也不删
 
-- `packages/desktop-electron/` 主进程及配置(见 §3.2 现有改动清单)
-- 仓库根 `package.json` 的 `workspaces` 字段
-- `turbo.json`(任务编排)
+历史遗留或非桌面端形态。保留是为了便于跟上游同步。**不要 import,也不要修改,也不要"清理"**。
 
-> 原则:绝不改业务逻辑,只改"如何启动"、"叫什么名字"、"指向哪个前端"。
-
-**严禁修改** —— 上游核心包:
-
-- `packages/opencode/`(后端引擎)
-- `packages/desktop-electron/src/preload/`(IPC 桥接)
-- `packages/sdk/`(SDK 自动生成)
-- 第 2.3 节"完全不用"列出的所有包
-
-需要新能力时优先在 octo-ui 侧实现。确实需要主进程支持时先开 issue 讨论。
-
-### 3.2 上游壳子已有的修改清单
-
-`git diff main...HEAD -- packages/desktop-electron/` 当前列表:
-
-| 文件 | 改了什么 | 性质 |
-|---|---|---|
-| [src/main/index.ts](../packages/desktop-electron/src/main/index.ts) | 应用名 OpenCode → Octo Agent;App ID;SQLite 文件名兼容(支持 `opencode-local.db` + `opencode.db` 两种);**注入 `OPENCODE_CONFIG` 指向 `~/.config/octo/octo.config.json`** | 品牌 + 配置隔离 |
-| [src/main/windows.ts](../packages/desktop-electron/src/main/windows.ts) | dev 模式自动开 DevTools;`OCTO_DEVTOOLS=1` 环境变量打开打包版 DevTools | 调试 |
-| [electron-builder.config.ts](../packages/desktop-electron/electron-builder.config.ts) | 包名/图标/产品标识 | 品牌 |
-| [electron.vite.config.ts](../packages/desktop-electron/electron.vite.config.ts) | renderer `root` 指向 `packages/octo-ui`,加 `@vitejs/plugin-vue`,proxy 配置 | 接线 |
-| [package.json](../packages/desktop-electron/package.json) | 加 `@octo/ui`、`marked`、`@vitejs/plugin-vue` 依赖 | 接线 |
-
-> 改动只增不删:任何新增上游壳子修改,**必须同步更新本表**,否则架构文档会再次跟代码漂移。
-
-### 3.3 仓库根改动
-
-- [package.json](../package.json) workspaces 字段加入 `packages/octo-ui`、`packages/shell`、`packages/agent/*`
-- `.github/workflows/upstream/` —— 上游 workflow 全部移入此目录归档(不再触发),自研 workflow(若有)放在 `.github/workflows/` 根
+| 路径 | 用途(仅为认知,非工作目标) |
+|---|---|
+| `packages/desktop/` | Tauri 壳(被 ADR-001 否决,留作历史) |
+| `packages/web/` | opencode 官网/web 入口 |
+| `packages/console/*`(`app`/`core`/`function`/`mail`/`resource`/`vscode`) | opencode 商业控制台 |
+| `packages/enterprise/` | 企业版 |
+| `packages/extensions/` | 扩展机制 |
+| `packages/containers/` | 容器化运行时 |
+| `packages/function/` | 云 function |
+| `packages/identity/` | 鉴权 |
+| `packages/plugin/` | Plugin 框架 |
+| `packages/script/` | 脚本工具 |
+| `packages/shared/` | 上游内部共享代码 |
+| `packages/slack/` | Slack 集成 |
+| `packages/storybook/` | UI 组件 storybook |
+| `sdks/vscode/` | VS Code 扩展 |
 
 ---
 
-## 4. 数据流
+## 3. 渲染层定制策略 — 四层降级
 
-### 4.1 会话与消息
+任何 UI 改动按下表从上往下依次尝试,绝不无理由下沉。
 
-1. 用户在 [ChatView.vue](../packages/octo-ui/src/views/ChatView.vue) 输入,调用 `client.session.message.send`
+| 层级 | 手段 | 适用占比(估) | 例子 |
+|---|---|---|---|
+| **Layer 1** | CSS 变量覆盖 | ~70% | 改 `--background-base` `--color-accent` `--font-family-sans` 把上游 UI 涂成 Octo 品牌 |
+| **Layer 2** | 组合 wrapper(在 octo-app 包出来,import 到 main.tsx) | ~20% | 把 Octo "技能库"页面挂到上游路由 |
+| **Layer 3** | 复制单文件到 `packages/octo-app/src/forks/<name>.tsx` 自维护 | ~8% | 上游 sidebar 信息架构跟我们差异大,fork 一份 |
+| **Layer 4** | 直接修改上游(`packages/ui/` `packages/app/` `packages/desktop-electron/src/renderer/`) | ~2% | **需 ADR 单独决议**;每次改动都是合入冲突点 |
+
+> 原则:Layer 1 → 2 → 3 → 4。能在上一层解决的,绝不下沉。Layer 4 是最后的逃生口,正常工作流不应该走到这里。
+
+---
+
+## 4. 自研代码地图
+
+```
+packages/octo-app/   (SolidJS 渲染入口)
+├── src/
+│   ├── main.tsx              # boot: createPlatform() + AppInterface 挂载
+│   │                         # (一次性复制自 desktop-electron/src/renderer/index.tsx,自维护)
+│   ├── i18n/                 # 复制自上游 desktop renderer(15 处相对路径已修)
+│   ├── styles.css            # 占位
+│   ├── updater.ts            # 复制自上游 desktop renderer
+│   ├── webview-zoom.ts       # 复制自上游 desktop renderer
+│   ├── env.d.ts              # window.api 类型声明(引上游 preload types)
+│   ├── octo-theme.css        # (P1 后新增)CSS 变量覆盖,Octo 品牌
+│   ├── octo-pages/           # (P1 后新增)Octo 自研业务页面
+│   └── forks/                # (按需)上游单文件 fork 副本
+├── index.html                # <div id="root"> + theme preload script
+├── vite.config.ts            # 独立 dev 用(electron-vite 不读它)
+├── tsconfig.json
+└── package.json              # 依赖 @opencode-ai/{app,ui,sdk}、@solid-primitives/storage 等
+
+packages/shell/      (Agent 调度,Phase 2)
+└── src/index.ts
+
+packages/agent/research/   (用研 Agent,Phase 2)
+└── src/index.ts
+```
+
+> Vue 包 `packages/octo-ui/` 已删除(ADR-004 收尾)。
+
+---
+
+## 5. 数据流与外部接口
+
+### 5.1 会话与消息
+
+1. 用户在 prompt-input(上游组件)输入 → `client.session.message.send`
 2. opencode 向 LLM provider 发请求,持续推 SSE 事件给所有订阅者
-3. ChatView 通过 `client.event.subscribe` 接收 SSE,事件类型:
+3. UI 通过 `client.event.subscribe` 接收 SSE,事件类型:
    - `message.part.updated` — 新增 part(`step-start` 标记新 assistant 消息边界)
-   - `message.part.delta` — 文本流式增量
-   - `session.idle` — 该轮回复结束,**触发 REST 重新拉取消息作为权威状态**
-4. UI 仅在 `session.idle` 后用 REST 数据覆盖,SSE 只负责流式打字效果。
+   - `message.part.delta` — 文本 / 推理流式增量(通过 `part.type` 区分 `text` vs `reasoning`)
+   - `session.idle` — 该轮结束,**触发 REST 重新拉取消息作为权威状态**
+   - `session.error` — 调用出错,UI 渲染错误气泡
+4. UI 仅在 `session.idle` 后用 REST 数据覆盖,SSE 只负责流式打字效果
 
-> "REST 为权威 + SSE 为体验"是为规避 SSE 事件乱序导致的复读 bug。详细的 SSE 事件清单和 part 类型见 [learning/opencode-internals.md §SSE 协议](learning/opencode-internals.md#3-sse-事件协议)。
+> "REST 为权威 + SSE 为体验"是为规避 SSE 事件乱序导致的复读 bug。SSE 事件清单和 part 类型见 [learning/opencode-internals.md §3](learning/opencode-internals.md#3-sse-事件协议)。
 
-### 4.2 配置文件
+### 5.2 配置文件
 
 opencode 后端启动时**优先级**:
 
@@ -129,12 +174,12 @@ opencode 后端启动时**优先级**:
 2. `process.env.OPENCODE_CONFIG_DIR`(目录覆盖)
 3. fallback 到默认 `~/.config/opencode/config.json`
 
-由于第 1 项被主进程注入(见 [packages/desktop-electron/src/main/index.ts](../packages/desktop-electron/src/main/index.ts)),**Octo Agent 永远只读 `~/.config/octo/octo.config.json`**,跟用户机器上可能装的 opencode CLI 完全隔离。schema 关键字段:
+由于第 1 项被主进程注入(见 [packages/desktop-electron/src/main/index.ts](../packages/desktop-electron/src/main/index.ts)),**Octo Agent 永远只读 `~/.config/octo/octo.config.json`**,与用户机器上可能装的 opencode CLI 完全隔离。schema 关键字段:
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "provider": {                                  // 单数 provider,Zod .strict()
+  "provider": {                                  // 单数,Zod .strict() 任何未知字段会让 session 创建报 500
     "<provider-id>": {
       "npm": "@ai-sdk/<package>",                // anthropic / openai-compatible / google
       "options": { "baseURL": "...", "apiKey": "..." },
@@ -145,57 +190,57 @@ opencode 后端启动时**优先级**:
 }
 ```
 
-任何未知字段会让 session 创建报 500。详细加载流程见 [learning/opencode-internals.md §配置加载](learning/opencode-internals.md#5-配置加载)。
+详细加载流程见 [learning/opencode-internals.md §5](learning/opencode-internals.md#5-配置加载)。
 
-### 4.3 持久化
+### 5.3 持久化
 
 opencode 内置 SQLite(Drizzle ORM),数据在:
 
 - macOS: `~/.local/share/opencode/opencode-local.db`
 - 路径来自 `XDG_DATA_HOME` 或默认 `~/.local/share/opencode/`
 
-**注意**:虽然 Octo 的**配置**已隔离到 `~/.config/octo/`,但**数据库**仍写到 opencode 默认目录(没改)。理由:数据用户不会主动看;改 SQLite 路径需要改 opencode 内部逻辑,代价大且会破坏跟上游同步。
+虽然 Octo 的**配置**已隔离,但**数据库**仍写到 opencode 默认目录。理由:数据用户不会主动看;改 SQLite 路径需要侵入 opencode 内部逻辑,代价大。
 
 主要表:`session`、`message`、`part`、`todo`、`permission`、`project`、`account`(详细字段见 learning 文档)。删除整个 `~/.local/share/opencode/` 即清空所有会话历史,不影响配置。
 
----
+### 5.4 上游接线壳已有改动清单
 
-## 5. UI 架构(octo-ui)
+`git diff main...HEAD -- packages/desktop-electron/` 当前列表(M1 后状态):
 
-### 5.1 目录结构(当前实际)
+| 文件 | 改了什么 | 性质 |
+|---|---|---|
+| [src/main/index.ts](../packages/desktop-electron/src/main/index.ts) | 应用名 OpenCode → Octo Agent;App ID;SQLite 文件名兼容(支持 `opencode-local.db` + `opencode.db`);**注入 `OPENCODE_CONFIG=~/.config/octo/octo.config.json`**;**注入 `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=true`** 防读取用户 `~/.claude/CLAUDE.md` 污染 | 品牌 + 配置隔离 |
+| [src/main/windows.ts](../packages/desktop-electron/src/main/windows.ts) | dev 模式自动开 DevTools;`OCTO_DEVTOOLS=1` 环境变量打开打包版 DevTools;**注入 `__OPENCODE__.windowChrome`**(mac 红绿灯位置 + sidebar inset + windows titlebar overlay 高度,供 Octo 自定义 sidebar 避免与 titlebar 重叠) | 调试 + 接线 |
+| [electron-builder.config.ts](../packages/desktop-electron/electron-builder.config.ts) | 包名/图标/产品标识 | 品牌 |
+| [electron.vite.config.ts](../packages/desktop-electron/electron.vite.config.ts) | renderer `root` 指向 `../octo-app`;import `@opencode-ai/app/vite` plugin 组(自动获得 `@` alias / theme-preload / tailwind / solid) | 接线 |
+| [package.json](../packages/desktop-electron/package.json) | dependencies 加 `marked`;devDependencies 加 `@octo/app`、`@tailwindcss/vite`、`vite-plugin-solid`、`@opencode-ai/app`、`@opencode-ai/ui`、`@solid-primitives/storage`、`@solidjs/meta`、`@solidjs/router`、`@solid-primitives/i18n`、`solid-js` 等 | 接线 |
+| 仓库根 [package.json](../package.json) | `workspaces.packages` 含 `packages/octo-app`、`packages/shell`、`packages/agent/*`;`dev:ui` 脚本指向 `packages/octo-app` | 接线 |
 
-```
-packages/octo-ui/src/
-├── App.vue                # 布局: <Sidebar /> + <RouterView />
-├── main.ts                # 入口,挂载 router 和全局样式
-├── router/index.ts        # / 和 /session/:id 都映射到 ChatView,/settings 懒加载
-├── styles/tokens.css      # 三层 token: primitives → semantic → component
-├── components/
-│   └── Sidebar.vue        # 240px 左侧栏:品牌 / 新建 / 会话列表 / 设置
-├── views/
-│   ├── ChatView.vue       # 唯一对话视图,首页和具体会话共用
-│   └── SettingsView.vue   # 设置页(目前只有配置文件路径提示)
-└── composables/
-    └── useOpencode.ts     # OpencodeClient 单例
-```
+> **新增改动必须同步更新本表**,否则架构文档会再次跟代码漂移。
 
-### 5.2 设计 token
-
-[styles/tokens.css](../packages/octo-ui/src/styles/tokens.css) 三层结构:
-
-1. **Primitives** — 原始色值(`--gray-900`、`--blue-500`),不直接用
-2. **Semantic** — 语义令牌(`--bg-app`、`--text-primary`、`--border`),组件**只引用这一层**
-3. **Component** — 特定组件变量(目前未单独建立,如需再加)
-
-CSS 中**禁止硬编码颜色**,新增颜色先加 primitive 再绑定 semantic。
-
-### 5.3 状态管理
-
-当前规模下使用 Composition API + `ref` 直接管状态,**未引入 Pinia**(包依赖也已移除)。复杂跨视图状态出现后再考虑引入。
+**撤回到纯上游**(合入内网最坏情况):
+1. `rm -rf packages/octo-app/`
+2. 上面所有上游接线壳改动按此表逆向回滚
+3. `electron.vite.config.ts` 把 root 指回 `./src/renderer`
+→ 仓库可跑通上游原版
 
 ---
 
-## 6. Shell + Agent 架构(规划中,未实现)
+## 6. 上游同步策略
+
+ADR-004 修订后,所有上游目录**一行不动**(§2.2)。Octo 端仅在 `packages/octo-app/` 内自维护 boot 代码副本。
+
+| 范围 | 策略 |
+|---|---|
+| 整个上游(opencode / sdk / ui / app / desktop-electron 全部) | **保持原样**。需要从上游同步新版时直接 git merge / pull,目录无 Octo 改动,无冲突 |
+| `packages/octo-app/src/main.tsx` 等 boot 副本 | **手动评估上游变化**。上游 desktop renderer 重大改动时(IPC 协议变 / API 变),人肉 diff 上游 `packages/desktop-electron/src/renderer/index.tsx`,把相关变更搬进 octo-app |
+| 上游接线壳 `packages/desktop-electron/src/main/` 等 | **限改清单**(§5.4)。新增改动登记入表 |
+
+不引入 patch-package、subtree、submodule 等机械化机制——人工判断 + git 操作即可。
+
+---
+
+## 7. Shell + Agent 架构(规划中)
 
 Phase 1 ChatView 直连 opencode,**不经过 shell**。Phase 2 起 shell 介入做多 Agent 任务路由。
 
@@ -211,13 +256,20 @@ interface Agent {
 }
 ```
 
-详见 [docs/specs/agents/multi-agent-shell.md](specs/agents/multi-agent-shell.md)。
+详见 [docs/specs/agents/multi-agent.md](specs/agents/multi-agent.md)。
+
+> ADR-004 落地后,multi-agent / skill / mcp / provider-config 等 spec 要相应缩水(具体见各 spec 顶部的"上游已成品"标注,迁移期更新)。
 
 ---
 
-## 7. 相关 ADR 与 learning
+## 8. 相关 ADR 与 learning
 
 - [ADR-001 — 桌面壳:Electron vs Tauri](adr/001-electron-vs-tauri.md)
-- [ADR-002 — Vue 3 替换 SolidJS](adr/002-vue3-ui-rewrite.md)
+- [ADR-002 — Vue 3 替换 SolidJS](adr/002-vue3-ui-rewrite.md) **(已弃用)**
 - [ADR-003 — LLM Provider 接入方案](adr/003-openai-compat-provider.md)
+- [ADR-004 — 切回 SolidJS,复用上游 UI](adr/004-solidjs-ui-reuse.md) **(当前生效)**
 - [learning/opencode-internals.md](learning/opencode-internals.md) — opencode 后端工作原理
+- [learning/agent-mental-model.md](learning/agent-mental-model.md) — Agent 模型
+- [learning/skill-and-mcp.md](learning/skill-and-mcp.md) — Skill 与 MCP
+- [learning/provider-protocols.md](learning/provider-protocols.md) — Provider 协议
+- [learning/context-and-memory.md](learning/context-and-memory.md) — 上下文与记忆
