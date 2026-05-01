@@ -1,5 +1,5 @@
 import { defineConfig } from "electron-vite"
-import vue from "@vitejs/plugin-vue"
+import desktopPlugin from "@opencode-ai/app/vite"
 import { resolve } from "node:path"
 import * as fs from "node:fs/promises"
 
@@ -58,32 +58,24 @@ export default defineConfig({
     },
   },
   renderer: {
-    plugins: [vue()],
-    root: resolve("../octo-ui"),
+    // electron-vite 不读 octo-app/vite.config.ts,renderer 配置必须在这里给。
+    // 复用 @opencode-ai/app/vite 导出的 plugin 组:
+    //   - `@` alias → packages/app/src(消费 @opencode-ai/app 的 transitive 导入)
+    //   - oc-theme-preload.js 内联到 HTML
+    //   - tailwindcss + vite-plugin-solid
+    plugins: desktopPlugin as never,
+    root: resolve("../octo-app"),
     define: {
       "import.meta.env.VITE_OPENCODE_CHANNEL": JSON.stringify(channel),
-    },
-    resolve: {
-      alias: {
-        "@": resolve("../octo-ui/src"),
-      },
     },
     server: {
       port: 5175,
       strictPort: true,
-      proxy: {
-        "/api": {
-          target: "http://127.0.0.1:4096",
-          changeOrigin: true,
-          ws: true,
-          rewrite: (path) => path.replace(/^\/api/, ""),
-        },
-      },
     },
     build: {
       rollupOptions: {
         input: {
-          main: resolve("../octo-ui/index.html"),
+          main: resolve("../octo-app/index.html"),
         },
       },
     },

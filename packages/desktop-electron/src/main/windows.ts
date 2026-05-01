@@ -9,6 +9,9 @@ type Globals = {
   deepLinks?: string[]
 }
 
+const DARWIN_TRAFFIC_LIGHT_POSITION = { x: 12, y: 14 }
+const WINDOWS_TITLEBAR_OVERLAY_HEIGHT = 40
+
 const root = dirname(fileURLToPath(import.meta.url))
 
 let backgroundColor: string | undefined
@@ -39,8 +42,41 @@ function overlay(theme: Partial<TitlebarTheme> = {}) {
   return {
     color: "#00000000",
     symbolColor: mode === "dark" ? "white" : "black",
-    height: 40,
+    height: WINDOWS_TITLEBAR_OVERLAY_HEIGHT,
   }
+}
+
+function getWindowChrome() {
+  if (process.platform === "darwin") {
+    return {
+      platform: "darwin",
+      sidebarHeaderInset: {
+        top: 8,
+        left: DARWIN_TRAFFIC_LIGHT_POSITION.x + 68,
+        min_height: 52,
+      },
+    } as const
+  }
+
+  if (process.platform === "win32") {
+    return {
+      platform: "win32",
+      sidebarHeaderInset: {
+        top: 4,
+        left: 4,
+        min_height: 40,
+      },
+    } as const
+  }
+
+  return {
+    platform: process.platform,
+    sidebarHeaderInset: {
+      top: 0,
+      left: 0,
+      min_height: 0,
+    },
+  } as const
 }
 
 export function setTitlebar(win: BrowserWindow, theme: Partial<TitlebarTheme> = {}) {
@@ -73,7 +109,7 @@ export function createMainWindow(globals: Globals) {
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hidden" as const,
-          trafficLightPosition: { x: 12, y: 14 },
+          trafficLightPosition: DARWIN_TRAFFIC_LIGHT_POSITION,
         }
       : {}),
     ...(process.platform === "win32"
@@ -156,6 +192,7 @@ function injectGlobals(win: BrowserWindow, globals: Globals) {
     const data = {
       updaterEnabled: globals.updaterEnabled,
       deepLinks: Array.isArray(deepLinks) ? deepLinks.splice(0) : deepLinks,
+      windowChrome: getWindowChrome(),
     }
     void win.webContents.executeJavaScript(
       `window.__OPENCODE__ = Object.assign(window.__OPENCODE__ ?? {}, ${JSON.stringify(data)})`,
