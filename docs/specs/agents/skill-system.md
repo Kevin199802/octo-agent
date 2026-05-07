@@ -4,6 +4,12 @@
 >
 > 前置阅读:[learning/skill-and-mcp.md](../../learning/skill-and-mcp.md)
 
+> **上游已实现:✗(Octo 完全自写)**
+>
+> opencode 后端有 skill discovery / 加载逻辑,但**未暴露任何 skill CRUD HTTP API**,也没有 skill 文件管理的 UI 组件。
+> Skill 文件管理 UI(技能库页面、文件树、预览/编辑、新建向导、上传)全部是 Octo 自研任务。
+> 数据层走 Electron main 进程 IPC 直接读写文件系统(`octo:skill:*` handler),opencode 后端只负责"运行 agent 时加载 skill",不参与 CRUD。
+
 ---
 
 ## 1. 背景与目标

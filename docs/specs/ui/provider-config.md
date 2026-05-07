@@ -4,6 +4,20 @@
 >
 > 前置阅读:[learning/provider-protocols.md](../../learning/provider-protocols.md)
 
+> **上游已实现:✓(核心 dialog 全部成品)**
+>
+> 复用组件(来自 `@opencode-ai/app`):
+> - `dialog-manage-models.tsx` — provider 列表 + model 列表 + 新增/编辑/删除
+> - `dialog-custom-provider.tsx` + `dialog-custom-provider-form.ts` — 自定义 provider 表单(模板选择 + baseURL + apiKey)
+> - `dialog-connect-provider.tsx` — 连接/测试连通性
+> - `dialog-select-provider.tsx` — provider 选择
+> - `settings-providers.tsx` — 设置页 provider 分类内容
+> - `dialog-select-model.tsx` — 模型切换
+>
+> **Octo 端只做**:在 `OctoSidebar` / Settings 路由页加入口按钮,点击打开上述 dialog。
+> **已被覆盖**:§5(UI 结构)、§9(模板数据)所描述的表单/步骤/卡片已在上游 dialog 中全部实现。§12 实施步骤 Step 2-9 不再需要自行开发——改为一行 import + 挂入口即可。
+> §7(写文件机制)也由上游 opencode 配置写入流程处理,无需 Octo 自写 IPC handler。
+
 ---
 
 ## 1. 背景与目标

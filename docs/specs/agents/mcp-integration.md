@@ -4,6 +4,13 @@
 >
 > 前置阅读:[learning/skill-and-mcp.md](../../learning/skill-and-mcp.md)
 
+> **上游已实现:✓(核心 dialog 已成品)**
+>
+> 复用组件:`@opencode-ai/app` 的 `dialog-select-mcp.tsx`(含 server 列表、添加/编辑/删除、连接状态、OAuth 流程)。
+> **Octo 端只做**:在 `OctoSidebar` / Settings 路由页加"MCP 配置"入口,点击打开 `dialog-select-mcp`。
+> **已被覆盖**:§4(UI 交互)的添加 server 模态(§4.2)、server 详情面板(§4.3)、失败状态(§4.4)、OAuth(§4.2 Step2C)全部在上游 dialog 中已实现。§10 实施步骤 Step 2-8 无需自写。
+> §5(配置文件 schema)和 §7(数据流)仍有参考价值,保留。
+
 ---
 
 ## 1. 背景与目标

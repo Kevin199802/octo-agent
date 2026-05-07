@@ -6,6 +6,19 @@
 
 > 注:本 spec 取代旧 `multi-agent-shell.md`(已废弃,该旧 spec 写于 shell 概念阶段,现已不准确)。
 
+> **上游已实现:✓/✗ 混合**
+>
+> - ✓ 工具调用内联渲染(U8, §5.4):上游 `PART_MAPPING["tool"]`(message-part.tsx:1301+)已实现工具卡片;`basic-tool.tsx`、`tool-error-card.tsx`、`tool-count-summary.tsx` 是零件,SessionTurn 组合渲染
+> - ✓ Reasoning 默认折叠(U7, §5.3):上游 `PART_MAPPING["reasoning"]`(message-part.tsx:1512+)已实现,默认折叠行为已内置
+> - ✓ Task 子任务卡片(U3/U4, §5.2):上游 `message-part.tsx:1318+` 已实现 `task-tool-card`(含 spinner/状态切换/颜色)
+> - ✓ Agent 列表 API:opencode SDK `/agent` 接口已暴露(useGlobalSync 的 sync.data.agent)
+> - ✓ Session 创建时指定 agent:opencode 后端原生支持
+> - ✗ OctoSidebar 的 primary agent 切换 UI(U1/U2):Octo 自写,显示在 sidebar agent 列表
+> - ✗ 权限请求 modal(U5, §5.5):上游无独立 permission dialog,Octo 自写
+> - ✗ 设置页 Agent 管理编辑器(U6-U8, §5.6-5.7,P2):Octo 自写
+>
+> **M2 结论**:§5.3(reasoning渲染)、§5.4(工具调用卡片)、§8 Step 5/8/9 已由上游 SessionTurn 覆盖,无需重复实现。Octo 需自写:OctoSidebar agent 列表 + permission modal + Agent 编辑器(P2)。
+
 ---
 
 ## 1. 背景与目标

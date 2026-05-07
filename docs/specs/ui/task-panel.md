@@ -4,6 +4,19 @@
 >
 > 前置阅读:[learning/agent-mental-model.md](../../learning/agent-mental-model.md)、[learning/opencode-internals.md §3-4](../../learning/opencode-internals.md#3-sse-事件协议)
 
+> **上游已实现:✓/✗ 混合**
+>
+> - ✓ 工具调用内联渲染:`@opencode-ai/ui` 的 `SessionTurn` / `MessagePart` 已在聊天区渲染工具卡片(`basic-tool.tsx`)、错误卡片(`tool-error-card.tsx`)、tool count(`tool-count-summary.tsx`)
+> - ✓ Reasoning 折叠块:上游 `PART_MAPPING["reasoning"]`(message-part.tsx:1512+)已处理
+> - ✓ Task 子任务卡片(本 spec U4):上游 `message-part.tsx:1318+` 已有 `task-tool-card` 渲染(含状态/颜色/spinner)
+> - ✗ 右侧独立任务面板框架(时间线 tab + 产出 tab 双栏):上游无此 UX,是 Octo 自写任务
+> - ✗ Artifact 提取与展示:上游无,Octo 自写
+> - ✗ 顶部状态条 + 计时器 + 中止按钮区域:上游无右侧状态条,Octo 自写
+>
+> **⚠️ §6(实现要点)和 §8(实施步骤)全部引用了已废弃的 Vue 3 方案(`packages/octo-ui/`、`ChatView.vue`、`Pinia`、`ref + provide/inject` 等),这些内容完全过时。M2+ 按 SolidJS 重新规划,不参考 §6/§8。§10 的 brief 模板同样过时。**
+>
+> **M2 结论**:右侧任务面板的布局框架和"产出 tab"是 Octo 自写 SolidJS 组件;工具卡片/reasoning/task卡片渲染直接 import `@opencode-ai/ui` 零件,不重写。
+
 ---
 
 ## 1. 背景与目标

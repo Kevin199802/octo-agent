@@ -2,7 +2,9 @@
 
 ## 状态
 
-已采纳并生效(2026-04-30 决策、2026-05-01 多次修订定型)。取代 [ADR-002](002-vue3-ui-rewrite.md)。
+已采纳并演化(2026-04-30 决策、2026-05-07 最终形态确定)。取代 [ADR-002](002-vue3-ui-rewrite.md)。
+
+**2026-05-07 演化说明**：原方案自写 `OctoWorkbench` / `OctoDataProvider` 作为顶层壳，后确认内网团队直接在 `packages/app/` 上开发，为便于按图索骥对接，改为**直接在 `packages/app/src/pages/insight/` 添加页面**，路径与内网完全一致。`packages/octo-app/` 降级为纯 Electron 启动脚手架，不合入内网。"复用 `@opencode-ai/ui` 零件"原则不变。
 
 ## 背景
 
