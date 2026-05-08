@@ -26,8 +26,8 @@
 |---|---|
 | `packages/app/src/pages/insight/` | 用研 Agent 页面（**合入物**，对应内网同路径） |
 | `packages/agent/research/agents/` | opencode agent 配置文件（**合入物**，部署至 `~/.config/octo/agent/`） |
-| `packages/app/src/app.tsx` | 加一行 Route，内网同样操作 |
-| `packages/octo-app/src/main.tsx` | Electron 启动入口，本地脚手架，不合入 |
+| `packages/app/src/pages/_shell/` | OctoShell 框架层：sidebar + topbar |
+| `packages/app/src/app.tsx` | OctoShell 路由分叉（限改） |
 
 其他 agent 各自在 `packages/app/src/pages/<name>/` 建立相同结构。
 
@@ -37,12 +37,20 @@
 
 | 范围 | 政策 |
 |---|---|
-| `packages/app/src/pages/insight/`、`packages/agent/research/`、`docs/` | **自由改**（合入物） |
-| `packages/app/src/app.tsx` | **限改**：只加路由注册那一行，内网同步 |
+| `packages/app/src/pages/insight/`、`packages/app/src/pages/_shell/`、`packages/agent/research/`、`docs/` | **自由改**（合入物） |
+| `packages/app/src/app.tsx` | **限改**：仅 OctoShell 路由分叉所需，内网同步 |
 | `packages/app/` 其他文件、`packages/ui/`、`packages/opencode/`、`packages/sdk/` | **不动**：改了跟上游 diff 会乱 |
-| `packages/desktop-electron/src/main/`、`electron.vite.config.ts` 等接线文件 | **限改**：仅品牌、接线、调试，改动登记到 [docs/integration.md](docs/integration.md) |
-| `packages/octo-app/` | 本地 Electron 启动脚手架，不合入内网 |
+| `packages/desktop-electron/src/main/`、`electron.vite.config.ts` 等接线文件 | **限改**：仅品牌、接线、调试 |
 | 其他 `packages/*` | 不动也不删 |
+
+---
+
+## 非业务包变更登记（强制）
+
+**除以上"自由改"范围外，任何文件改动（包括但不限于构建配置、根 package.json、bun.lock、接线文件等）必须立即在 `docs/architecture.md §5.4` 补充一条记录**，说明改了什么、为什么改。
+
+**不允许**：改完就跑，让架构文档跟代码漂移。  
+**目的**：AI 频繁操作时留下可追溯的变更日志，替代人工巡查。
 
 ---
 

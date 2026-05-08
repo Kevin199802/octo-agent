@@ -16,9 +16,13 @@
 │   ┌─────────────────── Renderer ───────────────────┐             │
 │   │  packages/desktop-electron/src/renderer/        │             │
 │   │  (上游原版，不动)                                │             │
-│   │   └─ AppInterface → Router → Layout             │             │
-│   │       ├─ /insight/:id  ← InsightPage (合入物)   │             │
-│   │       └─ 其余路由 (上游原版)                     │             │
+│   │   └─ AppInterface → RouterRoot                   │             │
+│   │       ├─ isInsight()  → OctoShell                │             │
+│   │       │   └─ /insight/:id? ← InsightPage         │             │
+│   │       ├─ isOctoPage() → OctoPageShell            │             │
+│   │       │   ├─ /chat  ← ChatPage                   │             │
+│   │       │   └─ /studio  ← StudioPage               │             │
+│   │       └─ 其余路由 → AppShellProviders (上游原版)  │             │
 │   └─────────┬──────────────────────────────────────┘             │
 │             │ HTTP + SSE                                          │
 │             ▼                                                     │
@@ -47,7 +51,10 @@ opencode 不是 sidecar 二进制，是 `import("virtual:opencode-server")` 加�
 
 | 路径 | 角色 | 合入内网 |
 |---|---|---|
-| `packages/app/src/pages/insight/` | 用研 Agent 页面（**合入物**，路径与内网完全一致） | 直接同步目录 |
+| `packages/app/src/pages/_shell/` | OctoShell 框架层（sidebar + topbar） | 直接同步目录 |
+| `packages/app/src/pages/insight/` | 用研 Agent 页面 | 直接同步目录 |
+| `packages/app/src/pages/chat/` | Chat 页面 | 直接同步目录 |
+| `packages/app/src/pages/studio/` | Studio 页面 | 直接同步目录 |
 | `packages/agent/research/agents/` | opencode agent 配置文件（`.md`） | 部署至 `~/.config/octo/agent/` |
 | `docs/`、`ROADMAP.md`、`CLAUDE.md` | 文档 | 自由维护 |
 
@@ -62,7 +69,7 @@ opencode 不是 sidecar 二进制，是 `import("virtual:opencode-server")` 加�
 | `packages/opencode/` | AI Agent 后端引擎 (Hono HTTP + SSE + SQLite) |
 | `packages/sdk/` | OpenAPI 自动生成的 TS 客户端 |
 | `packages/ui/`（`@opencode-ai/ui`） | SolidJS 组件库 |
-| `packages/app/`（insight/ 和接线行除外） | SolidJS 完整 app；`@opencode-ai/app/vite` 提供 Tailwind + 主题 + SolidJS |
+| `packages/app/`（`pages/_shell/`、`insight/`、`chat/`、`studio/` 和 app.tsx 路由分叉除外） | SolidJS 完整 app；`@opencode-ai/app/vite` 提供 Tailwind + 主题 + SolidJS |
 | `packages/desktop-electron/src/renderer/` | 上游 renderer，不修改 |
 | `packages/desktop-electron/src/preload/` | IPC 桥 |
 
@@ -112,12 +119,17 @@ UI 改动按下表从上往下依次尝试，绝不无理由下沉。
 ## 4. 自研代码地图
 
 ```
-packages/app/src/pages/insight/   ← 合入物，路径与内网一致
-├── index.tsx          # 路由入口（InsightPage）
-├── sidebar/           # 左列（会话列表 + 新建按钮）
-├── chat/              # 中列（任务面板 + 对话区）
-├── workspace/         # 右列（工作文件 / 上下文 / 资产）
-└── hooks/             # session 创建 / 切换逻辑
+packages/app/src/pages/
+├── _shell/            # OctoShell 框架层
+│   ├── index.tsx      # OctoShell + OctoPageShell 导出
+│   ├── sidebar.tsx    # 左侧导航栏（Insight/Chat/Studio 入口）
+│   └── topbar.tsx     # 顶部栏（Logo + Tab 切换）
+├── insight/           # 用研 Agent 页面
+│   └── index.tsx      # InsightPage（DataStore + PromptInput + SessionTurn）
+├── chat/              # Chat 页面（占位）
+│   └── index.tsx
+└── studio/            # Studio 页面（占位）
+    └── index.tsx
 
 packages/agent/research/
 └── agents/research.md  # 用研 agent 配置，部署至 ~/.config/octo/agent/
@@ -196,10 +208,22 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 
 #### `packages/app/src/app.tsx`
 
-```tsx
-// 新增一行路由
-<Route path="/insight/:id?" component={InsightPage} />
-```
+| 改了什么 | 性质 |
+|---|---|
+| 新增 `OctoShell`、`OctoPageShell` import（来自 `@/pages/_shell`） | OctoShell 路由分叉 |
+| 新增 `InsightPage`、`ChatPage`、`StudioPage` lazy import | 页面注册 |
+| `RouterRoot` 加 `isInsight()` / `isOctoPage()` 分支，insight 走 `OctoShell`，chat/studio 走 `OctoPageShell`，其余走原版 `AppShellProviders` | 路由分叉核心逻辑 |
+| 新增 `/`、`/insight/:id?`、`/chat`、`/studio` 路由声明 | 路由注册 |
+
+#### `packages/desktop-electron/package.json`
+
+| 改了什么 | 性质 |
+|---|---|
+| 移除 `@octo/app` workspace devDependency（随 octo-app 删除） | 清理 |
+
+#### `bun.lock`
+
+随 `octo-app` workspace 条目删除自动更新。非手动修改。
 
 **撤回到纯上游**（合入内网最坏情况）：
 
