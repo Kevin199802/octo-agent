@@ -81,19 +81,12 @@ export default function InsightPage() {
       const info = event.properties.info
       if (info.sessionID !== sessionId) return
       const messages = dataStore.message[sessionId]
-      if (!messages) {
-        setDataStore("message", sessionId, [info])
-        return
-      }
+      if (!messages) { setDataStore("message", sessionId, [info]); return }
       const result = Binary.search(messages, info.id, (m) => m.id)
       if (result.found) {
         setDataStore("message", sessionId, result.index, reconcile(info))
       } else {
-        setDataStore(
-          "message",
-          sessionId,
-          produce((draft) => { draft.splice(result.index, 0, info) }),
-        )
+        setDataStore("message", sessionId, produce((d) => { d.splice(result.index, 0, info) }))
       }
       return
     }
@@ -103,19 +96,12 @@ export default function InsightPage() {
       if (part.sessionID !== sessionId) return
       if (SKIP_PART_TYPES.has(part.type)) return
       const parts = dataStore.part[part.messageID]
-      if (!parts) {
-        setDataStore("part", part.messageID, [part])
-        return
-      }
+      if (!parts) { setDataStore("part", part.messageID, [part]); return }
       const result = Binary.search(parts, part.id, (p) => p.id)
       if (result.found) {
         setDataStore("part", part.messageID, result.index, reconcile(part))
       } else {
-        setDataStore(
-          "part",
-          part.messageID,
-          produce((draft) => { draft.splice(result.index, 0, part) }),
-        )
+        setDataStore("part", part.messageID, produce((d) => { d.splice(result.index, 0, part) }))
       }
       return
     }
@@ -136,14 +122,10 @@ export default function InsightPage() {
       if (!parts) return
       const result = Binary.search(parts, partID, (p) => p.id)
       if (!result.found) return
-      setDataStore(
-        "part",
-        messageID,
-        produce((draft) => {
-          const part = draft[result.index] as Record<string, unknown>
-          part[field] = ((part[field] as string) ?? "") + delta
-        }),
-      )
+      setDataStore("part", messageID, produce((d) => {
+        const p = d[result.index] as Record<string, unknown>
+        p[field] = ((p[field] as string) ?? "") + delta
+      }))
     }
   })
   onCleanup(unsub)
@@ -172,10 +154,7 @@ export default function InsightPage() {
     try {
       const result = await globalSDK.client.session.create({ directory: dir })
       const session = result.data as Session | undefined
-      if (session) {
-        navigate(`/insight/${session.id}`)
-        return session.id
-      }
+      if (session) { navigate(`/insight/${session.id}`); return session.id }
     } catch (err) {
       console.error("[InsightPage] session.create failed", err)
     } finally {
@@ -187,10 +166,7 @@ export default function InsightPage() {
   async function sendMessage(sessionId: string, text: string) {
     setSending(true)
     try {
-      await globalSDK.client.session.prompt({
-        sessionID: sessionId,
-        parts: [{ type: "text", text }],
-      })
+      await globalSDK.client.session.prompt({ sessionID: sessionId, parts: [{ type: "text", text }] })
     } catch (err) {
       console.error("[InsightPage] prompt failed", err)
     } finally {
@@ -203,37 +179,36 @@ export default function InsightPage() {
     if (!text || sending()) return
     setPrompt("")
     let sid = params.id
-    if (!sid) {
-      sid = await createAndNavigate()
-      if (!sid) return
-    }
+    if (!sid) { sid = await createAndNavigate(); if (!sid) return }
     await sendMessage(sid, text)
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      void handleSubmit()
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSubmit() }
   }
 
   const inputDisabled = () => sending() || isBusy()
 
   return (
     <DataProvider data={dataStore} directory={homeDir() || ""}>
-      <div class="size-full flex bg-background-base overflow-hidden">
+      <div class="size-full flex overflow-hidden p-[10px] gap-[10px]">
 
         {/* 左栏：对话区 */}
         <div
-          class="flex flex-col border-r border-border-base overflow-hidden"
-          style={{ width: "380px", "flex-shrink": "0" }}
+          class="flex flex-col overflow-hidden rounded-[16px]"
+          style={{
+            width: "380px",
+            "flex-shrink": "0",
+            background: "rgba(255, 255, 255, 0.88)",
+            "box-shadow": "0 1px 3px rgba(0,0,0,0.06)",
+          }}
         >
           <div class="flex-1 overflow-y-auto min-h-0">
             <Show
               when={params.id && userMessages().length > 0}
-              fallback={<EmptyState onNew={createAndNavigate} loading={sending()} />}
+              fallback={<ChatEmptyState onNew={createAndNavigate} loading={sending()} />}
             >
-              <div class="py-4 px-3 flex flex-col gap-0">
+              <div class="py-4 px-4 flex flex-col gap-0">
                 <For each={userMessages()}>
                   {(msg) => (
                     <SessionTurn
@@ -249,68 +224,66 @@ export default function InsightPage() {
           </div>
 
           {/* 输入区 */}
-          <div class="shrink-0 border-t border-border-base px-3 py-3">
-            <div class="flex gap-2 items-end">
+          <div class="shrink-0 p-3" style={{ "border-top": "1px solid rgba(0,0,0,0.06)" }}>
+            <div
+              class="rounded-xl overflow-hidden"
+              style={{
+                border: "1px solid rgba(0,0,0,0.09)",
+                background: "#ffffff",
+                opacity: inputDisabled() ? "0.6" : "1",
+              }}
+            >
               <textarea
                 value={prompt()}
                 onInput={(e) => setPrompt(e.currentTarget.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="输入指令，按 Enter 发送…"
-                rows={1}
+                rows={3}
                 disabled={inputDisabled()}
-                style={{
-                  flex: "1",
-                  resize: "none",
-                  padding: "8px 12px",
-                  "border-radius": "8px",
-                  border: "1px solid var(--border-base)",
-                  background: "var(--background-stronger)",
-                  color: "var(--text-base)",
-                  "font-size": "13px",
-                  "line-height": "1.5",
-                  outline: "none",
-                  "max-height": "120px",
-                  "overflow-y": "auto",
-                  "font-family": "inherit",
-                  opacity: inputDisabled() ? "0.5" : "1",
-                }}
+                class="w-full resize-none px-3 pt-3 pb-2 bg-transparent text-sm text-[#111827] outline-none placeholder:text-[#9ca3af]"
+                style={{ "font-family": "inherit", "max-height": "120px", "overflow-y": "auto" }}
               />
-              <button
-                type="button"
-                onClick={() => void handleSubmit()}
-                disabled={!prompt().trim() || inputDisabled()}
-                classList={{
-                  "h-9 px-4 rounded-lg text-13-medium transition-colors shrink-0": true,
-                  "bg-blue-600 text-white hover:bg-blue-700": !(!prompt().trim() || inputDisabled()),
-                  "bg-background-stronger text-text-weak cursor-default": !prompt().trim() || inputDisabled(),
-                }}
-              >
-                {sending() ? "…" : "发送"}
-              </button>
+              <div class="flex items-center justify-end px-3 pb-2.5">
+                <button
+                  type="button"
+                  onClick={() => void handleSubmit()}
+                  disabled={!prompt().trim() || inputDisabled()}
+                  classList={{
+                    "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors": true,
+                    "bg-[#2563eb] text-[#ffffff] hover:bg-[#1d4ed8]": !(!prompt().trim() || inputDisabled()),
+                    "bg-[#f3f4f6] text-[#9ca3af] cursor-default": !prompt().trim() || inputDisabled(),
+                  }}
+                >
+                  {sending() ? "…" : "发送"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
         {/* 右栏：结果区（待实现） */}
-        <div class="flex-1 min-w-0 bg-background-base" />
+        <div
+          class="flex-1 min-w-0 rounded-[16px]"
+          style={{ background: "rgba(251, 252, 255, 0.80)" }}
+        />
       </div>
     </DataProvider>
   )
 }
 
-function EmptyState(props: { onNew: () => void; loading: boolean }): JSX.Element {
+function ChatEmptyState(props: { onNew: () => void; loading: boolean }): JSX.Element {
   return (
-    <div class="size-full flex flex-col items-center justify-center gap-4 text-center px-6">
-      <div class="text-20-medium text-text-strong">Octo Insight</div>
-      <div class="text-14-regular text-text-weak max-w-xs">用研 Agent，在下方输入指令开始新对话</div>
+    <div class="size-full flex flex-col items-center justify-center gap-3 text-center px-8">
+      <div class="text-xl font-semibold text-[#111827]">Octo Insight</div>
+      <div class="text-sm text-[#6b7280] max-w-xs">用研 Agent，在下方输入指令开始新对话</div>
       <button
         type="button"
         onClick={props.onNew}
         disabled={props.loading}
         classList={{
-          "mt-2 px-5 py-2 rounded-lg text-14-medium transition-colors": true,
-          "bg-blue-600 text-white hover:bg-blue-700": !props.loading,
-          "bg-background-stronger text-text-weak cursor-default": props.loading,
+          "mt-2 px-5 py-2 rounded-lg text-sm font-medium transition-colors": true,
+          "bg-[#2563eb] text-[#ffffff] hover:bg-[#1d4ed8]": !props.loading,
+          "bg-[#f3f4f6] text-[#9ca3af] cursor-default": props.loading,
         }}
       >
         新建对话

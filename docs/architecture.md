@@ -109,10 +109,20 @@ UI 改动按下表从上往下依次尝试，绝不无理由下沉。
 
 | 层级 | 手段 | 例子 |
 |---|---|---|
-| **Layer 1** | CSS 变量覆盖 | 改 `--background-base` 等把上游 UI 涂成 Octo 品牌 |
+| **Layer 1** | 自研组件直接用 Tailwind 具名色 | `_shell/`、`insight/` 等 Octo 自研组件 **不继承上游 CSS 变量**，直接写死色值（见下方说明） |
 | **Layer 2** | 在 `insight/` 内自写组件，import `@opencode-ai/ui` 零件 | InsightPage 自写 PromptInput，复用 SessionTurn |
 | **Layer 3** | 单文件 fork 到 `insight/forks/` 自维护 | 某个上游组件行为差异大时 fork 一份 |
 | **Layer 4** | 直接修改上游（需 ADR 决议） | 正常工作流不应走到这里 |
+
+### 3.1 Octo Shell 样式独立原则
+
+上游 `@opencode-ai/ui` 的 CSS 变量（`--background-base`、`--text-base` 等）在浅色模式下对比度不足（如 `--text-base: #6f6f6f`、`--background-base: #f8f8f8` 与 `--background-stronger: #fcfcfc` 几乎无差）。
+
+**决策：`_shell/` 和各 Octo 页面的自研组件，一律使用 Tailwind 具名色（如 `bg-gray-50`、`text-gray-900`、`text-blue-600`），不使用上游 CSS token。** 原因：
+
+1. 上游 token 的实际解析值随主题切换变化，Octo 设计稿只有浅色一版，硬编码更可预期
+2. Octo 页面不复用上游组件样式，样式隔离不会产生冲突
+3. 设计师切图交付后只需替换 SVG/图片资产，不需要重新梳理 token 映射
 
 ---
 
