@@ -44,7 +44,6 @@ export default function InsightPage() {
     part: {},
   })
 
-  // --- message loading ---
   createEffect(
     on(
       () => params.id,
@@ -73,12 +72,10 @@ export default function InsightPage() {
     ),
   )
 
-  // --- event subscription for streaming updates ---
   const unsub = globalSDK.event.listen((e) => {
     const sessionId = params.id
     if (!sessionId) return
 
-    // typed events
     const event = e.details
     if (event.type === "message.updated") {
       const info = event.properties.info
@@ -95,9 +92,7 @@ export default function InsightPage() {
         setDataStore(
           "message",
           sessionId,
-          produce((draft) => {
-            draft.splice(result.index, 0, info)
-          }),
+          produce((draft) => { draft.splice(result.index, 0, info) }),
         )
       }
       return
@@ -119,9 +114,7 @@ export default function InsightPage() {
         setDataStore(
           "part",
           part.messageID,
-          produce((draft) => {
-            draft.splice(result.index, 0, part)
-          }),
+          produce((draft) => { draft.splice(result.index, 0, part) }),
         )
       }
       return
@@ -134,14 +127,10 @@ export default function InsightPage() {
       return
     }
 
-    // handle delta (not in typed union but emitted by the stream)
     const raw = event as unknown as { type: string; properties: Record<string, unknown> }
     if (raw.type === "message.part.delta") {
       const { messageID, partID, field, delta } = raw.properties as {
-        messageID: string
-        partID: string
-        field: string
-        delta: string
+        messageID: string; partID: string; field: string; delta: string
       }
       const parts = dataStore.part[messageID]
       if (!parts) return
@@ -152,15 +141,13 @@ export default function InsightPage() {
         messageID,
         produce((draft) => {
           const part = draft[result.index] as Record<string, unknown>
-          const existing = part[field] as string | undefined
-          part[field] = (existing ?? "") + delta
+          part[field] = ((part[field] as string) ?? "") + delta
         }),
       )
     }
   })
   onCleanup(unsub)
 
-  // --- derived: user messages for this session ---
   const userMessages = createMemo((): Message[] => {
     const id = params.id
     if (!id) return []
@@ -175,7 +162,6 @@ export default function InsightPage() {
 
   const isBusy = createMemo(() => sessionStatus().type === "busy")
 
-  // --- prompt state ---
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
 
@@ -216,7 +202,6 @@ export default function InsightPage() {
     const text = prompt().trim()
     if (!text || sending()) return
     setPrompt("")
-
     let sid = params.id
     if (!sid) {
       sid = await createAndNavigate()
@@ -232,79 +217,82 @@ export default function InsightPage() {
     }
   }
 
+  const inputDisabled = () => sending() || isBusy()
+
   return (
     <DataProvider data={dataStore} directory={homeDir() || ""}>
-      <div class="size-full flex flex-col bg-background-base overflow-hidden">
-        {/* 消息区 */}
-        <div class="flex-1 overflow-y-auto min-h-0">
-          <Show
-            when={params.id && userMessages().length > 0}
-            fallback={<EmptyState onNew={createAndNavigate} loading={sending()} />}
-          >
-            <div class="max-w-3xl mx-auto py-6 px-4 flex flex-col gap-0">
-              <For each={userMessages()}>
-                {(msg) => (
-                  <SessionTurn
-                    sessionID={params.id!}
-                    messageID={msg.id}
-                    status={sessionStatus()}
-                    active={isBusy()}
-                  />
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
+      <div class="size-full flex bg-background-base overflow-hidden">
 
-        {/* 底部 PromptInput */}
-        <div class="shrink-0 border-t border-border-base bg-background-base px-4 py-3">
-          <div class="max-w-3xl mx-auto flex gap-2 items-end">
-            <textarea
-              value={prompt()}
-              onInput={(e) => setPrompt(e.currentTarget.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="输入指令，按 Enter 发送…"
-              rows={1}
-              disabled={sending() || isBusy()}
-              style={{
-                flex: "1",
-                resize: "none",
-                padding: "8px 12px",
-                "border-radius": "8px",
-                border: "1px solid var(--border-base)",
-                background: "var(--background-stronger)",
-                color: "var(--text-base)",
-                "font-size": "14px",
-                "line-height": "1.5",
-                outline: "none",
-                "max-height": "160px",
-                "overflow-y": "auto",
-                "font-family": "inherit",
-                opacity: sending() || isBusy() ? "0.5" : "1",
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => void handleSubmit()}
-              disabled={!prompt().trim() || sending() || isBusy()}
-              style={{
-                padding: "8px 16px",
-                "border-radius": "8px",
-                border: "none",
-                background: !prompt().trim() || sending() || isBusy() ? "var(--border-base)" : "var(--text-strong)",
-                color: "var(--background-base)",
-                "font-size": "13px",
-                "font-weight": "500",
-                cursor: !prompt().trim() || sending() || isBusy() ? "default" : "pointer",
-                "white-space": "nowrap",
-                "flex-shrink": "0",
-                transition: "background 0.15s",
-              }}
+        {/* 左栏：对话区 */}
+        <div
+          class="flex flex-col border-r border-border-base overflow-hidden"
+          style={{ width: "380px", "flex-shrink": "0" }}
+        >
+          <div class="flex-1 overflow-y-auto min-h-0">
+            <Show
+              when={params.id && userMessages().length > 0}
+              fallback={<EmptyState onNew={createAndNavigate} loading={sending()} />}
             >
-              {sending() ? "…" : "发送"}
-            </button>
+              <div class="py-4 px-3 flex flex-col gap-0">
+                <For each={userMessages()}>
+                  {(msg) => (
+                    <SessionTurn
+                      sessionID={params.id!}
+                      messageID={msg.id}
+                      status={sessionStatus()}
+                      active={isBusy()}
+                    />
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+
+          {/* 输入区 */}
+          <div class="shrink-0 border-t border-border-base px-3 py-3">
+            <div class="flex gap-2 items-end">
+              <textarea
+                value={prompt()}
+                onInput={(e) => setPrompt(e.currentTarget.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="输入指令，按 Enter 发送…"
+                rows={1}
+                disabled={inputDisabled()}
+                style={{
+                  flex: "1",
+                  resize: "none",
+                  padding: "8px 12px",
+                  "border-radius": "8px",
+                  border: "1px solid var(--border-base)",
+                  background: "var(--background-stronger)",
+                  color: "var(--text-base)",
+                  "font-size": "13px",
+                  "line-height": "1.5",
+                  outline: "none",
+                  "max-height": "120px",
+                  "overflow-y": "auto",
+                  "font-family": "inherit",
+                  opacity: inputDisabled() ? "0.5" : "1",
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => void handleSubmit()}
+                disabled={!prompt().trim() || inputDisabled()}
+                classList={{
+                  "h-9 px-4 rounded-lg text-13-medium transition-colors shrink-0": true,
+                  "bg-blue-600 text-white hover:bg-blue-700": !(!prompt().trim() || inputDisabled()),
+                  "bg-background-stronger text-text-weak cursor-default": !prompt().trim() || inputDisabled(),
+                }}
+              >
+                {sending() ? "…" : "发送"}
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* 右栏：结果区（待实现） */}
+        <div class="flex-1 min-w-0 bg-background-base" />
       </div>
     </DataProvider>
   )
@@ -319,17 +307,10 @@ function EmptyState(props: { onNew: () => void; loading: boolean }): JSX.Element
         type="button"
         onClick={props.onNew}
         disabled={props.loading}
-        style={{
-          "margin-top": "8px",
-          padding: "8px 20px",
-          "border-radius": "8px",
-          border: "none",
-          background: "var(--text-strong)",
-          color: "var(--background-base)",
-          "font-size": "14px",
-          "font-weight": "500",
-          cursor: props.loading ? "default" : "pointer",
-          opacity: props.loading ? "0.5" : "1",
+        classList={{
+          "mt-2 px-5 py-2 rounded-lg text-14-medium transition-colors": true,
+          "bg-blue-600 text-white hover:bg-blue-700": !props.loading,
+          "bg-background-stronger text-text-weak cursor-default": props.loading,
         }}
       >
         新建对话

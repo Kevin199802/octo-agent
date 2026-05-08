@@ -43,7 +43,7 @@ import { SettingsProvider } from "@/context/settings"
 import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
-import { OctoShell } from "@/pages/_shell"
+import { OctoPageShell, OctoShell } from "@/pages/_shell"
 import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
 
@@ -123,13 +123,17 @@ function SessionProviders(props: ParentProps) {
 
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
-  const isOcto = () => {
+  const isInsight = () => {
     const p = location.pathname
-    return p === "/" || p === "/insight" || p.startsWith("/insight/") || p === "/chat" || p === "/studio"
+    return p === "/" || p === "/insight" || p.startsWith("/insight/")
+  }
+  const isOctoPage = () => {
+    const p = location.pathname
+    return p === "/chat" || p === "/studio"
   }
   return (
     <Show
-      when={isOcto()}
+      when={isInsight() || isOctoPage()}
       fallback={
         <AppShellProviders>
           {props.appChildren}
@@ -137,7 +141,9 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
         </AppShellProviders>
       }
     >
-      <OctoShell>{props.children}</OctoShell>
+      <Show when={isInsight()} fallback={<OctoPageShell>{props.children}</OctoPageShell>}>
+        <OctoShell>{props.children}</OctoShell>
+      </Show>
     </Show>
   )
 }
