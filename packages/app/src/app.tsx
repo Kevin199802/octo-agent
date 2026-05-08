@@ -8,7 +8,7 @@ import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
 import { ThemeProvider } from "@opencode-ai/ui/theme/context"
 import { MetaProvider } from "@solidjs/meta"
-import { type BaseRouterProps, Navigate, Route, Router } from "@solidjs/router"
+import { type BaseRouterProps, Navigate, Route, Router, useLocation } from "@solidjs/router"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { Effect } from "effect"
 import {
@@ -43,11 +43,13 @@ import { SettingsProvider } from "@/context/settings"
 import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
+import { OctoShell } from "@/pages/_shell"
 import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
 
-const HomeRoute = lazy(() => import("@/pages/home"))
 const InsightPage = lazy(() => import("@/pages/insight"))
+const ChatPage = lazy(() => import("@/pages/chat"))
+const StudioPage = lazy(() => import("@/pages/studio"))
 const loadSession = () => import("@/pages/session")
 const Session = lazy(loadSession)
 const Loading = () => <div class="size-full" />
@@ -120,13 +122,23 @@ function SessionProviders(props: ParentProps) {
 }
 
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
+  const location = useLocation()
+  const isOcto = () => {
+    const p = location.pathname
+    return p === "/" || p === "/insight" || p.startsWith("/insight/") || p === "/chat" || p === "/studio"
+  }
   return (
-    <AppShellProviders>
-      {/*<Suspense fallback={<Loading />}>*/}
-      {props.appChildren}
-      {props.children}
-      {/*</Suspense>*/}
-    </AppShellProviders>
+    <Show
+      when={isOcto()}
+      fallback={
+        <AppShellProviders>
+          {props.appChildren}
+          {props.children}
+        </AppShellProviders>
+      }
+    >
+      <OctoShell>{props.children}</OctoShell>
+    </Show>
   )
 }
 
@@ -300,8 +312,10 @@ export function AppInterface(props: {
                 component={props.router ?? Router}
                 root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
               >
-                <Route path="/" component={HomeRoute} />
-                <Route path="/insight/:id" component={InsightPage} />
+                <Route path="/" component={() => <Navigate href="/insight" />} />
+                <Route path="/insight/:id?" component={InsightPage} />
+                <Route path="/chat" component={ChatPage} />
+                <Route path="/studio" component={StudioPage} />
                 <Route path="/:dir" component={DirectoryLayout}>
                   <Route path="/" component={SessionIndexRoute} />
                   <Route path="/session/:id?" component={SessionRoute} />
