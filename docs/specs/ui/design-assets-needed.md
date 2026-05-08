@@ -11,8 +11,10 @@
 | 用途 | 当前占位 | 期望格式 | 替换位置 |
 |---|---|---|---|
 | Octo AI 主 Logo | union.svg 渐变路径（已内联） | SVG，24×24，与设计稿核对 | `topbar.tsx → OctoLogoIcon()` |
+| Chat Tab 图标 | 无（纯文字） | SVG，13×13 | `topbar.tsx` Chat 标签左侧 |
+| Cowork Tab 图标 | 无（纯文字） | SVG，13×13 | `topbar.tsx` Cowork 标签左侧 |
+| Studio Tab 图标 | 无（纯文字） | SVG，13×13 | `topbar.tsx` Studio 标签左侧 |
 | 搜索按钮图标 | 自绘放大镜 SVG | SVG，13×13 | `topbar.tsx` 搜索按钮内 |
-| 用户头像 | 紫色渐变圆 + "U" | 真实头像组件或用户名首字母 | `topbar.tsx` 右侧头像 |
 
 ---
 
