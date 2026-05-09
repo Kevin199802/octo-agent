@@ -13,7 +13,7 @@
 | `packages/app/src/pages/chat/` | 直接同步目录 | Chat 页面 |
 | `packages/app/src/pages/studio/` | 直接同步目录 | Studio 页面 |
 | `packages/app/src/app.tsx`（OctoShell 路由分叉） | 手动合并变更 | 见 §2 |
-| `packages/agent/research/agents/research.md` | 部署到 `~/.config/octo/agent/` | 见 §3 |
+| `packages/agent/insight/agents/insight.md` | 注入 `octo.config.json`（主进程自动写入，见 §3） | 见 §3 |
 
 **不合入**：`packages/desktop-electron/` 的 Electron 接线改动（内网有自己的启动方式）。
 
@@ -45,7 +45,11 @@ const StudioPage  = lazy(() => import("@/pages/studio"))
 ## 3. Agent 配置部署
 
 ```bash
-cp packages/agent/research/agents/research.md ~/.config/octo/agent/research.md
+## 3. Agent 配置（主进程自动写入，用户无需手动操作）
+
+Agent 配置通过 Electron 主进程在首次启动时写入 `~/.config/octo/octo.config.json`，详见 §5 及 [learning/agent-deploy.md](learning/agent-deploy.md)。
+
+源文件：`packages/agent/insight/agents/insight.md`
 ```
 
 ---
@@ -184,7 +188,7 @@ app.all("/mcp", handleMcp)
 - 写明**参数来源**（"doc_id 来自 upload_document 返回值，不是文件名"）
 - 枚举每个值的**中文含义**
 
-### 6.4 research.md 工具声明
+### 6.4 insight.md 工具声明
 
 ```markdown
 ---
