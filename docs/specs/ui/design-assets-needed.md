@@ -33,6 +33,9 @@
 | 用途 | 当前占位 | 期望格式 | 替换位置 |
 |---|---|---|---|
 | 空状态插图 | 无 | SVG / PNG，建议 120×120 | `insight/index.tsx → ChatEmptyState()` |
+| 视频/多媒体附件图标 | 默认上游图标 | SVG | `packages/ui/src/components/message-part.tsx` / 覆盖样式 |
+| 发送按钮图标 | 简单线条 SVG（纸飞机/箭头） | SVG，14×14 | `insight/index.tsx → octo-btn-send` |
+| 附件上传添加图标 (＋) | 文本占位 (`＋`) | SVG，14×14 | `insight/index.tsx → octo-btn-attachment` |
 
 ---
 

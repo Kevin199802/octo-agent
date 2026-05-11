@@ -46,12 +46,12 @@ export function ActionBar(props: { tab: ResultTab }): JSX.Element {
     <div
       class="flex items-center justify-between px-4 py-1.5 shrink-0"
       style={{
-        "border-bottom": "1px solid rgba(0,0,0,0.06)",
-        background: "rgba(255,255,255,0.5)",
+        "border-bottom": "1px solid var(--octo-border-divider)",
+        background: "var(--octo-surface-page)",
         "min-height": "36px",
       }}
     >
-      <span class="text-xs text-[#6b7280] truncate max-w-[55%]">{props.tab.title}</span>
+      <span class="text-xs truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
       <div class="flex items-center gap-0.5">
         <ActionBtn icon="⎘" label="复制" onClick={() => copyToClipboard(props.tab.content)} />
         <ActionBtn icon="↓" label="下载" onClick={handleDownload} />
@@ -65,7 +65,7 @@ function ActionBtn(props: { icon: string; label: string; onClick: () => void }):
     <button
       type="button"
       onClick={props.onClick}
-      class="flex items-center gap-1 px-2 py-1 rounded text-xs text-[#6b7280] hover:text-[#374151] hover:bg-[rgba(0,0,0,0.05)] transition-colors"
+      class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action"
     >
       <span>{props.icon}</span>
       <span>{props.label}</span>

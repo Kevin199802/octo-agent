@@ -128,7 +128,7 @@ export function ResultViewer(props: {
 function ResultViewerEmpty(): JSX.Element {
   return (
     <div class="flex flex-col items-center justify-center h-full gap-2 text-center px-8">
-      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" style={{ opacity: "0.2", color: "var(--octo-text-primary)" }}>
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" style={{ color: "var(--octo-border-input)" }}>
         <rect x="6" y="4" width="20" height="24" rx="2" stroke="currentColor" stroke-width="1.5" />
         <path d="M11 11H21M11 16H21M11 21H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
       </svg>

@@ -77,9 +77,9 @@ export function OctoTopbar(): JSX.Element {
             style={{
               left: "3px",
               width: "calc((100% - 6px) / 3)",
-              transform: `translateX(calc(${tabIndex()} * 100%))`,
+              transform: `translateX(${tabIndex() * 100}%)`,
               "box-shadow": "0 1px 4px rgba(0,0,0,0.14)",
-              transition: "transform 200ms cubic-bezier(0.34, 1.2, 0.64, 1)",
+              transition: "transform 250ms cubic-bezier(0.34, 1.2, 0.64, 1)",
             }}
           />
           <For each={TABS}>
@@ -89,8 +89,10 @@ export function OctoTopbar(): JSX.Element {
                 <button
                   type="button"
                   onClick={() => navigate(tab.href)}
-                  class="relative z-10 flex-1 px-[22px] py-[5px] text-[13px] font-medium leading-none select-none rounded-[7px] transition-colors"
-                  style={{ color: isActive() ? "#191919" : "rgba(0,0,0,0.42)" }}
+                  class="relative z-10 flex-1 px-[22px] py-[6px] text-[13px] font-medium leading-none select-none rounded-[7px] transition-colors"
+                  style={{ color: isActive() ? "var(--octo-brand)" : "rgba(0,0,0,0.42)" }}
+                  onMouseEnter={(e) => { if (!isActive()) { e.currentTarget.style.color = "var(--octo-text-primary)"; } }}
+                  onMouseLeave={(e) => { if (!isActive()) { e.currentTarget.style.color = "rgba(0,0,0,0.42)"; } }}
                 >
                   {tab.label}
                 </button>

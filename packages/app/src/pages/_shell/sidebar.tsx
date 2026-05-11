@@ -174,7 +174,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                           type="button"
                           onClick={() => navigate(`/insight/${session.id}`)}
                           classList={{
-                            "w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center": true,
+                            "w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center relative": true,
                           }}
                           style={{
                             height: "32px",
@@ -185,6 +185,17 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                           onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
                           onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.background = "transparent" }}
                         >
+                          <Show when={isActive()}>
+                            <span
+                              class="absolute left-0 top-1/2 rounded-r-[3px]"
+                              style={{
+                                height: "16px",
+                                width: "3px",
+                                background: "var(--octo-brand, #0067D1)",
+                                transform: "translateY(-50%)",
+                              }}
+                            />
+                          </Show>
                           <Show
                             when={pending()}
                             fallback={<span class="truncate block w-full">{session.title || "无标题"}</span>}

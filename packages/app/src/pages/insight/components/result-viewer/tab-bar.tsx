@@ -10,10 +10,10 @@ export function TabBar(props: {
 }): JSX.Element {
   return (
     <div
-      class="flex items-stretch overflow-x-auto shrink-0"
+      class="flex items-center overflow-x-auto shrink-0 px-[16px] gap-[8px]"
       style={{
-        "border-bottom": "1px solid rgba(0,0,0,0.07)",
-        "min-height": "38px",
+        "border-bottom": "1px solid var(--octo-border-divider)",
+        "min-height": "48px",
         "scrollbar-width": "none",
       }}
     >
@@ -22,32 +22,33 @@ export function TabBar(props: {
           const isActive = () => tab.id === props.activeId
           return (
             <div
-              class="flex items-center gap-1 shrink-0 border-b-2 transition-colors"
+              class="flex items-center gap-[4px] shrink-0 transition-colors px-[12px] py-[6px] cursor-pointer"
               style={{
-                "border-color": isActive() ? "#2563eb" : "transparent",
-                "max-width": "180px",
+                "max-width": "240px",
+                "border-radius": "16px",
+                background: isActive() ? "var(--octo-surface-selected)" : "transparent",
+                color: isActive() ? "var(--octo-brand)" : "var(--octo-text-secondary)",
               }}
+              onClick={() => props.onActivate(tab.id)}
             >
               <button
                 type="button"
-                onClick={() => props.onActivate(tab.id)}
-                class="flex-1 min-w-0 px-3 py-2 text-xs text-left truncate transition-colors"
-                classList={{
-                  "text-[#2563eb] font-medium": isActive(),
-                  "text-[#6b7280] hover:text-[#374151]": !isActive(),
-                }}
+                class="flex-1 min-w-0 text-[13px] text-left truncate transition-colors outline-none"
+                style={{ "font-weight": isActive() ? "500" : "400" }}
               >
                 {tab.title}
               </button>
               <button
                 type="button"
-                onClick={() => props.onClose(tab.id)}
-                class="w-5 h-5 flex items-center justify-center rounded mr-1 text-[11px] leading-none flex-shrink-0 transition-colors"
-                classList={{
-                  "text-[#9ca3af] hover:text-[#374151] hover:bg-[rgba(0,0,0,0.07)]": true,
+                onClick={(e) => {
+                  e.stopPropagation()
+                  props.onClose(tab.id)
                 }}
+                class="w-[16px] h-[16px] flex items-center justify-center rounded-full flex-shrink-0 transition-colors hover:bg-black/5 outline-none"
               >
-                ×
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M7.5 2.5L2.5 7.5M2.5 2.5l5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                </svg>
               </button>
             </div>
           )

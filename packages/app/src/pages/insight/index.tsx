@@ -311,7 +311,7 @@ export default function InsightPage() {
 
   return (
     <DataProvider data={dataStore} directory={homeDir() || ""}>
-      <div class="size-full flex overflow-hidden">
+      <div class="size-full flex overflow-hidden relative">
 
         {/* ── 左栏：对话面板（固定宽度，始终可拖拽） ──── */}
         <div
@@ -319,7 +319,7 @@ export default function InsightPage() {
           style={{
             width: `${chatWidth()}px`,
             flex: "0 0 auto",
-            background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-surface-page)",
+            background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-shell-bg)",
             outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
           }}
           onDragOver={handleDragOver}
@@ -354,7 +354,7 @@ export default function InsightPage() {
             </div>
 
             {/* 输入区 */}
-            <div class="shrink-0 p-3" style={{ "border-top": "1px solid var(--octo-border-divider)" }}>
+            <div class="shrink-0 p-4">
               <AttachmentBar
                 attachments={attachments()}
                 onRemove={removeAttachment}
@@ -363,9 +363,8 @@ export default function InsightPage() {
               <div
                 class="rounded-[var(--octo-radius-lg)] overflow-hidden"
                 style={{
-                  border: "1px solid var(--octo-border-default)",
                   background: "var(--octo-surface-page)",
-                  opacity: inputDisabled() ? "0.6" : "1",
+                  "box-shadow": "0 2px 12px rgba(0, 0, 0, 0.08)",
                   "margin-top": attachments().length > 0 ? "6px" : "0",
                 }}
               >
@@ -378,7 +377,7 @@ export default function InsightPage() {
                   disabled={inputDisabled()}
                   class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none"
                   style={{
-                    color: "var(--octo-text-primary)",
+                    color: inputDisabled() ? "var(--octo-text-disabled)" : "var(--octo-text-primary)",
                     "font-family": "var(--octo-font)",
                     "max-height": "120px",
                     "overflow-y": "auto",
@@ -398,14 +397,7 @@ export default function InsightPage() {
                     type="button"
                     onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
                     disabled={maxAttachments()}
-                    class="flex items-center gap-1 px-2 py-1 text-xs transition-colors"
-                    style={{
-                      "border-radius": "var(--octo-radius-sm)",
-                      background: "rgba(0,0,0,0.04)",
-                      border: "1px solid var(--octo-border-divider)",
-                      color: maxAttachments() ? "var(--octo-text-disabled)" : "var(--octo-text-secondary)",
-                      cursor: maxAttachments() ? "not-allowed" : "pointer",
-                    }}
+                    class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment"
                     title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
                   >
                     <span style={{ "font-size": "14px", "line-height": "1" }}>＋</span>
@@ -416,27 +408,13 @@ export default function InsightPage() {
                     type="button"
                     onClick={() => void handleSubmit()}
                     disabled={!prompt().trim() || inputDisabled()}
-                    class="px-3 py-1.5 text-sm font-medium transition-colors text-white"
-                    style={{
-                      "border-radius": "var(--octo-radius-sm)",
-                      background: (!prompt().trim() || inputDisabled())
-                        ? "var(--octo-surface-disabled)"
-                        : "var(--octo-brand)",
-                      color: (!prompt().trim() || inputDisabled())
-                        ? "var(--octo-text-disabled)"
-                        : "#ffffff",
-                      cursor: (!prompt().trim() || inputDisabled()) ? "default" : "pointer",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!inputDisabled() && prompt().trim())
-                        (e.currentTarget as HTMLElement).style.background = "var(--octo-brand-hover)"
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!inputDisabled() && prompt().trim())
-                        (e.currentTarget as HTMLElement).style.background = "var(--octo-brand)"
-                    }}
+                    class="octo-btn-send flex-shrink-0"
                   >
-                    {sending() ? "…" : "发送"}
+                    {sending() ? "…" : (
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M1 7h10M7 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    )}
                   </button>
                 </div>
               </div>
@@ -444,30 +422,28 @@ export default function InsightPage() {
 
         </div>
 
-        {/* ── 聊天/结果 拖拽分隔线（始终渲染，1px 线 + 4px 两侧可拖区） */}
+        {/* ── 聊天/结果 拖拽分隔线（半侧贴边胶囊） */}
         <div
-          class="flex-shrink-0 flex items-stretch"
-          style={{ width: "9px", cursor: "col-resize" }}
+          class="absolute top-0 bottom-0 flex items-center justify-center group"
+          style={{ left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
           onMouseDown={handleDividerMouseDown}
-          onMouseEnter={(e) => {
-            const bar = e.currentTarget.querySelector(".divider-bar") as HTMLElement | null
-            if (bar) bar.style.background = "var(--octo-brand-a40)"
-          }}
-          onMouseLeave={(e) => {
-            const bar = e.currentTarget.querySelector(".divider-bar") as HTMLElement | null
-            if (bar) bar.style.background = "var(--octo-border-divider)"
-          }}
         >
           <div
-            class="divider-bar"
+            class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
             style={{
-              width: "1px",
-              height: "100%",
-              margin: "0 4px",
-              background: "var(--octo-border-divider)",
-              transition: "background var(--octo-dur-fast)",
+              width: "12px",
+              height: "36px",
+              "border-radius": "10px 0 0 10px",
+              "box-shadow": "-2px 0 4px rgba(0,0,0,0.04), inset 1px 0 0 rgba(0,0,0,0.02)",
+              border: "1px solid var(--octo-border-divider)",
+              "border-right": "none",
             }}
-          />
+          >
+            <div
+              class="w-[2px] h-[14px] rounded-full mr-[2px]"
+              style={{ background: "var(--octo-border-input, #c9c9c9)" }}
+            />
+          </div>
         </div>
 
         {/* ── 中栏：ResultViewer（始终渲染，无 tab 时显示空态） */}

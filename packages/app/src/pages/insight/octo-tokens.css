@@ -30,7 +30,7 @@
   --octo-surface-selected: #EFF6FF;
   --octo-surface-hover:    #F5F5F5;
   --octo-surface-disabled: #F5F5F5;
-  --octo-surface-result:   #F8F9FC;  /* ResultViewer 背景 */
+  --octo-surface-result:   #FFFFFF;  /* ResultViewer 背景 */
   --octo-shell-bg:         #F3F6FB;  /* shell 整体背景 */
 
   /* ── Border ─────────────────────────────── */
@@ -51,4 +51,99 @@
   --octo-dur-fast:   100ms;
   --octo-dur-normal: 200ms;
   --octo-ease:       cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── 组件覆盖 (Insight) ───────────────────────── */
+
+/* SessionTurn 基础文本和间距覆盖 */
+[data-component="session-turn"] [data-slot="message-part-text"] {
+  color: var(--octo-text-primary);
+  line-height: 22px;
+}
+[data-component="session-turn"] [data-slot="message-part-reasoning"],
+[data-component="session-turn"] [data-component="accordion"],
+[data-component="session-turn"] [data-slot="session-turn-diffs-header"],
+[data-component="session-turn"] [data-slot="session-turn-diff-meta"] {
+  color: var(--octo-text-secondary);
+  line-height: 20px;
+}
+
+/* SessionTurn 内部工具卡片和块级卡片覆盖 */
+[data-component="session-turn"] [data-component="card"],
+[data-component="session-turn"] [data-component="tool-error-card"] {
+  border: 1px solid var(--octo-border-default) !important;
+  box-shadow: none !important;
+  border-radius: var(--octo-radius-md) !important;
+}
+
+/* 用户消息气泡 */
+[data-component="session-turn"] [data-component="user-message"] {
+  background: var(--octo-brand-subtle);
+  padding: 12px;
+  border-radius: var(--octo-radius-lg);
+}
+[data-component="session-turn"] [data-slot="user-message-attachment"] {
+  background: var(--octo-surface-page) !important;
+  border: 1px solid var(--octo-border-default) !important;
+  border-radius: var(--octo-radius-sm) !important;
+  padding: 6px 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  margin-bottom: 8px !important;
+  margin-right: 8px !important;
+}
+
+[data-component="session-turn"] [data-slot="user-message-attachment-file"] {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  gap: 6px;
+}
+
+/* ── 输入区按钮状态 ─────────────────────────── */
+
+.octo-btn-attachment {
+  border-radius: var(--octo-radius-sm);
+  background: rgba(0,0,0,0.04);
+  border: 1px solid var(--octo-border-divider);
+  color: var(--octo-text-secondary);
+  cursor: pointer;
+}
+.octo-btn-attachment:hover:not(:disabled) {
+  background: rgba(0,0,0,0.08);
+  color: var(--octo-text-primary);
+}
+.octo-btn-attachment:disabled {
+  color: var(--octo-text-disabled);
+  cursor: not-allowed;
+}
+
+.octo-btn-send {
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--octo-brand);
+  color: #FFFFFF;
+  cursor: pointer;
+}
+.octo-btn-send:hover:not(:disabled) {
+  background: var(--octo-brand-hover);
+}
+.octo-btn-send:disabled {
+  background: var(--octo-surface-disabled);
+  color: var(--octo-text-disabled);
+  cursor: not-allowed;
+}
+
+.octo-btn-action {
+  color: var(--octo-text-secondary);
+  background: transparent;
+}
+.octo-btn-action:hover {
+  color: var(--octo-text-primary);
+  background: rgba(0,0,0,0.05);
 }

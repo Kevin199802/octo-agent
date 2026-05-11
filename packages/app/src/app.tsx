@@ -141,9 +141,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
         </AppShellProviders>
       }
     >
-      <Show when={isInsight()} fallback={<OctoPageShell>{props.children}</OctoPageShell>}>
-        <OctoShell>{props.children}</OctoShell>
-      </Show>
+      <OctoShell withSidebar={isInsight()}>{props.children}</OctoShell>
     </Show>
   )
 }
