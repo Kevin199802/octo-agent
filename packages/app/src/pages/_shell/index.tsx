@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js"
+import { createSignal, Show } from "solid-js"
 import type { ParentProps } from "solid-js"
 import { OctoSidebar } from "./sidebar"
 import { OctoTopbar } from "./topbar"
