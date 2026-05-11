@@ -42,7 +42,7 @@ export function OctoTopbar(): JSX.Element {
 
   return (
     <div
-      class="h-[48px] shrink-0 flex items-center gap-[16px]"
+      class="h-[56px] shrink-0 flex items-center gap-[16px]"
       style={{
         background: "rgba(255, 255, 255, 0.72)",
         "backdrop-filter": "blur(20px)",

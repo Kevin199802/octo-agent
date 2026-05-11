@@ -1,0 +1,54 @@
+/**
+ * Octo 设计系统 Token
+ * 与上游 opencode token 完全隔离，统一用 --octo- 前缀。
+ * 所有 Octo 页面和 Shell 组件通过 var(--octo-*) 引用，不直接写颜色值。
+ */
+:root {
+  /* ── Brand ─────────────────────────────── */
+  --octo-brand:        #0067D1;
+  --octo-brand-hover:  #2E86DE;
+  --octo-brand-active: #004EA8;
+  --octo-brand-subtle: #EFF6FF;   /* surface.selected */
+
+  /* brand alpha 层级 */
+  --octo-brand-a3:  rgba(0, 103, 209, 0.03);
+  --octo-brand-a8:  rgba(0, 103, 209, 0.08);
+  --octo-brand-a20: rgba(0, 103, 209, 0.20);
+  --octo-brand-a25: rgba(0, 103, 209, 0.25);
+  --octo-brand-a40: rgba(0, 103, 209, 0.40);
+
+  /* ── Text ───────────────────────────────── */
+  --octo-text-strong:      #101828;
+  --octo-text-primary:     #191919;
+  --octo-text-tertiary:    #364153;  /* nav 分组标题 */
+  --octo-text-secondary:   #777777;  /* 辅助说明 */
+  --octo-text-placeholder: #9CA3AF;  /* 输入框 placeholder */
+  --octo-text-disabled:    #BFBFBF;
+
+  /* ── Surface ────────────────────────────── */
+  --octo-surface-page:     #FFFFFF;
+  --octo-surface-selected: #EFF6FF;
+  --octo-surface-hover:    #F5F5F5;
+  --octo-surface-disabled: #F5F5F5;
+  --octo-surface-result:   #F8F9FC;  /* ResultViewer 背景 */
+  --octo-shell-bg:         #F3F6FB;  /* shell 整体背景 */
+
+  /* ── Border ─────────────────────────────── */
+  --octo-border-default: #E5E7EB;
+  --octo-border-input:   #C9C9C9;
+  --octo-border-divider: rgba(0, 0, 0, 0.07);  /* 面板间分隔线 */
+
+  /* ── Radius ─────────────────────────────── */
+  --octo-radius-sm: 4px;
+  --octo-radius-md: 6px;
+  --octo-radius-lg: 8px;
+
+  /* ── Typography ─────────────────────────── */
+  --octo-font: "HarmonyOS Sans", Inter, "Noto Sans JP", system-ui,
+               -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* ── Motion ─────────────────────────────── */
+  --octo-dur-fast:   100ms;
+  --octo-dur-normal: 200ms;
+  --octo-ease:       cubic-bezier(0.4, 0, 0.2, 1);
+}

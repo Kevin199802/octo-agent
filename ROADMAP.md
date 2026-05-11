@@ -12,17 +12,13 @@
 
 ---
 
-## 当前 — InsightPage 核心流程精细化（Phase 1）
+## 当前 — InsightPage Phase 1 收尾 + Phase 2 准备
 
-> 目标：文件上传 → MCP 分析 → 输出卡片 → 结果查看（表格）端到端跑通。
+> Phase 1 UI 核心组件已落地，进入视觉精细化与 MCP 联调阶段。
 > Spec 总览：[docs/specs/ui/insight-overview.md](docs/specs/ui/insight-overview.md)
 
 | 规模 | 领域 | 任务 | 完成标准 | Spec / 文档 |
 |-----|------|------|------|------|
-| `[M]` | ui | **InsightPage 布局重构（3栏）** | 对话面板 280px + ResultViewer flex-1；从当前 2 栏改为 3 栏；整体跑通 | insight-overview |
-| `[M]` | ui | **AttachmentBar — 文件附件上传 + 大文件路由** | chips 显示；文件选择器；× 删除；txt < 30KB 直接注入 context，其余追加提示引导 LLM 调 upload_document | [insight-attachment.md](docs/specs/ui/insight-attachment.md) |
-| `[M]` | ui | **InsightTurn + OutputCard — 对话输出卡片** | 用户消息/reasoning/OutputCard 分区显示；卡片含标题+时间+类型；点击联动 ResultViewer | [insight-conversation.md](docs/specs/ui/insight-conversation.md) |
-| `[L]` | ui | **ResultViewer — Tab 结果查看器（表格）** | Tab 管理（新建/切换/关闭）；TableRenderer 渲染 markdown 表格；ActionBar 复制/下载 | [insight-result-viewer.md](docs/specs/ui/insight-result-viewer.md) |
 | `[S]` | agents | **research.md — tool 声明 + 工作流 prompt** | 声明 upload_document / analyze_interview 等工具；含 analysis_type 选择指南；本地跑通一轮观点解析 | [integration.md §6.4](docs/integration.md) |
 | `[M]` | infra | **MCP 接入：octo.config.json + 联调验证** | remote 模式配置跑通；DevTools 出现 `[mcp] connected` + tool 清单；上传文件后 Console 出现 upload_document 调用 | [integration.md §6–§8](docs/integration.md) |
 
@@ -75,3 +71,8 @@
 | `[S]` | infra | 动态端口修复 | preload 注入真实端口，不再写死 4096 |
 | `[L]` | docs | 架构与学习文档体系 | architecture.md / learning/ 8 篇 / specs/ 若干 |
 | `[L]` | ui | Vue 3 UI 重写（已废弃） | 被 ADR-004 取代，代码已删除 |
+| `[M]` | ui | **InsightPage 布局重构（3栏）** | 对话面板 280px + ResultViewer flex-1 + 右栏占位；拖拽调宽；octo-tokens.css 设计系统隔离 | insight-overview |
+| `[M]` | ui | **AttachmentBar — 文件附件上传** | chips 显示；文件选择器；× 删除；最多 5 个；DnD 拖拽 | insight-attachment.md |
+| `[M]` | ui | **InsightTurn + OutputCard — 对话输出卡片** | detectCard 解析 table/mindmap/json/markdown；卡片含标题+类型+时间戳；点击联动 ResultViewer | insight-conversation.md |
+| `[L]` | ui | **ResultViewer — Tab 结果查看器（表格）** | Tab 管理（新建/切换/关闭）；TableRenderer；ActionBar 复制/下载；MermaidPlaceholder/JsonRenderer | insight-result-viewer.md |
+| `[S]` | ui | **OctoShell sidebar 精细化** | 侧栏宽度可拖拽（160–360px）；session 标题生成骨架动效；新建会话 + 按钮 | — |

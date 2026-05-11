@@ -14,7 +14,7 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
       fill="none"
       style={{
         transform: props.collapsed ? "rotate(0deg)" : "rotate(90deg)",
-        transition: "transform 150ms ease",
+        transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
         "flex-shrink": "0",
       }}
     >
@@ -63,7 +63,12 @@ const NAV_ITEMS = [
   { key: "knowledge_base", label: "资产库", Icon: AssetIcon },
 ] as const
 
-export function OctoSidebar(): JSX.Element {
+// 判断 session 标题是否还在生成中（仍是默认占位标题）
+function isTitlePending(title: string): boolean {
+  return /^New session/.test(title)
+}
+
+export function OctoSidebar(props: { width: number }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const navigate = useNavigate()
@@ -93,46 +98,38 @@ export function OctoSidebar(): JSX.Element {
   const [insightCollapsed, setInsightCollapsed] = createSignal(false)
   const [activeNav, setActiveNav] = createSignal<string | null>(null)
 
-  async function newSession() {
-    const dir = homeDir()
-    if (!dir) return
-    try {
-      const result = await globalSDK.client.session.create({ directory: dir })
-      const session = result.data as Session | undefined
-      if (session) navigate(`/insight/${session.id}`)
-    } catch (err) {
-      console.error("[OctoSidebar] session.create failed", err)
-    }
+  function newSession() {
+    navigate("/insight")
   }
 
   return (
     <div
       class="shrink-0 flex flex-col h-full overflow-hidden"
       style={{
-        width: "240px",
-        background: "rgba(255, 252, 255, 0)",
-        "backdrop-filter": "blur(4px)",
-        "-webkit-backdrop-filter": "blur(4px)",
+        width: `${props.width}px`,
+        background: "transparent",
+        "border-right": "1px solid var(--octo-border-default, #E5E7EB)",
       }}
     >
       {/* Scrollable: Insight + Make sessions */}
       <div
-        class="flex-1 min-h-0 overflow-y-auto px-[12px] py-[4px]"
+        class="flex-1 min-h-0 overflow-y-auto px-[12px] py-[6px]"
         style={{ "scrollbar-width": "none" }}
       >
         {/* ─── Octo Insight ─── */}
-        <div class="mb-[4px]">
-          <div class="flex items-center px-[4px] py-[5px]">
+        <div class="mb-[2px]">
+          {/* 分组标题行 */}
+          <div class="flex items-center h-[32px] px-[4px]">
             <button
               type="button"
               onClick={() => setInsightCollapsed((v) => !v)}
               class="flex items-center gap-[4px] flex-1 min-w-0 text-left"
-              style={{ color: "rgba(25,25,25,0.4)" }}
+              style={{ color: "var(--octo-text-secondary, #777777)" }}
             >
               <ChevronRightIcon collapsed={insightCollapsed()} />
               <span
-                class="text-[12px] font-semibold select-none"
-                style={{ color: "rgba(25,25,25,0.55)" }}
+                class="text-[12px] font-medium select-none leading-[20px]"
+                style={{ color: "var(--octo-text-tertiary, #364153)" }}
               >
                 Octo Insight
               </span>
@@ -141,8 +138,10 @@ export function OctoSidebar(): JSX.Element {
               type="button"
               onClick={newSession}
               title="新建 Insight 对话"
-              class="w-5 h-5 flex items-center justify-center rounded-md transition-colors hover:bg-[rgba(20,118,255,0.08)]"
-              style={{ color: "rgba(25,25,25,0.4)" }}
+              class="w-[24px] h-[24px] flex items-center justify-center rounded-[4px] transition-colors"
+              style={{ color: "var(--octo-text-secondary, #777777)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-brand-a8, rgba(0,103,209,0.08))"; e.currentTarget.style.color = "var(--octo-brand, #0067D1)" }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = ""; e.currentTarget.style.color = "var(--octo-text-secondary, #777777)" }}
             >
               <PlusIcon />
             </button>
@@ -153,15 +152,15 @@ export function OctoSidebar(): JSX.Element {
               <Show
                 when={!sessions.loading}
                 fallback={
-                  <div class="px-[12px] py-[3px] text-[11px]" style={{ color: "rgba(25,25,25,0.3)" }}>
-                    加载中…
+                  <div class="px-[8px] py-[6px]">
+                    <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
                   </div>
                 }
               >
                 <Show
                   when={(sessions() ?? []).length > 0}
                   fallback={
-                    <div class="px-[12px] py-[3px] text-[11px]" style={{ color: "rgba(25,25,25,0.3)" }}>
+                    <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
                       暂无对话
                     </div>
                   }
@@ -169,17 +168,37 @@ export function OctoSidebar(): JSX.Element {
                   <For each={sessions() ?? []}>
                     {(session) => {
                       const isActive = () => activeSessionId() === session.id
+                      const pending = () => isTitlePending(session.title)
                       return (
                         <button
                           type="button"
                           onClick={() => navigate(`/insight/${session.id}`)}
                           classList={{
-                            "w-full text-left px-[12px] py-[6px] rounded-[6px] text-[12px] truncate transition-colors": true,
-                            "bg-[rgba(20,118,255,0.12)] text-[#0a59f7] font-medium": isActive(),
-                            "text-[#191919] hover:bg-[rgba(0,0,0,0.05)]": !isActive(),
+                            "w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center": true,
                           }}
+                          style={{
+                            height: "32px",
+                            background: isActive() ? "var(--octo-surface-selected, #EFF6FF)" : "transparent",
+                            color: isActive() ? "var(--octo-brand, #0067D1)" : "var(--octo-text-primary, #191919)",
+                            "font-weight": isActive() ? "500" : "400",
+                          }}
+                          onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
+                          onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.background = "transparent" }}
                         >
-                          {session.title || "无标题"}
+                          <Show
+                            when={pending()}
+                            fallback={<span class="truncate block w-full">{session.title || "无标题"}</span>}
+                          >
+                            {/* 标题生成中：骨架动效 */}
+                            <span
+                              class="inline-block rounded-[3px] animate-pulse"
+                              style={{
+                                width: "72px",
+                                height: "10px",
+                                background: isActive() ? "var(--octo-brand-a20, rgba(0,103,209,0.2))" : "rgba(0,0,0,0.1)",
+                              }}
+                            />
+                          </Show>
                         </button>
                       )
                     }}
@@ -191,18 +210,18 @@ export function OctoSidebar(): JSX.Element {
         </div>
 
         {/* ─── Octo Make ─── */}
-        <div class="mb-[4px]">
-          <div class="flex items-center px-[4px] py-[5px]">
+        <div class="mb-[2px]">
+          <div class="flex items-center h-[32px] px-[4px]">
             <div
               class="flex items-center gap-[4px] flex-1 min-w-0"
-              style={{ color: "rgba(25,25,25,0.4)" }}
+              style={{ color: "var(--octo-text-secondary, #777777)" }}
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ "flex-shrink": "0" }}>
                 <path d="M4.5 2.5L7.5 6L4.5 9.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
               <span
-                class="text-[12px] font-semibold select-none"
-                style={{ color: "rgba(25,25,25,0.55)" }}
+                class="text-[12px] font-medium select-none leading-[20px]"
+                style={{ color: "var(--octo-text-tertiary, #364153)" }}
               >
                 Octo Make
               </span>
@@ -210,22 +229,24 @@ export function OctoSidebar(): JSX.Element {
             <button
               type="button"
               title="新建 Make 对话"
-              class="w-5 h-5 flex items-center justify-center rounded-md transition-colors hover:bg-[rgba(20,118,255,0.08)]"
-              style={{ color: "rgba(25,25,25,0.4)" }}
+              class="w-[24px] h-[24px] flex items-center justify-center rounded-[4px] transition-colors"
+              style={{ color: "var(--octo-text-secondary, #777777)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-brand-a8, rgba(0,103,209,0.08))"; e.currentTarget.style.color = "var(--octo-brand, #0067D1)" }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = ""; e.currentTarget.style.color = "var(--octo-text-secondary, #777777)" }}
             >
               <PlusIcon />
             </button>
           </div>
-          <div class="px-[12px] py-[3px] text-[11px]" style={{ color: "rgba(25,25,25,0.3)" }}>
+          <div class="px-[8px] py-[2px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
             即将上线
           </div>
         </div>
       </div>
 
-      {/* Fixed bottom: 技能库 / 资产库 nav items */}
+      {/* Fixed bottom: 技能库 / 资产库 */}
       <div
-        class="shrink-0 flex flex-col gap-[2px] px-[12px] pt-[6px]"
-        style={{ "border-top": "1px solid rgba(0,0,0,0.06)" }}
+        class="shrink-0 flex flex-col gap-[2px] px-[8px] pt-[6px]"
+        style={{ "border-top": "1px solid var(--octo-border-default, #E5E7EB)" }}
       >
         <For each={NAV_ITEMS}>
           {(item) => {
@@ -236,19 +257,30 @@ export function OctoSidebar(): JSX.Element {
                 onClick={() => setActiveNav((v) => (v === item.key ? null : item.key))}
                 title={item.label}
                 classList={{
-                  "w-full relative flex items-center gap-[12px] px-[12px] py-[9px] rounded-[8px] transition-colors text-[14px]": true,
-                  "bg-[rgba(239,246,255,0.85)] text-[#0a59f7] font-medium": isActive(),
-                  "text-[#191919] hover:bg-[#f2f2f2]": !isActive(),
+                  "w-full relative flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors text-[14px] leading-[22px]": true,
                 }}
+                style={{
+                  height: "36px",
+                  background: isActive() ? "var(--octo-surface-selected, #EFF6FF)" : "transparent",
+                  color: isActive() ? "var(--octo-brand, #0067D1)" : "var(--octo-text-primary, #191919)",
+                  "font-weight": isActive() ? "500" : "400",
+                }}
+                onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
+                onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.background = "transparent" }}
               >
                 <span class="flex items-center justify-center shrink-0">
                   <item.Icon />
                 </span>
-                <span class="whitespace-nowrap leading-[22px]">{item.label}</span>
+                <span class="whitespace-nowrap">{item.label}</span>
                 <Show when={isActive()}>
                   <span
-                    class="absolute right-[4px] top-1/2 rounded-[99px] bg-[#0a59f7]"
-                    style={{ height: "32px", width: "4px", transform: "translateY(-50%)" }}
+                    class="absolute right-0 top-1/2 rounded-l-[3px]"
+                    style={{
+                      height: "20px",
+                      width: "3px",
+                      background: "var(--octo-brand, #0067D1)",
+                      transform: "translateY(-50%)",
+                    }}
                   />
                 </Show>
               </button>
@@ -258,14 +290,17 @@ export function OctoSidebar(): JSX.Element {
       </div>
 
       {/* Settings */}
-      <div class="shrink-0 px-[12px] py-[8px]">
+      <div class="shrink-0 px-[8px] py-[8px]">
         <button
           type="button"
           title="设置"
-          class="w-full h-9 rounded-[10px] flex items-center gap-2 px-[12px] transition-colors text-[#191919] hover:bg-[#f5f5f5]"
+          class="w-full flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors"
+          style={{ height: "36px", color: "var(--octo-text-primary, #191919)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
         >
           <SettingsIcon />
-          <span class="text-[14px] leading-none">设置</span>
+          <span class="text-[14px] leading-[22px]">设置</span>
         </button>
       </div>
     </div>
