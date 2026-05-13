@@ -77,8 +77,8 @@ function getConfig() {
       return {
         ...base,
         appId: "ai.octoagent.desktop.dev",
-        productName: "Octo Dev",
-        protocols: { name: "Octo Dev", schemes: ["octo-agent-dev"] },
+        productName: "Octo AI",
+        protocols: { name: "Octo AI", schemes: ["octo-agent-dev"] },
         rpm: { packageName: "octo-dev" },
       }
     }

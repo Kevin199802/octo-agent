@@ -31,16 +31,16 @@ if (!process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT) {
 }
 
 const APP_NAMES: Record<string, string> = {
-  dev: "OctoAI",
-  beta: "OctoAI Beta",
-  prod: "OctoAI",
+  dev: "Octo AI",
+  beta: "Octo AI Beta",
+  prod: "Octo AI",
 }
 const APP_IDS: Record<string, string> = {
   dev: "ai.octoagent.desktop.dev",
   beta: "ai.octoagent.desktop.beta",
   prod: "ai.octoagent.desktop",
 }
-app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "OctoAI")
+app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "Octo AI")
 app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? APP_IDS[CHANNEL] : "ai.octoagent.desktop.dev"))
 const { autoUpdater } = pkg
 

@@ -109,6 +109,19 @@ bun run --cwd packages/desktop-electron dev
 
 opencode 源码没改时第一次跑过就够了,后续 dev 仍会重复。如果想跳过:`cd packages/desktop-electron && bunx electron-vite dev`。
 
+### 应用名称的配置位置
+
+"Octo AI" 这个名称在以下四处维护，改名时需同步修改：
+
+| 文件 | 字段 | 作用 |
+|---|---|---|
+| [`packages/desktop-electron/package.json`](../packages/desktop-electron/package.json) | `productName` | Electron 启动前的默认名（`app.getName()` 初始值） |
+| [`packages/desktop-electron/src/main/index.ts`](../packages/desktop-electron/src/main/index.ts) | `APP_NAMES` + `app.setName()` | 运行时名称（macOS 菜单栏左上角；三个 channel 分别配） |
+| [`packages/desktop-electron/electron-builder.config.ts`](../packages/desktop-electron/electron-builder.config.ts) | `productName`（各 channel） | 打包产物 `.app` 名称（Dock tooltip 在打包版中的来源） |
+| [`packages/desktop-electron/scripts/predev.ts`](../packages/desktop-electron/scripts/predev.ts) | `plutil -replace CFBundleDisplayName/CFBundleName` | dev 模式下 plist 补丁（修正 Electron binary 的 bundle 元数据） |
+
+> dev 模式下 Dock tooltip 仍显示 "Electron"（electron-vite 直接 spawn 二进制，macOS 用二进制文件名作为进程名），属已知限制，打包产物不受影响。
+
 ---
 
 ## 4. 仅前端调试(Mode A:可选)
