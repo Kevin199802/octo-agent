@@ -5,6 +5,7 @@ import type { ResultTab } from "./tab-store"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
+import { IllustrationResultEmpty } from "../../icons/illustrations"
 
 // ── 从 markdown 字符串里提取第一个特定语言代码块的内容 ──────────
 function extractCodeBlock(text: string, lang: string): string {
@@ -128,10 +129,7 @@ export function ResultViewer(props: {
 function ResultViewerEmpty(): JSX.Element {
   return (
     <div class="flex flex-col items-center justify-center h-full gap-2 text-center px-8">
-      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" style={{ color: "var(--octo-border-input)" }}>
-        <rect x="6" y="4" width="20" height="24" rx="2" stroke="currentColor" stroke-width="1.5" />
-        <path d="M11 11H21M11 16H21M11 21H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-      </svg>
+      <IllustrationResultEmpty width={80} height={80} />
       <div class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>对话产出将在这里展示</div>
       <div class="text-[12px]" style={{ color: "var(--octo-text-disabled)" }}>点击左侧输出卡片即可打开</div>
     </div>

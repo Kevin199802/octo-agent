@@ -4,14 +4,16 @@ import type { JSX } from "solid-js"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import {
+  IconSkill, IconSkill1,
+  IconAsset, IconAsset1,
+  IconSettings, IconSettings1,
+} from "./icons"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
     <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
+      width="12" height="12" viewBox="0 0 12 12" fill="none"
       style={{
         transform: props.collapsed ? "rotate(0deg)" : "rotate(90deg)",
         transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
@@ -31,36 +33,9 @@ function PlusIcon(): JSX.Element {
   )
 }
 
-function SkillIcon(): JSX.Element {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M8 1L9.73 5.27L14 5.27L10.63 7.96L11.74 12.4L8 9.8L4.26 12.4L5.37 7.96L2 5.27L6.27 5.27L8 1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
-    </svg>
-  )
-}
-
-function AssetIcon(): JSX.Element {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M1.5 5L8 1.5L14.5 5V11L8 14.5L1.5 11V5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
-      <path d="M1.5 5L8 8.5L14.5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-      <path d="M8 8.5V14.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-    </svg>
-  )
-}
-
-function SettingsIcon(): JSX.Element {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2" />
-      <path d="M8 1.5V3M8 13V14.5M1.5 8H3M13 8H14.5M3.5 3.5L4.5 4.5M11.5 11.5L12.5 12.5M12.5 3.5L11.5 4.5M4.5 11.5L3.5 12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-    </svg>
-  )
-}
-
 const NAV_ITEMS = [
-  { key: "skill_market", label: "技能库", Icon: SkillIcon },
-  { key: "knowledge_base", label: "资产库", Icon: AssetIcon },
+  { key: "skill_market", label: "技能库", Icon: IconSkill, IconActive: IconSkill1 },
+  { key: "knowledge_base", label: "资产库", Icon: IconAsset, IconActive: IconAsset1 },
 ] as const
 
 // 判断 session 标题是否还在生成中（仍是默认占位标题）
@@ -280,7 +255,9 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                 onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.background = "transparent" }}
               >
                 <span class="flex items-center justify-center shrink-0">
-                  <item.Icon />
+                  <Show when={isActive()} fallback={<item.Icon size={16} />}>
+                    <item.IconActive size={16} />
+                  </Show>
                 </span>
                 <span class="whitespace-nowrap">{item.label}</span>
                 <Show when={isActive()}>
@@ -310,7 +287,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
           onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
         >
-          <SettingsIcon />
+          <IconSettings size={16} />
           <span class="text-[14px] leading-[22px]">设置</span>
         </button>
       </div>

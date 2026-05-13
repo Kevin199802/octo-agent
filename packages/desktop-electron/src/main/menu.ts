@@ -1,4 +1,4 @@
-import { Menu, shell } from "electron"
+import { app, Menu, shell } from "electron"
 
 import { UPDATER_ENABLED } from "./constants"
 import { createMainWindow } from "./windows"
@@ -15,7 +15,7 @@ export function createMenu(deps: Deps) {
 
   const template: Electron.MenuItemConstructorOptions[] = [
     {
-      label: "OpenCode",
+      label: app.getName(),
       submenu: [
         { role: "about" },
         {

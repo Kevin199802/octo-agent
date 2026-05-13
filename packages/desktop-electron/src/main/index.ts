@@ -31,16 +31,16 @@ if (!process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT) {
 }
 
 const APP_NAMES: Record<string, string> = {
-  dev: "Octo Dev",
-  beta: "Octo Beta",
-  prod: "Octo Agent",
+  dev: "OctoAI",
+  beta: "OctoAI Beta",
+  prod: "OctoAI",
 }
 const APP_IDS: Record<string, string> = {
   dev: "ai.octoagent.desktop.dev",
   beta: "ai.octoagent.desktop.beta",
   prod: "ai.octoagent.desktop",
 }
-app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "Octo Dev")
+app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "OctoAI")
 app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? APP_IDS[CHANNEL] : "ai.octoagent.desktop.dev"))
 const { autoUpdater } = pkg
 
@@ -70,6 +70,7 @@ const logger = initLogging()
 logger.log("app starting", {
   version: app.getVersion(),
   packaged: app.isPackaged,
+  appName: app.getName(),
 })
 
 setupApp()
@@ -116,6 +117,9 @@ function setupApp() {
   void app.whenReady().then(async () => {
     app.setAsDefaultProtocolClient("opencode")
     setDockIcon()
+    // Set menu immediately so macOS never shows the default "Electron" label
+    // during the server startup phase. wireMenu() will replace this once ready.
+    createMenu({ trigger: () => {}, checkForUpdates: () => {}, reload: () => {}, relaunch: () => {} })
     setupAutoUpdater()
     await initialize()
   })

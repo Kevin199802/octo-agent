@@ -1,31 +1,28 @@
-import { For } from "solid-js"
-import type { JSX } from "solid-js"
+import { For, Show } from "solid-js"
+import type { Component, JSX } from "solid-js"
 import { useLocation, useNavigate } from "@solidjs/router"
+import {
+  OctoLogo, IconSearch,
+  IconChat, IconChat1,
+  IconCowork, IconCowork1,
+  IconStudio, IconStudio1,
+} from "./icons"
 
-type TabDef = { label: string; href: string }
+type TabDef = {
+  label: string
+  href: string
+  Icon: Component<{ size?: number }>
+  IconActive: Component<{ size?: number }>
+}
 
 const TABS: TabDef[] = [
-  { label: "Chat", href: "/chat" },
-  { label: "Cowork", href: "/insight" },
-  { label: "Studio", href: "/studio" },
+  { label: "Chat", href: "/chat", Icon: IconChat, IconActive: IconChat1 },
+  { label: "Cowork", href: "/insight", Icon: IconCowork, IconActive: IconCowork1 },
+  { label: "Studio", href: "/studio", Icon: IconStudio, IconActive: IconStudio1 },
 ]
 
 // macOS traffic lights end at x≈80px (x:12 origin + 3 buttons + spacing ≈ 68px)
 const TRAFFIC_LIGHT_INSET = 80
-
-function OctoLogoIcon(): JSX.Element {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-      <path d="M10.0293 0.887569C11.1594 -0.295261 12.9919 -0.296126 14.1221 0.886593L19.8516 6.88366C20.9815 8.06659 20.9807 9.98498 19.8506 11.1678L14.8232 16.4296L17.3926 19.119L21.0771 15.2645L24 18.2206L20.3115 22.0809C18.7533 23.7114 16.1488 23.7107 14.5908 22.08L12 19.368L9.44043 22.0467C7.86502 23.6956 5.2318 23.6955 3.65625 22.0467L0 18.2206L2.92285 15.2655L6.60645 19.12L9.25195 16.3514L4.29883 11.1678C3.16918 9.98489 3.16984 8.0664 4.2998 6.88366L10.0293 0.887569ZM8.02441 9.08679L12.1162 13.371L16.209 9.08679L12.1162 4.80359L8.02441 9.08679Z" fill="url(#topbar-logo-grad)" />
-      <defs>
-        <linearGradient id="topbar-logo-grad" x1="10.9968" y1="14.3721" x2="19.7973" y2="23.3463" gradientUnits="userSpaceOnUse">
-          <stop stop-color="#015DE1" />
-          <stop offset="1" stop-color="#64CDF7" />
-        </linearGradient>
-      </defs>
-    </svg>
-  )
-}
 
 export function OctoTopbar(): JSX.Element {
   const navigate = useNavigate()
@@ -58,7 +55,7 @@ export function OctoTopbar(): JSX.Element {
         class="flex items-center gap-[8px] shrink-0"
         style={{ "min-width": "160px", "-webkit-app-region": "no-drag" }}
       >
-        <OctoLogoIcon />
+        <OctoLogo size={24} />
         <span class="font-semibold text-[17px] text-[#191919] leading-none select-none">Octo AI</span>
       </div>
 
@@ -73,8 +70,9 @@ export function OctoTopbar(): JSX.Element {
         >
           {/* Sliding pill */}
           <div
-            class="absolute top-[3px] bottom-[3px] rounded-[7px] bg-white"
+            class="absolute top-[3px] bottom-[3px] rounded-[7px]"
             style={{
+              background: "#ffffff",
               left: "3px",
               width: "calc((100% - 6px) / 3)",
               transform: `translateX(${tabIndex() * 100}%)`,
@@ -89,11 +87,14 @@ export function OctoTopbar(): JSX.Element {
                 <button
                   type="button"
                   onClick={() => navigate(tab.href)}
-                  class="relative z-10 flex-1 px-[22px] py-[6px] text-[13px] font-medium leading-none select-none rounded-[7px] transition-colors"
+                  class="relative z-10 flex-1 px-[18px] py-[5px] text-[13px] font-medium leading-none select-none rounded-[7px] transition-colors flex items-center justify-center gap-[5px]"
                   style={{ color: isActive() ? "var(--octo-brand)" : "rgba(0,0,0,0.42)" }}
-                  onMouseEnter={(e) => { if (!isActive()) { e.currentTarget.style.color = "var(--octo-text-primary)"; } }}
-                  onMouseLeave={(e) => { if (!isActive()) { e.currentTarget.style.color = "rgba(0,0,0,0.42)"; } }}
+                  onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.color = "var(--octo-text-primary)" }}
+                  onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.color = "rgba(0,0,0,0.42)" }}
                 >
+                  <Show when={isActive()} fallback={<tab.Icon size={14} />}>
+                    <tab.IconActive size={14} />
+                  </Show>
                   {tab.label}
                 </button>
               )
@@ -117,10 +118,7 @@ export function OctoTopbar(): JSX.Element {
             border: "1px solid rgba(0,0,0,0.09)",
           }}
         >
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
-            <circle cx="5.5" cy="5.5" r="3.5" stroke="currentColor" stroke-width="1.4" />
-            <path d="M8.5 8.5L11 11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-          </svg>
+          <IconSearch size={13} />
           <span>搜索对话和文件</span>
         </button>
         <div

@@ -1,5 +1,6 @@
 import type { JSX } from "solid-js"
 import type { ResultTab } from "./tab-store"
+import { IconActionCopy, IconActionDownload } from "../../icons"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).catch(console.error)
@@ -53,21 +54,21 @@ export function ActionBar(props: { tab: ResultTab }): JSX.Element {
     >
       <span class="text-xs truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
       <div class="flex items-center gap-0.5">
-        <ActionBtn icon="⎘" label="复制" onClick={() => copyToClipboard(props.tab.content)} />
-        <ActionBtn icon="↓" label="下载" onClick={handleDownload} />
+        <ActionBtn icon={<IconActionCopy size={14} />} label="复制" onClick={() => copyToClipboard(props.tab.content)} />
+        <ActionBtn icon={<IconActionDownload size={14} />} label="下载" onClick={handleDownload} />
       </div>
     </div>
   )
 }
 
-function ActionBtn(props: { icon: string; label: string; onClick: () => void }): JSX.Element {
+function ActionBtn(props: { icon: JSX.Element; label: string; onClick: () => void }): JSX.Element {
   return (
     <button
       type="button"
       onClick={props.onClick}
       class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action"
     >
-      <span>{props.icon}</span>
+      {props.icon}
       <span>{props.label}</span>
     </button>
   )

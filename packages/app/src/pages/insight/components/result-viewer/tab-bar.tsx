@@ -1,6 +1,7 @@
 import { For } from "solid-js"
 import type { JSX } from "solid-js"
 import type { ResultTab } from "./tab-store"
+import { IconTabClose } from "../../icons"
 
 export function TabBar(props: {
   tabs: ResultTab[]
@@ -46,9 +47,7 @@ export function TabBar(props: {
                 }}
                 class="w-[16px] h-[16px] flex items-center justify-center rounded-full flex-shrink-0 transition-colors hover:bg-black/5 outline-none"
               >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <path d="M7.5 2.5L2.5 7.5M2.5 2.5l5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-                </svg>
+                <IconTabClose size={10} />
               </button>
             </div>
           )

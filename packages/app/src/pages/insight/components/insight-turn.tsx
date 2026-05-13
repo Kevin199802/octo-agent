@@ -4,6 +4,7 @@ import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { useData } from "@opencode-ai/ui/context"
 import { createMemo, Show } from "solid-js"
 import type { JSX } from "solid-js"
+import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown } from "../icons"
 
 export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json"
 
@@ -46,12 +47,14 @@ function detectCard(text: string): { type: OutputCardType; title: string } | nul
   return null
 }
 
-const TYPE_ICON: Record<OutputCardType, string> = {
-  table: "⊞",
-  mindmap: "⎇",
-  json: "{}",
-  file: "📄",
-  markdown: "📋",
+function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
+  switch (props.type) {
+    case "table": return <IconCardTable size={16} />
+    case "mindmap": return <IconCardMindmap size={16} />
+    case "json": return <IconCardJson size={16} />
+    case "file": return <IconCardFile size={16} />
+    case "markdown": return <IconCardMarkdown size={16} />
+  }
 }
 
 function formatTime(d: Date): string {
@@ -164,7 +167,7 @@ export function InsightTurn(props: {
             }}
           >
             <div class="flex items-center gap-2">
-              <span class="text-base flex-shrink-0 leading-none">{TYPE_ICON[card().type]}</span>
+              <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={card().type} /></span>
               <div class="flex flex-col gap-0.5 min-w-0 flex-1">
                 <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{card().title}</span>
                 <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(card().createdAt)}</span>

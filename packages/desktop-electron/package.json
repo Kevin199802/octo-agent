@@ -1,5 +1,6 @@
 {
   "name": "@octo/desktop",
+  "productName": "OctoAI",
   "private": true,
   "version": "1.4.7",
   "type": "module",

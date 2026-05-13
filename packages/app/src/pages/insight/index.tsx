@@ -23,6 +23,8 @@ import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
+import { IconAttach, IconSend } from "./icons"
+import { IllustrationInsightEmpty } from "./icons/illustrations"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -219,6 +221,7 @@ export default function InsightPage() {
       const textPart: TextPartInput = { type: "text", text }
       await globalSDK.client.session.prompt({
         sessionID: sessionId,
+        agent: "insight",
         parts: [textPart, ...fileParts],
       })
       setAttachments([])
@@ -400,8 +403,7 @@ export default function InsightPage() {
                     class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment"
                     title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
                   >
-                    <span style={{ "font-size": "14px", "line-height": "1" }}>＋</span>
-                    <span>附件</span>
+                    <IconAttach size={14} />
                   </button>
 
                   <button
@@ -410,11 +412,7 @@ export default function InsightPage() {
                     disabled={!prompt().trim() || inputDisabled()}
                     class="octo-btn-send flex-shrink-0"
                   >
-                    {sending() ? "…" : (
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                        <path d="M1 7h10M7 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                      </svg>
-                    )}
+                    {sending() ? "…" : <IconSend size={14} />}
                   </button>
                 </div>
               </div>
@@ -463,7 +461,8 @@ export default function InsightPage() {
 
 function ChatEmptyState(): JSX.Element {
   return (
-    <div class="size-full flex flex-col items-center justify-center gap-2 text-center px-8">
+    <div class="size-full flex flex-col items-center justify-center gap-3 text-center px-8">
+      <IllustrationInsightEmpty width={120} height={120} />
       <div class="text-[15px] font-semibold" style={{ color: "var(--octo-text-strong)" }}>Octo Insight</div>
       <div class="text-[13px] max-w-[200px] leading-relaxed" style={{ color: "var(--octo-text-secondary)" }}>
         上传访谈材料，发送指令开始分析
