@@ -123,30 +123,26 @@ LLM 实际收到：
 
 Layer 2 和 Layer 3 都是 per-call 的，区别在于：Layer 2 进 system role（指令性），Layer 3 进 user role（对话性）。这个角色分离让 LLM 能正确识别"任务约束"和"用户问题"。
 
-### 3.5 各层在仓库里的实际位置
+### 3.5 各层在仓库里的实际位置（开发期速查）
 
-| 层 | 角色 | 文件路径 | 说明 |
+> 这是开发时最常用的"我要改 prompt 应该改哪个文件"速查表。  
+> Layer 1 完整的部署架构见 [agent-deploy.md §2](agent-deploy.md) 和 [agent-config-deploy.md spec](../specs/infra/agent-config-deploy.md)。
+
+| 层 | 角色 | 文件路径 | 改了之后怎么生效 |
 |---|---|---|---|
-| L1 | agent.prompt 源 | `packages/agent/insight/agents/insight.md` | 仓库内真相来源（合入物） |
-| L1 | agent.prompt 打包副本 | `packages/desktop-electron/resources/agents/insight.md` | Electron bundle 内嵌副本，从源同步 |
-| L1 | agent.prompt 运行时 | `~/.config/octo/octo.config.json` 的 `agent.insight.prompt` 字段 | opencode 实际读取的位置 |
-| L2 | systemHint 定义 | `packages/app/src/pages/insight/store/prompt-template.ts` | 6 个模板的 systemHint 字符串数组 |
-| L2 | systemHint 调用 | `packages/app/src/pages/insight/index.tsx` 的 `handleSend` | `session.prompt({ system: template.systemHint })` |
+| L1 | agent.prompt 源（系统提示词） | `packages/agent/insight/agents/insight.md` | 重启 main 进程，cascading 自动注入到 runtime |
+| L1 | agent 结构 / MCP URL 源 | `packages/desktop-electron/resources/default-config.json` | 重启 main 进程，cascading 自动合并 |
+| L2 | systemHint 定义（6 个模板） | `packages/app/src/pages/insight/store/prompt-template.ts` | HMR 即时生效（前端代码） |
+| L2 | systemHint 调用 | `packages/app/src/pages/insight/index.tsx` 的 `handleSend` | HMR 即时生效 |
 | L3 | 用户输入 | （运行时，无文件） | 来自 `PromptInput` 组件 |
 
-**当前的同步痛点（L1 三处）**：
+**Layer 1 与 Layer 2 在不同包的原因**：
+- Layer 1（agent 定义、prompt）是 opencode 后端读取的，属于 agent 配置，源在 `packages/agent/`（合入物，会同步到内网仓库）
+- Layer 2（提示词模板）是前端 UI 代码，属于客户端业务逻辑，源在 `packages/app/src/pages/insight/`（同样是合入物）
 
-```
-packages/agent/insight/agents/insight.md           ← 改这里（源）
-        ↓ 手动 cp
-packages/desktop-electron/resources/agents/insight.md  ← Electron bundle 副本
-        ↓ 手动从 insight.md 复制 prompt 内容
-~/.config/octo/octo.config.json                    ← opencode 真正读这里
-```
+两者都是合入物，但归属不同：L1 给 opencode 读，L2 给前端用。
 
-改完 `insight.md` 不会自动生效，需要手动同步两次（cp 到 desktop-electron 副本 + 手动更新 octo.config.json 的 `agent.insight.prompt` 字段）。
-
-[ROADMAP P2 的"首次启动配置写入"](../../ROADMAP.md) 任务完成后，主进程会在启动时读 `default-config.json` 和打包的 insight.md 自动写入 `octo.config.json`，届时只需改 `insight.md` 一处。
+**运行时合并产物**（不要手动改）：`~/.config/octo/.octo-runtime.json` —— 主进程把 bundle 默认值（包含 L1）+ 用户文件（API key / model）合并后写入这里，opencode 实际读取它。详见 [ADR-008](../adr/008-cascading-config.md)。
 
 ---
 
