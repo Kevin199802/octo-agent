@@ -1,26 +1,16 @@
 # InsightPage 提示词模板选择器 — Spec
 
-> **前置阅读**：[docs/learning/agent-mental-model.md §9](../../learning/agent-mental-model.md) — 理解"提示词模板不是 subagent"这个前提。
->
-> **核心原则**：提示词模板是同一个 `insight` primary agent 下的 prompt template，不新建 agent，不新建 subagent。选择后由前端将对应的提示词前缀拼入用户输入，insight agent 的工具集和权限规则不变。
+> **架构决策**：[ADR-007](../../adr/007-prompt-template-via-system-field.md) — 模板指令通过 `session.prompt({ system })` 传递。  
+> **机制原理**：[per-call-system-prompt.md](../../learning/per-call-system-prompt.md) — opencode 的 system 字段拼接行为。  
+> **MCP 接口**：[mcp-contract.md](../agents/mcp-contract.md) — analyze_interview / search_reports 参数。
 
 ---
 
-## 1. 概念澄清：提示词模板 ≠ 子 agent
+## 1. 核心原则
 
-提示词模板改变的只是 LLM 收到的任务描述，不改变 agent 身份。
-
-用户选了"观点解析"，发送"帮我分析这份访谈"，实际发出去的消息是：
-
-```
-[提示词模板：观点解析] 请从附件访谈中提取关键用户发现，以 Markdown 表格输出（三列：访谈问题 | 用户观点 | 场景主体）。
-
-帮我分析这份访谈
-```
-
-insight agent 收到后，自然倾向于调用 `analyze_interview(analysis_type: "key_findings")`，输出表格。
-
-没有新 agent 注册，没有 task 工具调用，只是多了一段 prompt 前缀。
+- 模板指令通过 `session.prompt()` 的 `system` 字段传给 LLM，**不污染用户消息**
+- 同一个 `insight` primary agent，模板只是单次系统指令注入
+- agent.prompt（insight.md）描述全局工作流和工具规则，模板只补充"本轮用哪个 analysis_type"
 
 ---
 
@@ -38,68 +28,54 @@ insight agent 收到后，自然倾向于调用 `analyze_interview(analysis_type
 用研知识问答
 ```
 
-### 每个模式的规格
+### 每个模板的规格
 
-| 模式 | MCP analysis_type | prompt 前缀 | 期望输出 | MCP 工具状态 |
-|---|---|---|---|---|
-| 观点解析 | `key_findings` | 见下 | Markdown 表格 | ✅ Phase 1 |
-| 按提纲聚类 | `cluster_by_outline` | 见下 | Markdown 表格 | ⚠️ Phase 2 |
-| AI用户画像 | `generate_persona` | 见下 | Markdown 表格 | ⚠️ Phase 2 |
-| 思维导图 | `mindmap` | 见下 | JSON（客户端渲染） | ⚠️ Phase 2 |
-| 评估问题整理 | `evaluation_summary` | 见下 | Markdown 表格 | ⚠️ Phase 2 |
-| 用研知识问答 | —（调 `search_reports`） | 见下 | 纯文本 + 引用 | ✅ Phase 1 |
+| 模板 | analysis_type | systemHint（精简后） | MCP 工具状态 |
+|---|---|---|---|
+| 观点解析 | `key_findings` | 见下 | ✅ Phase 1 |
+| 按提纲聚类 | `cluster_by_outline` | 见下 | ⚠️ Phase 2 |
+| AI用户画像 | `generate_persona` | 见下 | ⚠️ Phase 2 |
+| 思维导图 | `mindmap` | 见下 | ⚠️ Phase 2 |
+| 评估问题整理 | `evaluation_summary` | 见下 | ⚠️ Phase 2 |
+| 用研知识问答 | —（`search_reports`） | 见下 | ✅ Phase 1 |
 
-### Prompt 前缀文本
+### systemHint 文本
+
+精简原则：只声明**本轮意图**和**输出约束**，工具调用细节由 insight.md 系统提示承担。
 
 **观点解析**
 ```
-[提示词模板：观点解析]
-请从附件访谈逐字稿中提取结构化用户观点，以 Markdown 表格输出，包含三列：访谈问题 | 用户观点 | 场景主体。
-先调用 upload_document 上传文件，再调用 analyze_interview(analysis_type: "key_findings")。
----
+本轮使用 analyze_interview(analysis_type="key_findings")。
+输出三列 Markdown 表格：访谈问题 | 用户观点 | 场景主体。
 ```
 
 **按提纲聚类**
 ```
-[提示词模板：按提纲聚类]
-请根据用户提供的提纲（或访谈大纲文件）对访谈内容分类聚合，以 Markdown 表格输出。
-先上传所有文件（upload_document），再调用 analyze_interview(analysis_type: "cluster_by_outline")。
-如果用户没有提供提纲，先询问。
----
+本轮使用 analyze_interview(analysis_type="cluster_by_outline")。
+若用户未提供提纲，先询问后再调用。
 ```
 
 **AI用户画像**
 ```
-[提示词模板：AI用户画像]
-请基于访谈内容构建用户画像，包含：目标与动机 | 典型行为 | 核心痛点 | 常用工具与环境。
-先上传文件（upload_document），再调用 analyze_interview(analysis_type: "generate_persona")。
----
+本轮使用 analyze_interview(analysis_type="generate_persona")。
+画像维度：目标与动机 | 典型行为 | 核心痛点 | 常用工具与环境。
 ```
 
 **思维导图**
 ```
-[提示词模板：思维导图]
-请将访谈内容生成思维导图。
-调用 analyze_interview(doc_urls=[context中的URL], analysis_type: "mindmap", context="...")，
-返回的 JSON 由客户端直接渲染，无需转换格式，直接输出原始 JSON 即可。
-Phase 1 临时方案（mindmap 类型尚未上线时）：读取文件内容，以文字描述核心结构。
----
+本轮使用 analyze_interview(analysis_type="mindmap")，返回 JSON 直接原样输出，客户端会渲染。
 ```
 
 **评估问题整理**
 ```
-[提示词模板：评估问题整理]
-请整理访谈中涉及的评估性问题及被访者的回答摘要，以 Markdown 表格输出（访谈问题 | 回答摘要 | 情感倾向）。
-先上传文件（upload_document），再调用 analyze_interview(analysis_type: "evaluation_summary")。
----
+本轮使用 analyze_interview(analysis_type="evaluation_summary")。
+输出三列：访谈问题 | 回答摘要 | 情感倾向。
 ```
 
 **用研知识问答**
 ```
-[提示词模板：用研知识问答]
-用户正在提问。如有必要，先调用 search_reports 检索已有报告作为参考，再回答。
-无需上传文件，除非用户明确附上了新材料。
----
+本轮使用 search_reports(query=用户问题)，无需文件。
+基于检索结果回答，标注引用来源。
 ```
 
 ---
@@ -107,13 +83,13 @@ Phase 1 临时方案（mindmap 类型尚未上线时）：读取文件内容，�
 ## 3. 数据模型
 
 ```ts
-// insight/store/prompt_template.ts
+// insight/store/prompt-template.ts
 
 export type PromptTemplateId =
   | "key_findings"
   | "cluster_by_outline"
   | "generate_persona"
-  | "mind_map"
+  | "mindmap"
   | "evaluation_summary"
   | "knowledge_qa"
 
@@ -121,8 +97,9 @@ export type PromptTemplate = {
   id: PromptTemplateId
   label: string
   group: string
-  promptPrefix: string
-  expectedOutput: "table" | "mermaid" | "text"
+  systemHint: string
+  /** Phase 1 是否可用（false 时 dropdown 选项 disabled） */
+  phase1Ready: boolean
 }
 
 export const PROMPT_TEMPLATES: PromptTemplate[] = [
@@ -130,47 +107,47 @@ export const PROMPT_TEMPLATES: PromptTemplate[] = [
     id: "key_findings",
     label: "观点解析",
     group: "访谈观点洞察",
-    promptPrefix: `[提示词模板：观点解析]\n请从附件访谈逐字稿中提取结构化用户观点，以 Markdown 表格输出，包含三列：访谈问题 | 用户观点 | 场景主体。\n先调用 upload_document 上传文件，再调用 analyze_interview(analysis_type: "key_findings")。\n---\n`,
-    expectedOutput: "table",
+    systemHint: `本轮使用 analyze_interview(analysis_type="key_findings")。\n输出三列 Markdown 表格：访谈问题 | 用户观点 | 场景主体。`,
+    phase1Ready: true,
   },
   {
     id: "cluster_by_outline",
     label: "按提纲聚类",
     group: "访谈观点洞察",
-    promptPrefix: `[提示词模板：按提纲聚类]\n请根据用户提供的提纲对访谈内容分类聚合，以 Markdown 表格输出。\n先上传所有文件（upload_document），再调用 analyze_interview(analysis_type: "cluster_by_outline")。\n如果用户没有提供提纲，先询问。\n---\n`,
-    expectedOutput: "table",
+    systemHint: `本轮使用 analyze_interview(analysis_type="cluster_by_outline")。\n若用户未提供提纲，先询问后再调用。`,
+    phase1Ready: false,
   },
   {
     id: "generate_persona",
     label: "AI用户画像",
     group: "访谈观点洞察",
-    promptPrefix: `[提示词模板：AI用户画像]\n请基于访谈内容构建用户画像，包含：目标与动机 | 典型行为 | 核心痛点 | 常用工具与环境。\n先上传文件（upload_document），再调用 analyze_interview(analysis_type: "generate_persona")。\n---\n`,
-    expectedOutput: "table",
+    systemHint: `本轮使用 analyze_interview(analysis_type="generate_persona")。\n画像维度：目标与动机 | 典型行为 | 核心痛点 | 常用工具与环境。`,
+    phase1Ready: false,
   },
   {
-    id: "mind_map",
+    id: "mindmap",
     label: "思维导图",
     group: "访谈观点洞察",
-    promptPrefix: `[提示词模板：思维导图]\n请调用 analyze_interview(analysis_type: "mindmap")，将 doc_urls 从 context 中提取后传入。返回 JSON 由客户端渲染，直接输出原始 JSON 即可。\nPhase 1 临时方案（mindmap 类型尚未上线时）：读取文件内容，以文字描述核心结构。\n---\n`,
-    expectedOutput: "mindmap-json",
+    systemHint: `本轮使用 analyze_interview(analysis_type="mindmap")，返回 JSON 直接原样输出，客户端会渲染。`,
+    phase1Ready: false,
   },
   {
     id: "evaluation_summary",
     label: "评估问题整理",
     group: "评估问题整理",
-    promptPrefix: `[提示词模板：评估问题整理]\n请整理访谈中涉及的评估性问题及被访者的回答摘要，以 Markdown 表格输出（访谈问题 | 回答摘要 | 情感倾向）。\n先上传文件（upload_document），再调用 analyze_interview(analysis_type: "evaluation_summary")。\n---\n`,
-    expectedOutput: "table",
+    systemHint: `本轮使用 analyze_interview(analysis_type="evaluation_summary")。\n输出三列：访谈问题 | 回答摘要 | 情感倾向。`,
+    phase1Ready: false,
   },
   {
     id: "knowledge_qa",
     label: "用研知识问答",
     group: "用研知识问答",
-    promptPrefix: `[提示词模板：用研知识问答]\n用户正在提问，如有必要先调用 search_reports 检索已有报告作为参考，再回答。\n无需上传文件，除非用户明确附上了新材料。\n---\n`,
-    expectedOutput: "text",
+    systemHint: `本轮使用 search_reports(query=用户问题)，无需文件。\n基于检索结果回答，标注引用来源。`,
+    phase1Ready: true,
   },
 ]
 
-export const DEFAULT_MODE_ID: PromptTemplateId = "key_findings"
+export const DEFAULT_TEMPLATE_ID: PromptTemplateId = "key_findings"
 ```
 
 ---
@@ -185,34 +162,36 @@ export const DEFAULT_MODE_ID: PromptTemplateId = "key_findings"
 └──────────────────────────────────────────────────────┘
 ```
 
-- 下拉按钮显示"当前分组/当前模式"（如"访谈观点洞察 / 观点解析"）
+- 下拉按钮显示"当前分组/当前模板"
 - 宽度自适应文字，最大 200px
-- 样式：与 `+ 附件` 按钮同级，文字色 `--octo-text-secondary`，hover 时高亮
+- 样式：与 `+ 附件` 按钮同级，文字色 `--octo-text-secondary`，hover 高亮
 
 ### 4.2 下拉菜单结构
 
 ```
 ┌─────────────────────────────────────────┐
 │  访谈观点洞察                            │  ← group label（灰色，不可点）
-│    ✓ 观点解析                           │  ← 选中态（checkmark）
-│      按提纲聚类                         │
-│      AI用户画像                         │
-│      思维导图                           │
-│  ────────────────────────────────────  │
-│  评估问题整理                            │  ← group label
-│      评估问题整理                       │
-│  ────────────────────────────────────  │
+│    ✓ 观点解析                           │  ← 选中态
+│      按提纲聚类             [Phase 2]   │  ← phase1Ready=false 灰显
+│      AI用户画像             [Phase 2]   │
+│      思维导图               [Phase 2]   │
+│  ─────────────────────────────────────  │
+│  评估问题整理                            │
+│      评估问题整理           [Phase 2]   │
+│  ─────────────────────────────────────  │
 │  用研知识问答                            │
 │      用研知识问答                       │
 └─────────────────────────────────────────┘
 ```
 
+`phase1Ready=false` 的项**可见但不可选**（鼠标悬浮显示"等 MCP server 实现 analysis_type"），避免用户误选后无响应。
+
 ### 4.3 组件实现草图
 
 ```tsx
-// insight/components/prompt_template-selector.tsx
+// insight/components/prompt-template-selector.tsx
 import { createSignal, For, Show } from "solid-js"
-import { PROMPT_TEMPLATES, type PromptTemplateId } from "../store/prompt_template"
+import { PROMPT_TEMPLATES, type PromptTemplateId } from "../store/prompt-template"
 
 type Props = {
   value: PromptTemplateId
@@ -221,58 +200,54 @@ type Props = {
 
 export function PromptTemplateSelector(props: Props) {
   const [open, setOpen] = createSignal(false)
+  const current = () => PROMPT_TEMPLATES.find(t => t.id === props.value)!
 
-  const current = () => PROMPT_TEMPLATES.find(m => m.id === props.value)!
-
-  // 按 group 分组
   const groups = () => {
     const map = new Map<string, typeof PROMPT_TEMPLATES>()
-    for (const m of PROMPT_TEMPLATES) {
-      if (!map.has(m.group)) map.set(m.group, [])
-      map.get(m.group)!.push(m)
+    for (const t of PROMPT_TEMPLATES) {
+      if (!map.has(t.group)) map.set(t.group, [])
+      map.get(t.group)!.push(t)
     }
     return [...map.entries()]
   }
 
   return (
-    <div class="prompt_template-selector" classList={{ open: open() }}>
-      <button
-        class="mode-trigger"
-        onClick={() => setOpen(v => !v)}
-        aria-haspopup="listbox"
-        aria-expanded={open()}
-      >
-        <span class="mode-label">
-          {current().group} / {current().label}
-        </span>
-        <span class="mode-chevron">▾</span>
+    <div class="prompt-template-selector" classList={{ open: open() }}>
+      <button class="template-trigger" onClick={() => setOpen(v => !v)}>
+        <span class="template-label">{current().group} / {current().label}</span>
+        <span class="template-chevron">▾</span>
       </button>
 
       <Show when={open()}>
-        <div class="mode-dropdown" role="listbox">
+        <div class="template-dropdown" role="listbox">
           <For each={groups()}>
-            {([group, modes], i) => (
+            {([group, templates], i) => (
               <>
-                <Show when={i() > 0}>
-                  <div class="mode-divider" />
-                </Show>
-                <div class="mode-group-label">{group}</div>
-                <For each={modes}>
-                  {mode => (
+                <Show when={i() > 0}><div class="template-divider" /></Show>
+                <div class="template-group-label">{group}</div>
+                <For each={templates}>
+                  {t => (
                     <button
-                      class="mode-option"
-                      classList={{ selected: mode.id === props.value }}
-                      role="option"
-                      aria-selected={mode.id === props.value}
+                      class="template-option"
+                      classList={{
+                        selected: t.id === props.value,
+                        disabled: !t.phase1Ready,
+                      }}
+                      disabled={!t.phase1Ready}
+                      title={t.phase1Ready ? "" : "等 MCP server 实现"}
                       onClick={() => {
-                        props.onChange(mode.id)
+                        if (!t.phase1Ready) return
+                        props.onChange(t.id)
                         setOpen(false)
                       }}
                     >
-                      <Show when={mode.id === props.value}>
-                        <span class="mode-check">✓</span>
+                      <Show when={t.id === props.value}>
+                        <span class="template-check">✓</span>
                       </Show>
-                      {mode.label}
+                      {t.label}
+                      <Show when={!t.phase1Ready}>
+                        <span class="template-phase-tag">[Phase 2]</span>
+                      </Show>
                     </button>
                   )}
                 </For>
@@ -290,21 +265,27 @@ export function PromptTemplateSelector(props: Props) {
 
 ## 5. 与 PromptInput 的集成
 
-提示词模板的状态持有在 `InsightPage` 或 `PromptInput` 的父层（与 attachment 同级）：
+### 5.1 状态持有
+
+提示词模板状态持有在 **`InsightPage` 顶层**（不放 PromptInput 内，因为 InsightPage 还需要把模板传给 ResultViewer 做 hint）。状态不跨 session 保留，切换 session 时重置默认值。
+
+### 5.2 发送逻辑
 
 ```tsx
 // insight/index.tsx — 相关片段
-const [analysisMode, setPromptTemplate] = createSignal<PromptTemplateId>("key_findings")
+import { PROMPT_TEMPLATES, DEFAULT_TEMPLATE_ID, type PromptTemplateId } from "./store/prompt-template"
 
-function handleSend(text: string, attachments: Attachment[]) {
-  const mode = PROMPT_TEMPLATES.find(m => m.id === analysisMode())!
+const [templateId, setTemplateId] = createSignal<PromptTemplateId>(DEFAULT_TEMPLATE_ID)
 
-  // 拼接 prompt 前缀
-  const fullText = mode.promptPrefix + text
+async function handleSend(text: string, attachments: Attachment[]) {
+  const template = PROMPT_TEMPLATES.find(t => t.id === templateId())!
 
-  session.prompt({
+  await globalSDK.client.session.prompt({
+    sessionID,
+    agent: "insight",
+    system: template.systemHint,                  // ← 模板指令走 system 字段
     parts: [
-      { type: "text", text: fullText },
+      { type: "text", text },                     // ← 用户消息保持原样
       ...attachments.map(a => ({
         type: "file" as const,
         mime: a.mime,
@@ -316,73 +297,83 @@ function handleSend(text: string, attachments: Attachment[]) {
 }
 ```
 
-**注意**：前缀只在发送时拼接，不显示在输入框里。用户看到的输入框内容保持原样。
+**关键**：用户输入的 `text` 不做任何拼接，模板指令完全走 `system` 字段。用户消息历史保持干净。
 
 ---
 
 ## 6. 与 OutputCard 检测的关系
 
-`expectedOutput` 字段可作为 `detectCard` 的提示：
+`detectCard` 自动识别 Markdown 表格 / JSON / 纯文本，无需提示词模板传 hint：
 
 ```ts
 // insight/components/result-viewer/output-card.ts
-function detectCard(text: string, hintType?: "table" | "mermaid" | "text") {
-  if (hintType === "mermaid") {
-    // 优先检测 mermaid（思维导图模式下 LLM 大概率输出 mermaid）
-    if (/```mermaid/.test(text)) return { type: "mindmap", ... }
-  }
-  // 其余走现有检测逻辑
-  ...
+function detectCard(text: string) {
+  if (isMarkdownTable(text)) return { type: "table", ... }
+  if (isJsonObject(text))    return { type: "json", ... }
+  return { type: "text", ... }
 }
 ```
 
-实际实现可以在 session 里存 `lastPromptTemplate` 供 `detectCard` 读取。
+模板的 `systemHint` 已约束 LLM 输出格式（Markdown 表格 / JSON / 纯文本），客户端按内容自动识别即可。
 
 ---
 
-## 7. 需要 MCP server 配合新增的 analysis_type
+## 7. 错误场景指引
 
-以下 3 个模式需要内网 UXR 服务团队在 MCP server 里新增对应的 `analysis_type` 值：
+| 场景 | 行为 |
+|---|---|
+| Phase 2 模板被选中（理论上不可能，UI disabled） | 防御性：发送时 fallback 到 default 模板，弹 toast 提示 |
+| 用户没上传文件就选 key_findings 发送 | LLM 收到 system hint 但无 doc_urls，会按 insight.md 工作流询问用户 |
+| 用户选了 knowledge_qa 但又上传了文件 | LLM 优先按 knowledge_qa 处理（search_reports），文件作为补充材料 |
 
-| analysis_type | 什么时候调 | 期望返回 |
+---
+
+## 8. 需要 MCP server 配合新增的 analysis_type
+
+| analysis_type | 期望返回 | 状态 |
 |---|---|---|
-| `cluster_by_outline` | 按提纲聚类模式 | Markdown 表格（提纲条目 × 用户观点） |
-| `generate_persona` | AI用户画像模式 | Markdown 表格（画像维度 × 内容） |
-| `evaluation_summary` | 评估问题整理模式 | Markdown 表格（问题 × 摘要 × 情感） |
+| `key_findings` | Markdown 表格 | ✅ Phase 1 已支持 |
+| `cluster_by_outline` | Markdown 表格 | ⚠️ Phase 2 待 UXR 实现 |
+| `generate_persona` | Markdown 表格 | ⚠️ Phase 2 待 UXR 实现 |
+| `evaluation_summary` | Markdown 表格 | ⚠️ Phase 2 待 UXR 实现 |
+| `mindmap` | JSON（思维导图结构） | ⚠️ Phase 2 待 UXR 复用现有接口 |
 
-`knowledge_qa` 无需新增 MCP tool（使用已有的 `search_reports`）。`mindmap` 需 UXR 服务端新增 `analysis_type: "mindmap"` 支持，返回 JSON 由客户端直接渲染。
+`knowledge_qa` 模板使用已有的 `search_reports`，无需新增。
 
 ---
 
-## 8. 验证清单
+## 9. 验证清单
 
-### V-01 下拉 UI
+### V-01 下拉 UI（不依赖 MCP）
 
 | 操作 | 预期 |
 |---|---|
 | 打开 InsightPage | 工具栏显示"访谈观点洞察 / 观点解析"（默认） |
-| 点击下拉按钮 | 菜单弹出，3 个分组，6 个选项 |
-| 点击"思维导图" | 按钮文字变为"访谈观点洞察 / 思维导图"，菜单关闭 |
-| 切换 session | 提示词模板**重置**为默认（不跨 session 保留） |
+| 点击下拉按钮 | 菜单弹出，3 个分组，6 个选项；4 个 Phase 2 项灰显且不可选 |
+| 点击"用研知识问答" | 按钮文字更新为对应分组/标签，菜单关闭 |
+| 切换 session | 模板**重置**为 default（key_findings） |
 
-### V-02 Prompt 拼接
+### V-02 发送行为（不依赖 MCP）
 
 | 操作 | 预期 |
 |---|---|
-| 选"观点解析"，发送"帮我分析" | Console 里实际发出的 text 以 `[提示词模板：观点解析]` 开头 |
-| 用户输入框只显示"帮我分析" | 前缀不出现在输入框 |
+| 选"观点解析"，发送"帮我分析" | DevTools Network 里 `session.prompt` body 含 `system: "本轮使用 analyze_interview..."`，`parts[0].text` 仅含 "帮我分析" |
+| 用户消息历史显示 | 仅 "帮我分析"，不含 systemHint 内容 |
 
 ### V-03 端到端（需 MCP 联通）
 
-| 提示词模板 | 发送带附件的指令 | 预期 LLM 行为 |
+| 模板 | 操作 | 预期 LLM 行为 |
 |---|---|---|
-| 观点解析 | "帮我分析" + 附件（已上传） | 从 context 取 doc_urls → 调 analyze_interview(key_findings) → 表格 OutputCard |
-| 思维导图（Phase 2） | "帮我分析" + 附件（已上传） | 从 context 取 doc_urls → 调 analyze_interview(mindmap) → JSON → OutputCard |
-| 用研知识问答 | "有没有算子工具的相关报告" | 调 search_reports → 回复文本 |
+| 观点解析 | 发"帮我分析" + hardcoded doc_urls | 调 analyze_interview(analysis_type="key_findings", doc_urls=[...]) → 表格 OutputCard |
+| 用研知识问答 | 发"有没有算子工具的相关报告" | 调 search_reports(query="...") → 文本回复 |
 
 ---
 
-## 9. Phase 说明
+## 10. Phase 说明
 
-- **Phase 1（当前）**：实现下拉 UI + prompt 拼接（不依赖 MCP，观点解析 + 思维导图 + 知识问答可本地验证）
-- **Phase 2（MCP 联调后）**：补全 cluster_by_outline / generate_persona / evaluation_summary 三个模式
+| 阶段 | 范围 |
+|---|---|
+| **Phase 1（当前）** | UI（下拉 + 状态管理 + system 字段传递）；端到端依赖 MCP，需联调 |
+| **Phase 2（MCP 联调后）** | UXR 实现 4 个新 analysis_type（cluster_by_outline / generate_persona / evaluation_summary / mindmap），dropdown 解锁对应选项 |
+
+Phase 1 完成判定：V-01 + V-02 通过即可（不依赖 MCP），V-03 在 MCP 联调阶段验证。

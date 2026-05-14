@@ -18,6 +18,18 @@
 
 ---
 
+## 架构决策类 spec 的强制检查（强制）
+
+涉及"协议选择 / 接口形态 / 数据流向 / 上传下载"等架构决策时，spec 落笔前必须：
+
+1. **列 2-3 种业界常见做法做对比**（参考 AWS、阿里云、Stripe 等大型云服务），再选方案
+2. 对"看起来能跑"的方案要警惕，多问"为什么没人这么做"
+3. spec 写完后专门 review 一次，假设自己第一次看到这个方案
+
+**反例（曾发生的返工）**：base64 文件走 MCP 上传 / 让 LLM 把 JSON 转 mermaid / 设计 batch_xxx 工具替代 xxx(items[])。这些 spec 都是写完后才被打断质疑、然后大幅重写的。
+
+---
+
 ## 工作目录
 
 **我们在 `packages/app/` 里加页面**，与内网的 `packages/app/` 保持相同目录结构，便于按图索骥对接。
@@ -85,3 +97,4 @@
 - ADR-004 — 切回 SolidJS → [docs/adr/004-solidjs-ui-reuse.md](docs/adr/004-solidjs-ui-reuse.md)
 - ADR-005 — 提示词模板 vs Subagent → [docs/adr/005-prompt-template-vs-subagent.md](docs/adr/005-prompt-template-vs-subagent.md)
 - ADR-006 — 文件上传走 InsightPage 直传，不经过 MCP → [docs/adr/006-upload-architecture.md](docs/adr/006-upload-architecture.md)
+- ADR-007 — 提示词模板通过 session.prompt() 的 system 字段传递 → [docs/adr/007-prompt-template-via-system-field.md](docs/adr/007-prompt-template-via-system-field.md)
