@@ -42,18 +42,36 @@ Step 4  LLM 看到提交记录,综合判断 → 回复"已修,采用 REST 权威
 
 ---
 
-## 2. Agent = LLM + 工具集 + 系统 Prompt + 模型配置
+## 2. Agent = 系统 Prompt + 工具集 + 模型配置 + 权限规则
 
-把 agent 拆开看,只有四件东西:
+把 agent 拆开看,只有四件东西（LLM 是运行引擎，不是"组成部分"——你无法配置"有没有 LLM"，只能配置"用哪个 LLM"）:
 
-| 组成部分 | 作用 | 例子 |
-|---|---|---|
-| **System Prompt** | 告诉 LLM"你是谁、要做什么、怎么做" | "你是用研专家,擅长访谈分析..." |
-| **工具集** | LLM 能调用的能力清单 | `read_file`、`web_search`、`run_sql` |
-| **模型配置** | 用哪个 LLM、温度、max tokens | `bailian/qwen3-coder-plus`,temp=0.3 |
-| **权限规则** | 哪些工具/操作需要授权 | `bash` 默认要问用户 |
+| 组成部分          | 改变的是什么                                   | 不填时的默认                 |
+| ------------- | ---------------------------------------- | ---------------------- |
+| **系统 Prompt** | LLM 的角色认知、工作流、输出格式偏好                     | build agent 的空白 prompt |
+| **工具集**       | LLM 能看到并调用的工具范围（不在列表里的工具 LLM **物理上看不到**） | 所有工具全开（`"*": allow`）   |
+| **模型配置**      | 用哪个 LLM、temperature、max tokens           | 全局 `model` 字段          |
+| **权限规则**      | 哪些工具调用前需要用户点击确认                          | `"*": allow`（全部放行）     |
 
 **这就是全部**。Agent 不是黑魔法,是这四样东西的打包。
+
+### 注册 vs 不注册，差的不只是系统提示词
+
+这是最容易误解的地方。opencode 组装给 LLM 的 API 请求时，**同时**用到全部四个组件：
+
+```
+# 不注册（用默认 build agent）
+system: ""  ← 空，LLM 不知道自己是谁
+tools:  [read_file, write_file, edit, bash, grep, web_search,
+         upload_document, analyze_interview, ...]  ← 20+ 个工具混在一起
+
+# 注册了 insight agent
+system: "你是专业的用户研究分析师，收到文件后先调 upload_document..."
+tools:  [upload_document, analyze_interview, batch_analyze, search_reports]
+        ← LLM 只看到这 4 个，根本无法调 bash / write_file
+```
+
+**工具集的影响比系统提示词更强**：系统提示词告诉 LLM"不要用 bash"，但 LLM 仍然能看到 bash 并选择用它；工具集限制后，LLM 的 `tools` 参数里根本没有 bash，物理上无法调用。
 
 opencode 里 agent 的定义([packages/opencode/src/agent/agent.ts](../../packages/opencode/src/agent/agent.ts)):
 
@@ -231,7 +249,7 @@ opencode 从三处发现 agent:
 
 3. **plugin 提供**:opencode plugin 可以注册 agent(高级用法,Octo 不用)
 
-**当前** Octo Agent 还没用上述任何一种,跑的是 opencode 内置的默认 agent("general")。
+**当前** Octo Agent 还没用上述任何一种,跑的是 opencode 内置的默认 agent（`build`，不是 `general`——`general` 是 subagent 模式，不能主对话用）。
 
 ---
 
@@ -242,11 +260,11 @@ opencode 从三处发现 agent:
 ```jsonc
 {
   "agent": {
-    "research": {
+    "insight": {
       "tools": {
-        "read_file": true,
-        "web_search": true,
-        "bash": false,           // 显式禁用
+        "upload_document": true,
+        "analyze_interview": true,
+        "bash": false,           // 显式禁用（不写也行，不在列表里就看不到）
         "task": true             // 允许调用 subagent
       }
     }
@@ -254,17 +272,90 @@ opencode 从三处发现 agent:
 }
 ```
 
-**工具来自三处**:
+**工具来自两处**（对 agent 白名单来说没有区别，统一过滤）:
 
-1. **opencode 内置工具**:`read_file / write_file / edit / bash / grep / glob / web_search / lsp / patch / task / todowrite / ...`(见 [packages/opencode/src/tool/](../../packages/opencode/src/tool/))
-2. **MCP 工具**:配置的 MCP server 提供的工具(见 [skill-and-mcp.md](skill-and-mcp.md))
-3. **Skill 提供的工具**:Skill 包里挂的脚本工具
+| 类型 | 代码位置 | 加载时机 | 执行位置 |
+|---|---|---|---|
+| **opencode 内置工具** | `packages/opencode/src/tool/*.ts` | 启动时静态注册 | opencode 进程内 |
+| **MCP 工具** | 外部 MCP server | 连接时动态获取 | MCP server 进程内或远端 |
+
+### 桌面 app 始终可用的内置工具（11 个）
+
+| 工具 | 作用 |
+|---|---|
+| `bash` | 执行 shell 命令 |
+| `read` | 读取文件 |
+| `glob` | 文件路径模式匹配 |
+| `grep` | 文件内容搜索 |
+| `edit` | 编辑文件（精确字符串替换） |
+| `write` | 写入/新建文件 |
+| `task` | 启动 subagent |
+| `webfetch` | 抓取网页内容 |
+| `todowrite` | 写 TODO 清单 |
+| `skill` | 加载 Skill 指令包 |
+| `question` | 向用户提问 |
+
+条件启用（Octo 场景不涉及）：`websearch` / `codesearch`（需 opencode 官方 provider 或 Exa）、`lsp`（实验性 flag）、`apply_patch`（GPT 模型专用）。
+
+**Octo insight agent 实际工具数**：11 个内置 + 4 个 MCP = 15 个（`build` agent 默认全部可见）；`insight` agent 通过白名单只暴露 4 个 MCP 工具。
 
 每个 agent 看到的工具集 = 全集 ∩ 该 agent 的 `tools` 白名单。
 
 ---
 
-## 9. 关于"思考"(reasoning / thinking)
+## 9. Agent 层级关系：Primary / Subagent / 分析模式
+
+### 三层结构
+
+```
+用户
+ │
+ ▼
+Primary Agent（直接和用户对话，一次对话只有一个）
+ │   如 insight、build、make
+ │
+ └─ 通过 task 工具派发 ──▶ Subagent（独立上下文，跑完回报结果）
+                              如 general、explore、或自定义
+```
+
+**insight 是 primary，不是任何东西的"子"。** opencode 内置的 `build` 只是"没有配置 insight 时的兜底"，注册 insight 后 `build` 被完全替换，两者平级竞争"谁当主角"。
+
+### 分析模式（Analysis Mode）不是 Subagent
+
+下拉菜单里的"观点解析 / 按提纲聚类 / AI用户画像…"是**分析模式**（也叫 prompt template），不是独立 agent 或 subagent。
+
+区别：
+
+| | Subagent | 分析模式 |
+|---|---|---|
+| 上下文 | 独立（隔离） | 共享（同一对话） |
+| 工具集 | 可以不同 | 相同 |
+| 用户感知 | 感知不到 | 感知到（通过下拉选择） |
+| 实现方式 | `task` 工具 + 独立 agent 配置 | 前端拼 prompt 前缀 |
+| 适合场景 | 大任务、并行、上下文隔离 | 同角色、不同分析角度 |
+
+### 判断"要不要新建 agent / subagent"的标准
+
+| 你想做的 | 用什么 |
+|---|---|
+| 同一角色，只是分析角度/任务类型不同 | **分析模式**（改 prompt 前缀） |
+| 需要独立上下文（读大量文件防溢出） | **Subagent**（`task` 工具派发） |
+| 同时处理多个文件，可并行 | **多个 Subagent** |
+| 完全不同的业务域（用研 vs 电商运营） | **新 Primary Agent** |
+| 需要不同的工具集或权限 | **新 Agent**（primary 或 subagent） |
+
+### "分析模式"是业界通识吗？
+
+不是标准术语。业界常见叫法：
+- **Prompt template**（最通用）
+- **Analysis mode / 分析模式**（语义最准）
+- **Workflow preset**（工作流预设）
+
+Octo 内部统一叫**分析模式**，它改变的是 LLM 的分析方向，不是 agent 的身份。
+
+---
+
+## 10. 关于"思考"(reasoning / thinking)
 
 部分模型(Anthropic Claude、Qwen3-thinking、GLM-4 等)会在回复前**输出一段思考过程**,不算最终答案。Agent 框架里这段会被识别成 `reasoning` part(见 [opencode-internals.md §Part 类型](opencode-internals.md#4-part-类型清单))。
 
@@ -284,6 +375,9 @@ UI 层通常折叠展示("思考过程 ▾"),不影响 agent loop 逻辑 —— 
 | 工具 | "插件" | 一个 JSON Schema 描述 + 一个执行函数,opencode 把 schema 喂给 LLM,LLM 决定何时调 |
 | Skill | "Agent 的别名" | Skill 是"prompt + 工具 + 资源"的可复用包,**可以被多个 agent 引用**,详见 [skill-and-mcp.md](skill-and-mcp.md) |
 | MCP | "另一种 agent 协议" | 一个**工具与资源的标准化协议**,让外部 server 暴露工具给 agent 用 |
+| insight agent | "opencode 的子 agent" | insight 是 **primary agent**（主角），不是任何东西的下级；`build` 只是没配置时的兜底 |
+| 下拉菜单里的分析类型 | "不同 subagent" | **分析模式**（prompt template），同一个 insight agent，只改分析方向 |
+| 内置工具 vs MCP 工具 | "MCP 工具更特殊" | agent 白名单对两者一视同仁，过滤机制完全相同 |
 
 ---
 

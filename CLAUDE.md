@@ -83,3 +83,5 @@
 - ADR-002 — Vue 3 替换 SolidJS → [docs/adr/002-vue3-ui-rewrite.md](docs/adr/002-vue3-ui-reuse.md) **(已弃用)**
 - ADR-003 — LLM Provider 接入 → [docs/adr/003-openai-compat-provider.md](docs/adr/003-openai-compat-provider.md)
 - ADR-004 — 切回 SolidJS → [docs/adr/004-solidjs-ui-reuse.md](docs/adr/004-solidjs-ui-reuse.md)
+- ADR-005 — 提示词模板 vs Subagent → [docs/adr/005-prompt-template-vs-subagent.md](docs/adr/005-prompt-template-vs-subagent.md)
+- ADR-006 — 文件上传走 InsightPage 直传，不经过 MCP → [docs/adr/006-upload-architecture.md](docs/adr/006-upload-architecture.md)

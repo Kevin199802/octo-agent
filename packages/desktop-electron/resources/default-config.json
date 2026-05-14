@@ -1,0 +1,31 @@
+{
+  "_version": 1,
+  "_note": "结构配置的唯一真相来源。主进程启动时读取此文件并与用户配置合并。不包含 API Key / 模型选择等个人设置。",
+  "default_agent": "insight",
+  "agent": {
+    "insight": {
+      "mode": "primary",
+      "description": "用研 Agent，从访谈材料中提取结构化洞察",
+      "tools": {
+        "task":              true,
+        "analyze_interview": true,
+        "search_reports":    true
+      }
+    },
+    "interview-worker": {
+      "mode": "subagent",
+      "description": "对单份已上传访谈文件执行结构化分析，返回 Markdown 表格。由 insight agent 在多文档并行场景下调度。",
+      "tools": {
+        "analyze_interview": true
+      }
+    }
+  },
+  "mcp": {
+    "uxr-tool": {
+      "type": "remote",
+      "url": "REPLACE_WITH_INTRANET_MCP_URL",
+      "enabled": true,
+      "timeout": 30000
+    }
+  }
+}

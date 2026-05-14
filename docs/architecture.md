@@ -231,6 +231,55 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 |---|---|
 | 移除 `@octo/app` workspace devDependency（随 octo-app 删除） | 清理 |
 
+#### `packages/desktop-electron/icons/prod/`
+
+| 改了什么 | 性质 |
+|---|---|
+| `icon.icns`、`icon.png`、`dock.png`、`128x128.png`、`128x128@2x.png`、`32x32.png`、`64x64.png` 全部替换为设计师提供的 `OctoLogo-大-1.png`（800×800）导出尺寸 | 品牌 — 应用图标替换 |
+
+#### `packages/desktop-electron/icons/dev/` 和 `icons/beta/`
+
+| 改了什么 | 性质 |
+|---|---|
+| `icon.icns`、`icon.png`、`dock.png`、`128x128.png`、`128x128@2x.png`、`32x32.png`、`64x64.png` 替换为 Octo 新图标 | 品牌 — `predev.ts` 在 `bun dev` 前自动把 `icons/${channel}/` 覆盖 `resources/icons/`，所以**必须改各 channel 目录**；直接改 `resources/icons/` 会被覆盖 |
+
+#### `packages/desktop-electron/resources/icons/`
+
+| 改了什么 | 性质 |
+|---|---|
+| `icon.icns`、`icon.png`、`dock.png`、`128x128.png`、`128x128@2x.png` 替换（临时，每次 dev 启动会被 `copy-icons.ts` 覆盖） | 仅供当前运行实例使用，**持久改动应改 `icons/${channel}/`** |
+
+#### `packages/desktop-electron/package.json`（补充）
+
+| 改了什么 | 性质 |
+|---|---|
+| 新增 `productName: "OctoAI"` | 品牌 — Electron 在 dev 模式下读 `productName` 作为 macOS 菜单栏 app 名，不设则显示 "Electron" |
+
+#### `packages/desktop-electron/src/main/index.ts`（补充）
+
+| 改了什么 | 性质 |
+|---|---|
+| `APP_NAMES.dev` 改为 `"OctoAI"`，`APP_NAMES.prod` 改为 `"OctoAI"`，`APP_NAMES.beta` 改为 `"OctoAI Beta"`；`app.setName()` dev 分支改为 `"OctoAI"` | 品牌 — 应用名统一为 OctoAI |
+| `app.whenReady()` 入口处提前调用 `createMenu()`（空 deps）| 品牌 — 消除 server 启动期间菜单栏显示默认 "Electron" 的闪烁 |
+
+#### `packages/desktop-electron/src/main/menu.ts`
+
+| 改了什么 | 性质 |
+|---|---|
+| Application Menu 第一项 label 从硬编码 `"OpenCode"` 改为 `app.getName()` | 品牌 — **这才是 macOS 菜单栏显示名的真正来源**；electron-vite dev 模式不读 `.app` bundle 的 plist，菜单栏名来自 `Menu.setApplicationMenu()` 第一项的 label |
+
+#### `packages/desktop-electron/scripts/predev.ts`（补充）
+
+| 改了什么 | 性质 |
+|---|---|
+| 新增 `plutil` patch + `codesign --force --deep --sign -` + `lsregister -f` 步骤（保留，对 Dock label 有效） | 对 macOS 菜单栏名称**无效**：electron-vite dev 模式不加载 `.app` bundle，plist 完全不被读取 |
+
+#### `packages/app/public/assets/insight/`
+
+| 改了什么 | 性质 |
+|---|---|
+| 新增 `IllustrationInsightEmpty.svg`、`IllustrationResultEmpty.svg` | Insight 页面插图静态资源；以 `<img src="/assets/insight/...">` 引用，避免 SVG `innerHTML` 内联无法渲染 base64 PNG |
+
 #### `bun.lock`
 
 随 `octo-app` workspace 条目删除自动更新。非手动修改。
