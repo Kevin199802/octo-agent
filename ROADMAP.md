@@ -43,7 +43,7 @@
 | `[M]` | ui | Octo Make 页面（内网其他人） | `src/make/` 独立目录，结构同 insight/ |
 | `[M]` | ui | 技能库 / 资产库页面 | `src/skills/` / `src/assets/` |
 | `[M]` | infra | [构建与发布](docs/specs/infra/build-release.md) | macOS `.dmg` + Windows `.exe`；opencode 后端 Node.js bundle 内嵌验证 |
-| `[S]` | infra | **首次启动配置写入** | Electron 主进程在首次启动时自动写入 `~/.config/octo/octo.config.json`（insight agent + MCP）；CONFIG_VERSION 版本控制；insight.md 通过 extraResources 打包 | [learning/agent-deploy.md §2](docs/learning/agent-deploy.md) |
+| `[M]` | infra | **Agent 配置 cascading 部署** | 主进程读 bundle 默认值 + 用户配置 → 合并写到 `~/.config/octo/.octo-runtime.json`；`OPENCODE_CONFIG` 指向 runtime 文件；用户文件仅含 B+C；改源文件重启即生效；删除手动副本 | [agent-config-deploy.md](docs/specs/infra/agent-config-deploy.md) |
 
 ---
 

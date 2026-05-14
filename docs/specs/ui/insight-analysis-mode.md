@@ -30,14 +30,16 @@
 
 ### 每个模板的规格
 
-| 模板 | analysis_type | systemHint（精简后） | MCP 工具状态 |
+| 模板 | analysis_type | systemHint（精简后） | UXR 服务端支持 |
 |---|---|---|---|
-| 观点解析 | `key_findings` | 见下 | ✅ Phase 1 |
-| 按提纲聚类 | `cluster_by_outline` | 见下 | ⚠️ Phase 2 |
-| AI用户画像 | `generate_persona` | 见下 | ⚠️ Phase 2 |
-| 思维导图 | `mindmap` | 见下 | ⚠️ Phase 2 |
-| 评估问题整理 | `evaluation_summary` | 见下 | ⚠️ Phase 2 |
-| 用研知识问答 | —（`search_reports`） | 见下 | ✅ Phase 1 |
+| 观点解析 | `key_findings` | 见下 | 已有 |
+| 按提纲聚类 | `cluster_by_outline` | 见下 | 待 UXR 实现 |
+| AI用户画像 | `generate_persona` | 见下 | 待 UXR 实现 |
+| 思维导图 | `mindmap` | 见下 | 待 UXR 实现 |
+| 评估问题整理 | `evaluation_summary` | 见下 | 待 UXR 实现 |
+| 用研知识问答 | —（`search_reports`） | 见下 | 已有 |
+
+> **服务端支持状态不在客户端 UI 中体现**——所有模板均可选，调用失败时由错误提示告知用户（见 §7）。
 
 ### systemHint 文本
 
@@ -98,8 +100,6 @@ export type PromptTemplate = {
   label: string
   group: string
   systemHint: string
-  /** Phase 1 是否可用（false 时 dropdown 选项 disabled） */
-  phase1Ready: boolean
 }
 
 export const PROMPT_TEMPLATES: PromptTemplate[] = [
@@ -108,42 +108,36 @@ export const PROMPT_TEMPLATES: PromptTemplate[] = [
     label: "观点解析",
     group: "访谈观点洞察",
     systemHint: `本轮使用 analyze_interview(analysis_type="key_findings")。\n输出三列 Markdown 表格：访谈问题 | 用户观点 | 场景主体。`,
-    phase1Ready: true,
   },
   {
     id: "cluster_by_outline",
     label: "按提纲聚类",
     group: "访谈观点洞察",
     systemHint: `本轮使用 analyze_interview(analysis_type="cluster_by_outline")。\n若用户未提供提纲，先询问后再调用。`,
-    phase1Ready: false,
   },
   {
     id: "generate_persona",
     label: "AI用户画像",
     group: "访谈观点洞察",
     systemHint: `本轮使用 analyze_interview(analysis_type="generate_persona")。\n画像维度：目标与动机 | 典型行为 | 核心痛点 | 常用工具与环境。`,
-    phase1Ready: false,
   },
   {
     id: "mindmap",
     label: "思维导图",
     group: "访谈观点洞察",
     systemHint: `本轮使用 analyze_interview(analysis_type="mindmap")，返回 JSON 直接原样输出，客户端会渲染。`,
-    phase1Ready: false,
   },
   {
     id: "evaluation_summary",
     label: "评估问题整理",
     group: "评估问题整理",
     systemHint: `本轮使用 analyze_interview(analysis_type="evaluation_summary")。\n输出三列：访谈问题 | 回答摘要 | 情感倾向。`,
-    phase1Ready: false,
   },
   {
     id: "knowledge_qa",
     label: "用研知识问答",
     group: "用研知识问答",
     systemHint: `本轮使用 search_reports(query=用户问题)，无需文件。\n基于检索结果回答，标注引用来源。`,
-    phase1Ready: true,
   },
 ]
 
@@ -172,19 +166,19 @@ export const DEFAULT_TEMPLATE_ID: PromptTemplateId = "key_findings"
 ┌─────────────────────────────────────────┐
 │  访谈观点洞察                            │  ← group label（灰色，不可点）
 │    ✓ 观点解析                           │  ← 选中态
-│      按提纲聚类             [Phase 2]   │  ← phase1Ready=false 灰显
-│      AI用户画像             [Phase 2]   │
-│      思维导图               [Phase 2]   │
+│      按提纲聚类                         │
+│      AI用户画像                         │
+│      思维导图                           │
 │  ─────────────────────────────────────  │
 │  评估问题整理                            │
-│      评估问题整理           [Phase 2]   │
+│      评估问题整理                       │
 │  ─────────────────────────────────────  │
 │  用研知识问答                            │
 │      用研知识问答                       │
 └─────────────────────────────────────────┘
 ```
 
-`phase1Ready=false` 的项**可见但不可选**（鼠标悬浮显示"等 MCP server 实现 analysis_type"），避免用户误选后无响应。
+所有模板均可选，UI 不基于服务端支持状态做 disable。服务端尚未实现的 analysis_type 由 MCP 错误响应触发友好提示（见 §7）。
 
 ### 4.3 组件实现草图
 
@@ -229,14 +223,8 @@ export function PromptTemplateSelector(props: Props) {
                   {t => (
                     <button
                       class="template-option"
-                      classList={{
-                        selected: t.id === props.value,
-                        disabled: !t.phase1Ready,
-                      }}
-                      disabled={!t.phase1Ready}
-                      title={t.phase1Ready ? "" : "等 MCP server 实现"}
+                      classList={{ selected: t.id === props.value }}
                       onClick={() => {
-                        if (!t.phase1Ready) return
                         props.onChange(t.id)
                         setOpen(false)
                       }}
@@ -245,9 +233,6 @@ export function PromptTemplateSelector(props: Props) {
                         <span class="template-check">✓</span>
                       </Show>
                       {t.label}
-                      <Show when={!t.phase1Ready}>
-                        <span class="template-phase-tag">[Phase 2]</span>
-                      </Show>
                     </button>
                   )}
                 </For>
@@ -322,7 +307,7 @@ function detectCard(text: string) {
 
 | 场景 | 行为 |
 |---|---|
-| Phase 2 模板被选中（理论上不可能，UI disabled） | 防御性：发送时 fallback 到 default 模板，弹 toast 提示 |
+| MCP 返回 unknown analysis_type（服务端尚未实现该模板） | 对话区显示"该分析类型 UXR 服务端尚未支持"的友好提示卡片，不影响其他模板使用 |
 | 用户没上传文件就选 key_findings 发送 | LLM 收到 system hint 但无 doc_urls，会按 insight.md 工作流询问用户 |
 | 用户选了 knowledge_qa 但又上传了文件 | LLM 优先按 knowledge_qa 处理（search_reports），文件作为补充材料 |
 
@@ -349,7 +334,7 @@ function detectCard(text: string) {
 | 操作 | 预期 |
 |---|---|
 | 打开 InsightPage | 工具栏显示"访谈观点洞察 / 观点解析"（默认） |
-| 点击下拉按钮 | 菜单弹出，3 个分组，6 个选项；4 个 Phase 2 项灰显且不可选 |
+| 点击下拉按钮 | 菜单弹出，3 个分组，6 个选项，全部可选 |
 | 点击"用研知识问答" | 按钮文字更新为对应分组/标签，菜单关闭 |
 | 切换 session | 模板**重置**为 default（key_findings） |
 
@@ -374,6 +359,6 @@ function detectCard(text: string) {
 | 阶段 | 范围 |
 |---|---|
 | **Phase 1（当前）** | UI（下拉 + 状态管理 + system 字段传递）；端到端依赖 MCP，需联调 |
-| **Phase 2（MCP 联调后）** | UXR 实现 4 个新 analysis_type（cluster_by_outline / generate_persona / evaluation_summary / mindmap），dropdown 解锁对应选项 |
+| **Phase 2（MCP 联调后）** | UXR 实现 4 个新 analysis_type（cluster_by_outline / generate_persona / evaluation_summary / mindmap）；客户端无需改动，错误提示自动消失 |
 
 Phase 1 完成判定：V-01 + V-02 通过即可（不依赖 MCP），V-03 在 MCP 联调阶段验证。

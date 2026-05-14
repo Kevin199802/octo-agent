@@ -77,156 +77,68 @@ tools:
 
 ### 问题的本质
 
-我们通过 `OPENCODE_CONFIG=~/.config/octo/octo.config.json` 告诉 opencode 读哪个配置文件。这个路径是用户机器上的，**全新安装的用户没有这个文件**，所以：
-- 用户首次启动 → 文件不存在 → opencode 用内置默认配置 → 没有 insight agent、没有 MCP
-- 这不是我们想要的
+opencode 通过 `OPENCODE_CONFIG` 环境变量读取一个 JSON 文件。如果这个文件不存在或不完整，agent / MCP 都无法生效。
 
-### 解决方案：主进程首次启动写入
+我们要解决的是：**怎么让用户机器上有正确的配置，且改源文件能干净地传到用户那里**。
 
-Electron 主进程在启动时有机会**先于 opencode server 运行**，我们在这里做一次性初始化：
+### 决策：cascading 分层
 
-```ts
-// packages/desktop-electron/src/main/index.ts
-import * as fs from "node:fs"
-import * as path from "node:path"
-import * as os from "node:os"
+最终方案是把配置分成三类，各管各的，运行时合并：
 
-const CONFIG_VERSION = 1   // 每次需要更新配置时递增
+| 类别 | 谁拥有 | 写在哪 | 升级行为 |
+|---|---|---|---|
+| **A 产品决策**（agent / 系统提示词 / MCP URL） | 我们 | bundle 内（仓库 + 安装包） | 每次启动从 bundle 读最新 |
+| **B 用户机密**（API key / Token） | 用户 | `~/.config/octo/octo.config.json` | 用户填，我们永不写 |
+| **C 用户偏好**（model / baseURL） | 用户（我们给默认） | 同上 | 用户改，我们永不写 |
 
-function initOctoConfig() {
-  const configDir  = path.join(os.homedir(), ".config", "octo")
-  const configPath = path.join(configDir, "octo.config.json")
-  const metaPath   = path.join(configDir, ".octo-version")
+主进程启动时把 A 与 B+C 合并，写到 `~/.config/octo/.octo-runtime.json`，opencode 实际读取这个 runtime 文件。
 
-  // 读取已有版本号（没有则视为 0）
-  const installedVersion = fs.existsSync(metaPath)
-    ? parseInt(fs.readFileSync(metaPath, "utf8"), 10)
-    : 0
+**决策背景**：[ADR-008](../adr/008-cascading-config.md)  
+**完整实现规格**：[docs/specs/infra/agent-config-deploy.md](../specs/infra/agent-config-deploy.md)
 
-  if (installedVersion >= CONFIG_VERSION) return  // 已是最新，跳过
+### 各层在仓库里的实际位置
 
-  // 读取用户已有配置（如有），保留用户自定义字段（API key、model 等）
-  let userConfig: Record<string, unknown> = {}
-  if (fs.existsSync(configPath)) {
-    try { userConfig = JSON.parse(fs.readFileSync(configPath, "utf8")) }
-    catch { /* 解析失败则重写 */ }
-  }
+| 类别 | 角色 | 路径 |
+|---|---|---|
+| A | 系统提示词源 | `packages/agent/insight/agents/insight.md` |
+| A | agent/MCP 结构源 | `packages/desktop-electron/resources/default-config.json` |
+| A | 安装包内的副本 | `Octo Agent.app/Contents/Resources/{agents/insight.md, default-config.json}` |
+| B/C | 用户配置 | `~/.config/octo/octo.config.json` |
+| - | 运行时合并产物 | `~/.config/octo/.octo-runtime.json`（opencode 读这个）|
 
-  // 合并：app 默认值 + 用户已有配置（用户配置优先）
-  const defaultConfig = {
-    default_agent: "insight",
-    agent: {
-      insight: {
-        mode: "primary",
-        description: "用研 Agent，从访谈材料中提取结构化洞察",
-        prompt: fs.readFileSync(
-          path.join(process.resourcesPath, "agents", "insight.md"),
-          "utf8"
-        ),
-        tools: {
-          upload_document:   true,
-          analyze_interview: true,
-          batch_analyze:     true,
-          search_reports:    true,
-        },
-      },
-    },
-    mcp: {
-      "uxr-tool": {
-        type: "remote",
-        url: "https://uxr-service.company-intranet.com/mcp",
-        headers: { Authorization: "Bearer REPLACE_ME" },
-        enabled: true,
-        timeout: 30000,
-      },
-    },
-  }
+### 本地开发 vs 打包生产
 
-  const merged = { ...defaultConfig, ...userConfig }
+**完全相同的流程**，只是文件路径不同：
 
-  fs.mkdirSync(configDir, { recursive: true })
-  fs.writeFileSync(configPath, JSON.stringify(merged, null, 2), "utf8")
-  fs.writeFileSync(metaPath, String(CONFIG_VERSION), "utf8")
-}
+| 阶段 | A 类源读取自 | B/C 类源 |
+|---|---|---|
+| 开发（`bun dev`）| `packages/agent/...` 和 `packages/desktop-electron/resources/...` 直接读 | `~/.config/octo/octo.config.json` |
+| 打包后 | `process.resourcesPath` 下的副本（extraResources 在构建时同步）| `~/.config/octo/octo.config.json` |
 
-// 在 app ready 之后、opencode server 启动之前调用
-app.whenReady().then(() => {
-  initOctoConfig()
-  // ...然后启动 opencode server、创建窗口
-})
-```
+dev 与 production 行为一致——改源文件 → 重启 main 进程 → 自动生效。**不需要手动 cp 任何文件**。
 
-### `insight.md` 打包进安装包
+### 改一处即生效的对应表
 
-`process.resourcesPath` 是 Electron 打包后可访问的资源目录。需要在 `electron-builder.config.ts` 里声明把 `insight.md` 打包进去：
+| 改什么 | 改哪个文件 | 怎么生效 |
+|---|---|---|
+| 系统提示词 | `packages/agent/insight/agents/insight.md` | 重启 main 进程 |
+| agent 工具白名单 / MCP URL | `packages/desktop-electron/resources/default-config.json` | 重启 main 进程 |
+| 用户 API key / model 选择 | `~/.config/octo/octo.config.json` | 重启 main 进程 |
 
-```ts
-// packages/desktop-electron/electron-builder.config.ts
-export default {
-  extraResources: [
-    {
-      from: "../../packages/agent/insight/agents/insight.md",
-      to: "agents/insight.md",
-    },
-  ],
-}
-```
+### 业界对照
 
-打包后目录结构：
-```
-Octo AI.app/
-└── Contents/
-    └── Resources/
-        ├── app.asar          ← JS bundle
-        └── agents/
-            └── insight.md    ← process.resourcesPath + "/agents/insight.md"
-```
+| 工具 | 做法 |
+|---|---|
+| VS Code | 用户 settings.json 只存 override，默认值在 binary 内 |
+| Claude Desktop | claude_desktop_config.json 用户拥有，部分 MCP 默认在 bundle |
+| Git | system / global / local 三层 cascading override |
 
-### 版本化升级机制
+我们采用的 cascading 模式是业界标准做法。
 
-`CONFIG_VERSION` 常量控制配置版本。每次 app 更新需要更改 agent 配置时，递增这个常量：
+### 当前阶段（实现前）的临时手动方案
 
-```ts
-const CONFIG_VERSION = 2   // 升级：修改了 insight agent 的 system prompt
-```
+完整自动部署逻辑见 spec，实现完成前是手动维护：
+- 改 `insight.md` 后手动 cp 到 `packages/desktop-electron/resources/agents/insight.md`
+- 手动同步到 `~/.config/octo/octo.config.json` 的 `agent.insight.prompt` 字段
 
-用户更新 app 后首次启动，`installedVersion(1) < CONFIG_VERSION(2)`，主进程重新写入配置。
-
-**合并策略**：`{ ...defaultConfig, ...userConfig }` 确保用户自定义的字段（API key、自选的 model）不被覆盖。如果需要强制更新某个字段（比如 agent prompt），需要额外处理：
-
-```ts
-// 强制更新 agent 配置，但保留用户的 model / provider 设置
-const merged = {
-  ...userConfig,                          // 用户配置打底
-  default_agent: "insight",              // 强制覆盖
-  agent: defaultConfig.agent,            // 强制覆盖 agent 定义
-  mcp: userConfig.mcp ?? defaultConfig.mcp,  // 用户有 mcp 配置则保留
-}
-```
-
-### 内网部署的特殊情况
-
-内网场景下，MCP URL 和 API Key 可能因部门不同而不同。两种处理方式：
-
-**方式 A：统一 URL，个人 Token**
-- `octo.config.json` 预填 MCP URL，`Authorization` 写 `"Bearer REPLACE_ME"`
-- 首次启动时弹引导页，让用户粘贴自己的 Token（P2 Settings UI）
-- 在此之前：用户手动编辑 `~/.config/octo/octo.config.json` 替换 Token
-
-**方式 B：全量推送**
-- 通过内网 MDM（如 Jamf / 企业微信 IT 自动化）在用户机器上写好完整 `octo.config.json`
-- App 首次启动时检测到文件已存在且版本够新，跳过初始化
-- 适合有 IT 运维能力的团队
-
-### 开发阶段（当前）的简化方案
-
-P1 阶段不用做完整的首次启动写入逻辑，直接手动操作：
-
-```bash
-# 把 insight agent 定义写入本地 config
-cat >> ~/.config/octo/octo.config.json << 'EOF'
-（手动合并 insight agent 和 MCP 配置）
-EOF
-```
-
-完整的首次启动初始化留到发布前（P2 infra 阶段）再做。
+实现完成后这些手动步骤全部消除。任务在 ROADMAP P2 infra：「首次启动配置写入」。

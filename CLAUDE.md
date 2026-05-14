@@ -98,3 +98,4 @@
 - ADR-005 — 提示词模板 vs Subagent → [docs/adr/005-prompt-template-vs-subagent.md](docs/adr/005-prompt-template-vs-subagent.md)
 - ADR-006 — 文件上传走 InsightPage 直传，不经过 MCP → [docs/adr/006-upload-architecture.md](docs/adr/006-upload-architecture.md)
 - ADR-007 — 提示词模板通过 session.prompt() 的 system 字段传递 → [docs/adr/007-prompt-template-via-system-field.md](docs/adr/007-prompt-template-via-system-field.md)
+- ADR-008 — Agent 配置走 cascading 模式（A 类 bundle 内写死，B/C 类用户文件）→ [docs/adr/008-cascading-config.md](docs/adr/008-cascading-config.md)

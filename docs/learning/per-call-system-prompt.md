@@ -123,6 +123,31 @@ LLM 实际收到：
 
 Layer 2 和 Layer 3 都是 per-call 的，区别在于：Layer 2 进 system role（指令性），Layer 3 进 user role（对话性）。这个角色分离让 LLM 能正确识别"任务约束"和"用户问题"。
 
+### 3.5 各层在仓库里的实际位置
+
+| 层 | 角色 | 文件路径 | 说明 |
+|---|---|---|---|
+| L1 | agent.prompt 源 | `packages/agent/insight/agents/insight.md` | 仓库内真相来源（合入物） |
+| L1 | agent.prompt 打包副本 | `packages/desktop-electron/resources/agents/insight.md` | Electron bundle 内嵌副本，从源同步 |
+| L1 | agent.prompt 运行时 | `~/.config/octo/octo.config.json` 的 `agent.insight.prompt` 字段 | opencode 实际读取的位置 |
+| L2 | systemHint 定义 | `packages/app/src/pages/insight/store/prompt-template.ts` | 6 个模板的 systemHint 字符串数组 |
+| L2 | systemHint 调用 | `packages/app/src/pages/insight/index.tsx` 的 `handleSend` | `session.prompt({ system: template.systemHint })` |
+| L3 | 用户输入 | （运行时，无文件） | 来自 `PromptInput` 组件 |
+
+**当前的同步痛点（L1 三处）**：
+
+```
+packages/agent/insight/agents/insight.md           ← 改这里（源）
+        ↓ 手动 cp
+packages/desktop-electron/resources/agents/insight.md  ← Electron bundle 副本
+        ↓ 手动从 insight.md 复制 prompt 内容
+~/.config/octo/octo.config.json                    ← opencode 真正读这里
+```
+
+改完 `insight.md` 不会自动生效，需要手动同步两次（cp 到 desktop-electron 副本 + 手动更新 octo.config.json 的 `agent.insight.prompt` 字段）。
+
+[ROADMAP P2 的"首次启动配置写入"](../../ROADMAP.md) 任务完成后，主进程会在启动时读 `default-config.json` 和打包的 insight.md 自动写入 `octo.config.json`，届时只需改 `insight.md` 一处。
+
 ---
 
 ## 4. 典型使用场景
