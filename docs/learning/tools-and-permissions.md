@@ -102,10 +102,8 @@ MCP 工具来自外部 MCP server，通过 `~/.config/octo/octo.config.json` 的
   "agent": {
     "insight": {
       "tools": {
-        "upload_document":   true,
-        "analyze_interview": true,
-        "batch_analyze":     true,
-        "search_reports":    true
+        "<tool_a>": true,
+        "<tool_b>": true
         // 不写 = 不可见；写 false = 显式禁用（效果一样）
         // bash、read、write 等内置工具不在这里 = LLM 看不到
       }
@@ -113,6 +111,8 @@ MCP 工具来自外部 MCP server，通过 `~/.config/octo/octo.config.json` 的
   }
 }
 ```
+
+> insight agent 当前实际工具白名单见 [mcp-contract.md "与 agent 配置的对应关系"](../specs/agents/mcp-contract.md)。本节只讲**白名单的写法机制**。
 
 ### 4.2 白名单的作用机制
 
@@ -128,7 +128,7 @@ LLM 实际看到的工具集（仅列出的那几个）
 
 `task` 工具允许 LLM 启动 subagent。不写在白名单里，LLM 就无法派发子任务。
 
-insight agent 当前**不需要**开启 `task`（所有任务单轮对话可完成），未来批量分析多份文件时可以考虑加入。
+insight agent 当前是否启用 task 见 mcp-contract.md。决策依据：是否有"多文档/多任务并行"等需要 subagent 隔离的场景。
 
 ---
 
@@ -157,8 +157,7 @@ insight agent 当前**不需要**开启 `task`（所有任务单轮对话可完�
   "agent": {
     "insight": {
       "permission": [
-        "allow upload_document",      // upload_document 直接执行
-        "allow analyze_interview",    // analyze_interview 直接执行
+        "allow <safe_tool>",          // 只读/无副作用工具直接执行
         "deny bash",                  // bash 完全禁止（双保险，工具白名单已排除）
         "ask *"                       // 其余工具执行前问用户
       ]
@@ -176,21 +175,10 @@ insight agent 当前**不需要**开启 `task`（所有任务单轮对话可完�
 
 ### 5.3 Octo insight agent 的权限策略
 
-insight agent 只有 4 个 MCP 工具，且工具集已经通过白名单严格限制，权限规则简单：
-
-```jsonc
-"permission": [
-  "allow upload_document",
-  "allow analyze_interview",
-  "allow batch_analyze",
-  "allow search_reports"
-]
-```
-
-**全部放行**。理由：
-- 这 4 个工具都是只读/上传操作，没有破坏性
+策略**全部放行**（具体工具列表见 mcp-contract.md）。理由：
+- 当前 MCP 工具都是只读/分析类操作，没有破坏性
 - 每次分析都要反复调用，弹确认框会严重影响体验
-- LLM 已被工具白名单限制，无法调用危险工具（bash、write 等）
+- LLM 已被工具白名单限制，无法调用危险工具（bash、write 等），不需要再多一层 ask
 
 ### 5.4 全局 permission 与 agent permission 的关系
 
@@ -203,10 +191,8 @@ insight agent 只有 4 个 MCP 工具，且工具集已经通过白名单严格�
   "agent": {
     "insight": {
       "permission": [       // agent 专属（覆盖全局，不叠加）
-        "allow upload_document",
-        "allow analyze_interview",
-        "allow batch_analyze",
-        "allow search_reports"
+        "allow <tool_a>",
+        "allow <tool_b>"
       ]
     }
   }
@@ -219,27 +205,7 @@ agent 专属 permission 存在时，**完全替换全局规则**（不是合并�
 
 ## 6. 当前 insight agent 完整配置
 
-```jsonc
-// ~/.config/octo/octo.config.json（节选）
-{
-  "default_agent": "insight",
-  "agent": {
-    "insight": {
-      "mode": "primary",
-      "description": "用研 Agent，从访谈材料中提取结构化洞察",
-      "prompt": "你是专业的用户研究分析师...",
-      "tools": {
-        "upload_document":   true,
-        "analyze_interview": true,
-        "batch_analyze":     true,
-        "search_reports":    true
-      }
-      // permission 当前未配置：MCP 联调前工具无法真正调用，暂不需要细调
-      // 联调后补充：全部 allow（见 §5.3）
-    }
-  }
-}
-```
+> 当前实际配置（含工具白名单、权限规则）维护在 [mcp-contract.md](../specs/agents/mcp-contract.md) 和 [agent-config-deploy.md](../specs/infra/agent-config-deploy.md)，本文档不重复以避免漂移。
 
 ---
 

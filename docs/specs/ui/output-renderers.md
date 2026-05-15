@@ -210,81 +210,116 @@ Excel 文件在浏览器/Electron 渲染进程**生成 .xlsx 二进制**后下�
 
 ### 4.1 输入
 
-UXR `analyze_interview(analysis_type="mindmap")` 返回的 JSON。**具体 shape 待 UXR 确认**，预期为嵌套树结构：
+UXR `analyze_interview(analysis_type="mindmap")` 返回的 JSON。实际 shape（UXR 测试环境确认）：
 
 ```json
-{
-  "title": "用研主题",
-  "children": [
+[
+  [
     {
-      "label": "痛点",
+      "name": "用研主题",
       "children": [
-        { "label": "调试流程复杂" }
+        {
+          "name": "痛点",
+          "children": [
+            { "name": "调试流程复杂", "children": [] }
+          ]
+        },
+        {
+          "name": "机会点",
+          "children": []
+        }
       ]
     }
   ]
-}
+]
 ```
 
-或者 markmap 兼容格式（取决于 UXR 现有实现）。
+特征：
+- 外层数组包裹数组（双层 `[]`）—— 外层视作 group 列表，内层是该 group 的 root 节点列表
+- 每个节点只有两个字段：`name`（string）和 `children`（递归数组）
+- 叶子节点 `children` 是空数组 `[]`
 
-### 4.2 渲染库候选
+### 4.2 渲染库选择
 
-| 库 | 特点 | 适合度 |
-|---|---|---|
-| `markmap-view` | Markdown 列表 → mindmap，社区活跃 | 需先把 JSON 转 markdown 列表 |
-| `jsmind` | JSON 直接渲染，可交互（折叠/展开/缩放） | 直接吃 JSON，最匹配 |
-| `mermaid` (mindmap syntax) | 文本语法生成 SVG，静态 | 需 JSON→mermaid，已决定不走这条路 |
-| `d3.js` 自绘 | 灵活但工作量大 | overkill |
+视觉效果是核心需求。对比：
 
-**推荐 `jsmind`**：JSON 输入、原生交互、轻量。先用它跑通，如不满足体验再换。
+| 库 | 视觉评估 | 工作量 | 维护活跃度 |
+|---|---|---|---|
+| **markmap-view** | ✅ 手绘曲线连接、节点动画、平滑 pan/zoom，业界 mindmap 视觉标杆（Obsidian Mind Map 用它） | JSON→markdown 适配函数（递归 ~15 行） | 高 |
+| AntV G6 mindmap layout | ⚠️ 默认偏"节点图"风格，要做出 mindmap 质感需深度 customize edge/style | 节点+边格式转换 + 大量样式配置 | 极高 |
+| jsmind | ⚠️ 默认样式偏旧 | 直接吃 JSON | 中等（更新放缓）|
+| mermaid mindmap | ⚠️ 静态 SVG，无交互 | JSON→mermaid 文本 | 高（但已决定不走） |
+| ECharts tree | ⚠️ 工业图表风，非 mindmap 风 | 大 | 极高 |
+
+**采用 `markmap-view`**。理由：单论视觉效果优势明显，bundle ~300KB 桌面 app 可接受，适配工作量低。
 
 ### 4.3 实现要点
 
 ```tsx
 // components/result-viewer/mindmap-renderer.tsx
-import "jsmind/style/jsmind.css"
-import jsMind from "jsmind"
+import { Transformer } from "markmap-lib"
+import { Markmap } from "markmap-view"
+import { onMount, onCleanup } from "solid-js"
+
+const transformer = new Transformer()
 
 export function MindmapRenderer(props: { content: string }) {
-  let container: HTMLDivElement | undefined
-  const data = parseMindmapJSON(props.content)  // JSON 转 jsmind 格式
+  let svgRef: SVGSVGElement | undefined
+  let mm: Markmap | undefined
 
   onMount(() => {
-    if (!container || !data) return
-    const jm = new jsMind({ container, view: { engine: "svg" } })
-    jm.show(data)
+    if (!svgRef) return
+    const markdown = uxrJsonToMarkdown(props.content)
+    if (!markdown) return
+    const { root } = transformer.transform(markdown)
+    mm = Markmap.create(svgRef, undefined, root)
   })
 
-  return <div ref={container} class="mindmap-canvas" style={{ width: "100%", height: "100%" }} />
+  onCleanup(() => mm?.destroy())
+
+  return (
+    <svg
+      ref={svgRef}
+      class="mindmap-canvas"
+      style={{ width: "100%", height: "100%" }}
+    />
+  )
 }
 ```
 
-### 4.4 适配层
-
-UXR JSON shape 不一定直接是 jsmind 期望的格式。需要一个 `parseMindmapJSON(text): JsMindData | null` 函数做转换：
+### 4.4 适配层：UXR JSON → Markdown
 
 ```ts
-function parseMindmapJSON(text: string): JsMindData | null {
+// utils/mindmap-adapter.ts
+import { stripCodeFence, tryParseJSON } from "./detect"
+
+export function uxrJsonToMarkdown(text: string): string | null {
   const json = tryParseJSON(stripCodeFence(text))
-  if (!json) return null
-  
-  // 递归把 UXR 的 {title, children} 转成 jsmind 的 {id, topic, children}
-  return {
-    meta: { name: "uxr-mindmap", version: "1.0" },
-    format: "node_tree",
-    data: convertNode(json),
-  }
+  if (!Array.isArray(json)) return null
+
+  const roots = json.flat()  // 拆掉外层数组包裹（[[...]] → [...]）
+  if (roots.length === 0) return null
+
+  return roots.map(node => renderNode(node, 0)).join("\n")
 }
 
-function convertNode(node: any, idCounter = { i: 0 }): JsMindNode {
-  const id = `n${idCounter.i++}`
-  return {
-    id,
-    topic: node.title ?? node.label ?? "(空)",
-    children: (node.children ?? []).map(c => convertNode(c, idCounter)),
-  }
+function renderNode(node: { name: string; children?: any[] }, depth: number): string {
+  const prefix = depth === 0 ? "# " : "  ".repeat(depth - 1) + "- "
+  const line = prefix + (node.name ?? "(空)")
+  const childLines = (node.children ?? []).map(c => renderNode(c, depth + 1))
+  return [line, ...childLines].join("\n")
 }
+```
+
+转换示例：
+```
+[[{name: "主题", children: [{name: "痛点", children: [{name: "A", children: []}]}]}]]
+        ↓
+# 主题
+- 痛点
+  - A
+        ↓ markmap-lib transformer
+INode 树 → markmap-view 渲染为 SVG
 ```
 
 ### 4.5 导出（ActionBar）
@@ -292,8 +327,18 @@ function convertNode(node: any, idCounter = { i: 0 }): JsMindNode {
 | 选项 | 实现 |
 |---|---|
 | 复制 JSON | 复制原始 JSON 字符串 |
-| 下载 .json | 直接 blob 下载 |
-| 导出 PNG/SVG | jsmind 提供 screenshot API 可调；或暂不实现 |
+| 下载 .json | blob 下载原始 JSON |
+| 导出 SVG | 直接 `svgRef.outerHTML` 序列化下载 |
+| 导出 PNG | SVG → canvas → toBlob，P2 视需求实现 |
+
+### 4.6 边界处理
+
+| 场景 | 行为 |
+|---|---|
+| 外层不是数组 | 解析失败 → §8 错误处理 fallback |
+| 外层数组但 flat 后为空 | 显示"思维导图为空"占位 |
+| 节点没有 name 字段 | 渲染为 "(空)" |
+| children 不是数组 | 视作叶子节点 |
 
 ---
 

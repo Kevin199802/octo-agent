@@ -63,12 +63,12 @@ Step 4  LLM 看到提交记录,综合判断 → 回复"已修,采用 REST 权威
 # 不注册（用默认 build agent）
 system: ""  ← 空，LLM 不知道自己是谁
 tools:  [read_file, write_file, edit, bash, grep, web_search,
-         upload_document, analyze_interview, ...]  ← 20+ 个工具混在一起
+         <所有 MCP 工具>, ...]  ← 20+ 个工具混在一起
 
 # 注册了 insight agent
-system: "你是专业的用户研究分析师，收到文件后先调 upload_document..."
-tools:  [upload_document, analyze_interview, batch_analyze, search_reports]
-        ← LLM 只看到这 4 个，根本无法调 bash / write_file
+system: "你是专业的用户研究分析师..."  ← 来自 insight.md
+tools:  [<insight 白名单内的工具>]    ← 见 mcp-contract.md
+        ← LLM 只看到白名单的工具，根本无法调 bash / write_file
 ```
 
 **工具集的影响比系统提示词更强**：系统提示词告诉 LLM"不要用 bash"，但 LLM 仍然能看到 bash 并选择用它；工具集限制后，LLM 的 `tools` 参数里根本没有 bash，物理上无法调用。
@@ -262,8 +262,7 @@ opencode 从三处发现 agent:
   "agent": {
     "insight": {
       "tools": {
-        "upload_document": true,
-        "analyze_interview": true,
+        "<allowed_mcp_tool>": true,
         "bash": false,           // 显式禁用（不写也行，不在列表里就看不到）
         "task": true             // 允许调用 subagent
       }

@@ -32,28 +32,29 @@ const agents = {
 **① System prompt — LLM 不知道自己是谁**
 
 `build` 没有业务相关的 system prompt，LLM 接到"分析这份访谈稿"时，只能靠对话上下文猜测该怎么做：
-- 不知道应该调 `upload_document` 还是自己读文件内容
-- 不知道 `analysis_type` 有哪些选项
+- 不知道应该调哪个分析 tool 还是自己读文件内容
+- 不知道有哪些 analysis_type 选项
 - 不知道输出应该是 Markdown 表格格式
 
-注册 `insight` agent 后，system prompt 写明了工作流程和 analysis_type 选择指南，LLM 每次对话都从这个上下文出发，行为可预期。
+注册 `insight` agent 后，system prompt 写明了工作流程和工具选择指南，LLM 每次对话都从这个上下文出发，行为可预期。
 
 **② 工具白名单 — LLM 看到的工具太多**
 
 `build` agent 的权限是 `"*": allow`，MCP 配置好之后，LLM 同时能看到：
 - opencode 内置工具（bash、write_file、edit、web_search…）
-- 我们的 MCP 工具（upload_document、analyze_interview…）
+- 我们的 MCP 工具（具体清单见 [mcp-contract.md](../specs/agents/mcp-contract.md)）
 
-工具太多会让 LLM 困惑，更容易选错（比如直接用 bash 处理文件而不走 upload_document）。注册 `insight` agent 后，`tools` 字段只开放用研相关的 MCP 工具，LLM 的选择空间大幅缩小，调用准确率更高。
+工具太多会让 LLM 困惑，更容易选错（比如直接用 bash 处理文件而不走 MCP）。注册 `insight` agent 后，`tools` 字段只开放用研相关的 MCP 工具，LLM 的选择空间大幅缩小，调用准确率更高。
 
 ```markdown
 ---
 tools:
-  - upload_document
-  - analyze_interview
+  - <仅白名单内的 MCP 工具>
   # 没有 bash、write_file、edit 等
 ---
 ```
+
+> insight agent 实际工具白名单见 [mcp-contract.md](../specs/agents/mcp-contract.md)。
 
 **③ default_agent — 每次新建对话要手动选**
 
