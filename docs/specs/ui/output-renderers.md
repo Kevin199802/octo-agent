@@ -7,19 +7,19 @@
 
 ## 1. 输出类型 taxonomy
 
-当前支持 3 种 OutputCard 类型（与 6 个提示词模板的对应见 [insight-analysis-mode.md §2](insight-analysis-mode.md)）：
+当前支持 4 种 OutputCard 类型（与 6 个提示词模板的对应见 [insight-analysis-mode.md §2](insight-analysis-mode.md)）：
 
-| 类型 | 触发模板 | 服务端返回形态 | 渲染器 | 状态 |
+| 类型 | 触发模板 / 来源 | 服务端返回形态 | 渲染器 | 状态 |
 |---|---|---|---|---|
 | `table` | 观点解析 / 按提纲聚类 / AI用户画像 / 评估问题整理 | Markdown 表格字符串 | TableRenderer | ✅ 已实现 |
 | `mindmap` | 思维导图 | JSON 结构（UXR 现有接口） | MindmapRenderer | ⚠️ 待实现 |
+| `html` | 未来富展示类 MCP tool（如独立的用户画像/可视化 tool）| HTML 字符串（建议 ```html``` fence 包裹） | HtmlRenderer | ⚠️ 待实现 |
 | `markdown` | 用研知识问答 + 长文本 fallback | Markdown 纯文本 | MarkdownRenderer | ✅ 已实现 |
 
 **未规划**：
-- HTML 渲染（用户画像等模板可能未来通过新 MCP tool 输出，到时再规划，预留 `html` type 不实现）
 - 文件渲染（docx/pptx 等，由系统应用打开，见 P1 ROADMAP `FileRenderer`）
 
-实际 type 集合最终以 UXR MCP 服务端返回的内容为准——客户端按内容形态路由，不绑定 analysis_type。
+实际 type 集合最终以 UXR MCP 服务端返回的内容为准——客户端按内容形态路由，不绑定 analysis_type。HTML 渲染器先做基础能力（iframe sandbox），具体由哪些 MCP tool 触发等 UXR 上线后再调整 systemHint。
 
 ---
 
@@ -39,16 +39,19 @@
 
 ### 2.2 改造目标
 
-把 mindmap 检测从"```mermaid``` 代码块"改为"JSON 结构匹配"，与 ADR-007 后的实际输出对齐。
+把 mindmap 检测从"```mermaid``` 代码块"改为"JSON 结构匹配"，并加入 HTML 检测。
 
 ```ts
 // 改造后的优先级
 1. isMarkdownTable(text)             → table
 2. isMindmapJSON(text)               → mindmap     ← 新规则
-3. isPlainJSON(text)                 → json (通用 JSON viewer)
-4. text.length > 200                 → markdown
-5. (短文本)                          → null（不开 OutputCard，对话内显示）
+3. isHTML(text)                      → html        ← 新规则
+4. isPlainJSON(text)                 → json (通用 JSON viewer)
+5. text.length > 200                 → markdown
+6. (短文本)                          → null（不开 OutputCard，对话内显示）
 ```
+
+**优先级理由**：mindmap JSON 在 HTML 之前，避免 HTML 内嵌的 JSON-like 字符串误判；HTML 在 plain JSON 之前，因为 HTML 中可能含 `<script>{...}</script>` 这种文本会让 JSON 检测失败但应走 HTML 路径。
 
 ### 2.3 检测实现
 
@@ -68,14 +71,28 @@ function isMindmapJSON(text: string): boolean {
   return Array.isArray(json.children) || Array.isArray(json.nodes)
 }
 
-// 3. 通用 JSON
+// 3. HTML：优先检测 ```html``` fence，fallback 检测 doctype / 顶层标签
+function isHTML(text: string): boolean {
+  if (/```html\s*\n[\s\S]+?\n```/i.test(text)) return true
+  const trimmed = text.trim()
+  if (/^<!DOCTYPE\s+html/i.test(trimmed)) return true
+  if (/^<html[\s>]/i.test(trimmed)) return true
+  // 富 HTML 片段（无 doctype 但顶层是 div/section/article 且有标签密度）
+  if (/^<(div|section|article|main|body)[\s>]/i.test(trimmed)) {
+    const tagCount = (trimmed.match(/<[a-z][^>]*>/gi) ?? []).length
+    return tagCount >= 3
+  }
+  return false
+}
+
+// 4. 通用 JSON
 function isPlainJSON(text: string): boolean {
   return tryParseJSON(stripCodeFence(text)) !== null
 }
 
 // helper
 function stripCodeFence(text: string): string {
-  const m = text.match(/```(?:json|mindmap)?\s*\n([\s\S]+?)\n```/i)
+  const m = text.match(/```(?:json|mindmap|html)?\s*\n([\s\S]+?)\n```/i)
   return m ? m[1] : text.trim()
 }
 function tryParseJSON(text: string): any {
@@ -280,13 +297,99 @@ function convertNode(node: any, idCounter = { i: 0 }): JsMindNode {
 
 ---
 
-## 5. MarkdownRenderer（现状）
+## 5. HtmlRenderer（新）
+
+### 5.1 输入
+
+UXR 未来会通过新增 MCP tool（如独立的用户画像可视化 tool）返回 HTML 字符串，可能形态：
+- ```html\n<!DOCTYPE html>...\n``` （fence 包裹完整文档，推荐）
+- 不带 fence 的完整 `<!DOCTYPE html>...` 文档
+- HTML 片段（`<div>...</div>`，无 doctype）
+
+`detectCard` 三种都能识别（见 §2.3）。渲染时统一交给 iframe srcDoc。
+
+### 5.2 渲染：iframe sandbox
+
+HTML 内容来自 LLM/MCP 服务端，**不能信任为完全无害**（即便内网）。用 iframe sandbox 隔离：
+
+```tsx
+// components/result-viewer/html-renderer.tsx
+export function HtmlRenderer(props: { content: string }) {
+  const html = stripCodeFence(props.content)  // 复用 §2.3 的 helper
+  
+  return (
+    <iframe
+      sandbox="allow-scripts"
+      srcdoc={html}
+      style={{
+        width: "100%",
+        height: "100%",
+        border: "none",
+        background: "white",
+      }}
+    />
+  )
+}
+```
+
+### 5.3 sandbox 策略
+
+| 属性 | 启用 | 理由 |
+|---|---|---|
+| `allow-scripts` | ✅ | 可视化（D3/echarts 等内联 JS）需要 |
+| `allow-same-origin` | ❌ | **绝不启用**，与 allow-scripts 同时启用相当于无 sandbox |
+| `allow-forms` | ❌ | 没有表单提交场景 |
+| `allow-top-navigation` | ❌ | 防止 HTML 跳转主窗口 |
+| `allow-popups` | ❌ | 防止弹窗骚扰 |
+| `allow-modals` | ❌ | 防止 alert/confirm 阻塞 |
+
+只开 `allow-scripts`，其他全关。这样 HTML 里的 JS 能跑（可视化 OK），但拿不到 cookie、没法跳转、没法访问父页面。
+
+### 5.4 srcDoc vs src
+
+用 `srcdoc`（内联 HTML 字符串）而不是 `src=blob:URL`：
+- ✅ 简单：不需要管理 blob URL 生命周期
+- ✅ 沙箱效果一致
+- ⚠️ 注意：`srcdoc` 内容超大（>1MB）时部分浏览器有性能问题，UXR 输出预期 < 100KB，无影响
+
+### 5.5 高度处理
+
+iframe 默认高度 0，需要显式给。三种方案：
+
+| 方案 | 优劣 |
+|---|---|
+| 固定铺满父容器 + 内部滚动 | ✅ 简单，与 ResultViewer panel 一致 |
+| postMessage 通信传 contentHeight | 复杂，需要约定协议 |
+| ResizeObserver | 跨 iframe 不可用 |
+
+推荐**方案 1**（固定铺满 + 内部滚动），与 TableRenderer / MindmapRenderer 一致。
+
+### 5.6 ActionBar 导出
+
+| 选项 | 实现 |
+|---|---|
+| 复制 HTML 源码 | 复制原始字符串（去除 fence） |
+| 下载 .html | blob 下载 `text/html;charset=utf-8` |
+| 在浏览器打开 | `window.api.openPath(tempFilePath)` 唤起系统默认浏览器（需主进程协助写临时文件） |
+
+前两个 P1 实现，"在浏览器打开" P2 视需求。
+
+### 5.7 安全清单
+
+- [ ] `sandbox` 属性只含 `allow-scripts`，不含 `allow-same-origin`
+- [ ] 不在 srcDoc 之外把 HTML 内容插到主文档（避免 XSS）
+- [ ] 不允许 HTML 内 JS 通过 postMessage 与父页面通信（默认就不允许）
+- [ ] 下载文件时 filename 做基础 sanitize（去掉路径分隔符）
+
+---
+
+## 6. MarkdownRenderer（现状）
 
 长文本 / 知识问答回复走通用 Markdown 渲染（已实现）。无规划变动。
 
 ---
 
-## 6. 与 systemHint 的协作
+## 7. 与 systemHint 的协作
 
 提示词模板的 `systemHint` 已经隐式约束了 LLM 输出格式：
 
@@ -303,17 +406,19 @@ function convertNode(node: any, idCounter = { i: 0 }): JsMindNode {
 
 ---
 
-## 7. 错误处理
+## 8. 错误处理
 
 | 场景 | 行为 |
 |---|---|
 | Markdown 表格解析失败（行不齐等） | 渲染前 2 列，剩余忽略；不中断 |
 | Mindmap JSON 解析失败 | OutputCard 显示"思维导图数据格式异常"，下方显示原始内容 |
 | Excel 库加载失败 | Toast 提示"导出失败，请重试"，CSV 按钮保留可用 |
+| HTML 内 JS 执行报错 | iframe 沙箱内静默失败，不影响主窗口；用户可下载 .html 自行排查 |
+| HTML 内容为空字符串 | OutputCard 显示"HTML 内容为空"占位，避免空白 iframe |
 
 ---
 
-## 8. 验证清单
+## 9. 验证清单
 
 ### V-01 表格类型
 - [ ] 收到 Markdown 表格 → OutputCard 标记为 `table`
@@ -328,18 +433,29 @@ function convertNode(node: any, idCounter = { i: 0 }): JsMindNode {
 - [ ] 节点可折叠/展开
 - [ ] JSON 解析失败时显示友好降级
 
-### V-03 fallback
+### V-03 HTML 类型
+- [ ] 收到 ```html``` fence 包裹的内容 → OutputCard 标记为 `html`
+- [ ] 收到不带 fence 但以 `<!DOCTYPE` / `<html>` 开头的内容 → 同上
+- [ ] HtmlRenderer 渲染 iframe，sandbox 属性仅含 `allow-scripts`
+- [ ] 内嵌 JS（如 `<script>console.log(1)</script>`）能执行
+- [ ] 内嵌 JS 尝试访问 `parent.location` / `top.document` 失败（被沙箱拦截）
+- [ ] 下载 .html 文件能正确保存
+
+### V-04 fallback
 - [ ] 短文本（< 200 字）→ 不开 OutputCard，对话内显示
-- [ ] 长文本（> 200 字、非表格非 JSON）→ markdown OutputCard
+- [ ] 长文本（> 200 字、非表格非 JSON 非 HTML）→ markdown OutputCard
 
 ---
 
-## 9. Phase 与依赖
+## 10. Phase 与依赖
 
 | 工作项 | Phase | 依赖 |
 |---|---|---|
-| TableRenderer Excel 导出 | 当前可做 | 无（独立任务） |
-| detectCard 改造（mermaid → mindmap JSON） | 当前可做 | 无 |
+| detectCard 改造（mermaid → mindmap JSON + HTML 检测） | 当前可做 | 无 |
+| TableRenderer Excel 导出 + parseMarkdownTable helper | 当前可做 | 无 |
 | MindmapRenderer + 适配层 | 当前可做（用 mock JSON 调试） | UXR mindmap JSON 实际 shape（待 MCP 联调时确认并调整 adapter）|
+| HtmlRenderer + sandbox iframe + 下载 | 当前可做（用 mock HTML 调试） | 无（UXR 上线 HTML tool 后无需改客户端，已 ready）|
 
-提示：UXR mindmap JSON shape 联调时确认，本 spec §4.4 的 `parseMindmapJSON` 可能需要小调整。
+**联调期可能的小调整**：
+- mindmap：`parseMindmapJSON` (§4.4) adapter 字段名根据 UXR 实际 shape 微调
+- html：如 UXR 输出 HTML 不带 fence 也不带 doctype，可能需要在 `isHTML` (§2.3) 加更宽松的检测规则

@@ -30,7 +30,7 @@
 | 规模 | 领域 | 任务 | 说明 |
 |-----|------|------|------|
 | `[S]` | ui | **FileRenderer + openPath** | .docx/.pptx → 唤起本地应用；.md/.insight → Markdown 渲染 | insight-result-viewer §5.4 |
-| `[M]` | ui | **OutputCard 渲染器扩展** | 1) detectCard 改造：mermaid → mindmap JSON 检测；2) MindmapRenderer + UXR JSON 适配层（jsmind）；3) TableRenderer 增加 Excel 导出（write-excel-file）；4) 共享 `parseMarkdownTable` helper | [output-renderers.md](docs/specs/ui/output-renderers.md) |
+| `[M]` | ui | **OutputCard 渲染器扩展** | 1) detectCard 改造：mermaid → mindmap JSON 检测，新增 HTML 检测；2) MindmapRenderer + UXR JSON 适配层（jsmind）；3) HtmlRenderer + iframe sandbox（仅 allow-scripts）；4) TableRenderer 增加 Excel 导出（write-excel-file）；5) 共享 `parseMarkdownTable` helper | [output-renderers.md](docs/specs/ui/output-renderers.md) |
 | `[S]` | agents | **内网 skill 联调** | 同事完成 MCP server 后，本地验证 research agent 能通过 skill 调内网接口 | — |
 | `[S]` | agents | **mock 脚本** | `packages/agent/research/mock/` 放本地测试脚本，无内网环境也能跑基础流程 | — |
 
