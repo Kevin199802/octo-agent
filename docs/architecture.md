@@ -202,8 +202,28 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 | 改了什么 | 性质 |
 |---|---|
 | 应用名 OpenCode → Octo Agent；App ID | 品牌 |
-| 注入 `OPENCODE_CONFIG=~/.config/octo/octo.config.json` | 配置隔离 |
+| 在 `initialize()` 最前调用 `initOctoConfig()`，将返回的 runtime 路径写入 `OPENCODE_CONFIG`（替换旧的直接赋值） | 配置隔离 + cascading 合并 |
 | 注入 `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=true` | 防读取用户 `~/.claude/CLAUDE.md` 污染 agent |
+
+#### `packages/desktop-electron/src/main/config-core.ts`（新增）
+
+| 改了什么 | 性质 |
+|---|---|
+| 纯逻辑层：`buildRuntimeConfig` + `deepMerge` + `STUB_USER_CONFIG`，**无 Electron 依赖** | cascading 配置核心（ADR-008）；可直接 `bun test` |
+
+#### `packages/desktop-electron/src/main/config.ts`（新增）
+
+| 改了什么 | 性质 |
+|---|---|
+| Electron 入口层：`initOctoConfig()` 解析路径、调用 `buildRuntimeConfig`、弹窗错误处理 | cascading 配置（ADR-008） |
+| `getDefaultConfigPath()` 用 `__dirname` 相对路径，dev/prod 统一——dev 指向源文件，prod 指向 asar 内（Electron 的 asar 补丁自动拦截） | 路径策略；不用 `process.resourcesPath`，避免 asar vs 物理路径混淆 |
+| `getAgentPromptPath()` prod 时用 `process.resourcesPath/agents/<name>.md`（extraResources 物理文件） | agent prompt 路径（与 `default-config.json` 不同，因为源路径结构差异需要 `isPackaged` 分支） |
+
+#### `packages/desktop-electron/src/main/config.test.ts`（新增）
+
+| 改了什么 | 性质 |
+|---|---|
+| 7 个 bun:test 用例：读**真实** `insight.md` + `default-config.json` 源文件，验证 V-01/V-02/V-04 | 自动化验证；`bun run test` 触发，无需打包 |
 
 #### `packages/desktop-electron/src/main/windows.ts`
 
@@ -214,7 +234,10 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 
 #### `packages/desktop-electron/electron-builder.config.ts`
 
-包名 / 图标 / 产品标识。品牌改动。
+| 改了什么 | 性质 |
+|---|---|
+| 包名 / 图标 / 产品标识 | 品牌 |
+| 新增 `extraResources`：将 `packages/agent/insight/agents/insight.md` 打包到 `resources/agents/insight.md` | cascading 配置（ADR-008）；dev 模式直读源文件，production 打包后从此路径读 |
 
 #### `packages/app/src/app.tsx`
 
@@ -230,6 +253,7 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 | 改了什么 | 性质 |
 |---|---|
 | 移除 `@octo/app` workspace devDependency（随 octo-app 删除） | 清理 |
+| 新增 `test`（`bun test src/main/config.test.ts`）和 `check-bundle`（`bun ./scripts/check-bundle.ts`）脚本 | 配置合并验证（cascading 配置 ADR-008） |
 
 #### `packages/desktop-electron/icons/prod/`
 

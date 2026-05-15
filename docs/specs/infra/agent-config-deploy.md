@@ -259,27 +259,48 @@ export function initOctoConfig(): string {
 
 ## 11. 验证清单
 
-### V-01 全新机器
-- [ ] 删除 `~/.config/octo/`，启动 app
-- [ ] `~/.config/octo/octo.config.json` 自动创建（含 stub）
-- [ ] `~/.config/octo/.octo-runtime.json` 自动生成
-- [ ] runtime 文件包含完整 agent.insight.prompt（来自 insight.md）
-- [ ] runtime 文件 mcp.uxr-tool 同时含 url（默认）和 headers.Authorization（用户的 REPLACE_ME）
+> **规则**：能自动验证的都走自动验证；手动步骤仅限无法自动化的场景（启动 app、UI 观察）。
 
-### V-02 升级路径
-- [ ] 用户文件填了真实 apiKey
-- [ ] 改 `packages/agent/insight/agents/insight.md` 添加新内容
-- [ ] 重启 main → runtime 文件中 prompt 已更新
-- [ ] 用户文件 **未被修改**
+### 自动化验证（日常，秒级）
 
-### V-03 dev 模式
+```bash
+cd packages/desktop-electron
+bun run test   # → src/main/config.test.ts，7 个用例
+```
+
+覆盖范围：
+
+| 用例 | 对应验证点 |
+|---|---|
+| 首次启动：stub 自动创建，runtime 含真实 insight.md prompt | V-01 |
+| 改 prompt 源文件后重跑，runtime 立即更新，用户文件不变 | V-02 |
+| 用户手动 override A 类，runtime 以用户值为准 | V-04 |
+| deepMerge：object 递归合并，array 整体覆盖 | 合并语义（§5） |
+| 用户 model 不被 bundle 覆盖 | B/C 类字段隔离 |
+
+### 打包产物验证（发版前，分钟级）
+
+```bash
+bun run package:mac
+# 然后手动检查：
+ls "dist/mac-arm64/Octo AI.app/Contents/Resources/agents/"
+# 预期：insight.md 存在，内容与 packages/agent/insight/agents/insight.md 一致
+
+diff "dist/mac-arm64/Octo AI.app/Contents/Resources/agents/insight.md" \
+     packages/agent/insight/agents/insight.md
+# 预期：无差异
+```
+
+或用脚本一键检查：
+
+```bash
+bun run check-bundle   # scripts/check-bundle.ts，对比 bundle 与源文件
+```
+
+### V-03 dev 模式（手动，无法完全自动化）
 - [ ] `bun --cwd packages/desktop-electron dev` 启动
-- [ ] 改源 → 重启 main → 行为同 production
+- [ ] 改 `packages/agent/insight/agents/insight.md` → 重启 main → 检查 `~/.config/octo/.octo-runtime.json` 中 prompt 字段已更新
 - [ ] 全程不需要手动 cp 任何文件
-
-### V-04 用户 override A 类
-- [ ] 用户在 octo.config.json 里写 `agent.insight.prompt: "自定义"`
-- [ ] 重启后 runtime 文件 prompt 字段是用户的值（用户最终为准）
 
 ---
 

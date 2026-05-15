@@ -18,12 +18,6 @@ try {
 
 process.env.OPENCODE_DISABLE_EMBEDDED_WEB_UI = "true"
 
-// Octo 自有配置文件,跟 opencode CLI 完全隔离
-// 用户编辑 ~/.config/octo/octo.config.json,opencode 后端读取这个文件
-if (!process.env.OPENCODE_CONFIG) {
-  process.env.OPENCODE_CONFIG = join(homedir(), ".config", "octo", "octo.config.json")
-}
-
 // 禁止 opencode 读 ~/.claude/CLAUDE.md(Claude Code 全局记忆),避免身份混淆和场景污染
 // Octo 的全局指令应放 ~/.config/octo/AGENTS.md,项目指令放 <project>/AGENTS.md
 if (!process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT) {
@@ -47,6 +41,7 @@ const { autoUpdater } = pkg
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
 import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
+import { initOctoConfig } from "./config"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
@@ -144,6 +139,11 @@ function setInitStep(step: InitStep) {
 }
 
 async function initialize() {
+  // cascading 合并：bundle defaults + user config → ~/.config/octo/.octo-runtime.json
+  if (!process.env.OPENCODE_CONFIG) {
+    process.env.OPENCODE_CONFIG = initOctoConfig()
+  }
+
   const needsMigration = !sqliteFileExists()
   const sqliteDone = needsMigration ? defer<void>() : undefined
   let overlay: BrowserWindow | null = null

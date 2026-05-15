@@ -35,6 +35,12 @@ const getBase = (): Configuration => ({
     buildResources: "resources",
   },
   files: ["out/**/*", "resources/**/*"],
+  extraResources: [
+    {
+      from: "../../packages/agent/insight/agents/insight.md",
+      to: "agents/insight.md",
+    },
+  ],
   mac: {
     category: "public.app-category.developer-tools",
     icon: `resources/icons/icon.icns`,
