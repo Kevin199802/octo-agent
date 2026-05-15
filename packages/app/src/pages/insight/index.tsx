@@ -21,8 +21,10 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
+import { PromptTemplateSelector } from "./components/prompt-template-selector"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
+import { PROMPT_TEMPLATES, DEFAULT_TEMPLATE_ID, type PromptTemplateId } from "./store/prompt-template"
 import { IconAttach, IconSend } from "./icons"
 import { IllustrationInsightEmpty } from "./icons/illustrations"
 
@@ -152,6 +154,7 @@ export default function InsightPage() {
 
   const isBusy = createMemo(() => sessionStatus().type === "busy")
 
+  const [templateId, setTemplateId] = createSignal<PromptTemplateId>(DEFAULT_TEMPLATE_ID)
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
@@ -185,8 +188,11 @@ export default function InsightPage() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs
-  createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
+  // 切换 session 时重置 ResultViewer tabs 和提示词模板
+  createEffect(on(() => params.id, () => {
+    tabStore.reset()
+    setTemplateId(DEFAULT_TEMPLATE_ID)
+  }, { defer: true }))
 
   // ── session 操作 ──────────────────────────────────────────
 
@@ -212,6 +218,7 @@ export default function InsightPage() {
   async function sendMessage(sessionId: string, text: string) {
     setSending(true)
     try {
+      const template = PROMPT_TEMPLATES.find((t) => t.id === templateId())!
       const fileParts: FilePartInput[] = attachments().map((a) => ({
         type: "file",
         mime: a.mime,
@@ -222,6 +229,7 @@ export default function InsightPage() {
       await globalSDK.client.session.prompt({
         sessionID: sessionId,
         agent: "insight",
+        system: template.systemHint,
         parts: [textPart, ...fileParts],
       })
       setAttachments([])
@@ -387,7 +395,7 @@ export default function InsightPage() {
                   }}
                 />
 
-                <div class="flex items-center justify-between px-2.5 pb-2.5">
+                <div class="flex items-center gap-2 px-2.5 pb-2.5">
                   <input
                     ref={fileInputRef!}
                     type="file"
@@ -400,17 +408,22 @@ export default function InsightPage() {
                     type="button"
                     onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
                     disabled={maxAttachments()}
-                    class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment"
+                    class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment flex-shrink-0"
                     title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
                   >
                     <IconAttach size={14} />
                   </button>
 
+                  <PromptTemplateSelector
+                    value={templateId()}
+                    onChange={setTemplateId}
+                  />
+
                   <button
                     type="button"
                     onClick={() => void handleSubmit()}
                     disabled={!prompt().trim() || inputDisabled()}
-                    class="octo-btn-send flex-shrink-0"
+                    class="octo-btn-send flex-shrink-0 ml-auto"
                   >
                     {sending() ? "…" : <IconSend size={14} />}
                   </button>
