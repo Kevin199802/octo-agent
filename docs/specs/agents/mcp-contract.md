@@ -31,16 +31,17 @@
 
 **`analysis_type` 枚举值：**
 
-| 值 | 含义 | 状态 |
-|---|---|---|
-| `key_findings` | 关键发现 / 核心观点 | Phase 1 优先 |
-| `user_journey` | 用户旅程 / 使用流程 | Phase 1 |
-| `pain_points` | 痛点聚类 | Phase 1 |
-| `opportunity_map` | 机会点 / 改进方向 | Phase 1 |
-| `cluster_by_outline` | 按提纲聚类 | Phase 2 |
-| `generate_persona` | AI 用户画像 | Phase 2 |
-| `evaluation_summary` | 评估问题整理 | Phase 2 |
-| `mindmap` | 思维导图结构 | Phase 2 |
+> 与提示词模板严格对齐，每个值都有 [insight-analysis-mode.md §2](../ui/insight-analysis-mode.md) 的对应模板。
+
+| 值                    | 含义          | 对应模板    | 状态         |
+| -------------------- | ----------- | ------- | ---------- |
+| `key_findings`       | 关键发现 / 核心观点 | 观点解析    | Phase 1 优先 |
+| `cluster_by_outline` | 按提纲聚类       | 按提纲聚类   | Phase 2    |
+| `generate_persona`   | AI 用户画像     | AI用户画像  | Phase 2    |
+| `evaluation_summary` | 评估问题整理      | 评估问题整理  | Phase 2    |
+| `mindmap`            | 思维导图结构      | 思维导图    | Phase 2    |
+
+> 历史孤儿值 `user_journey` / `pain_points` / `opportunity_map`（早期 UXR API 草案残留，无对应模板）已移除。如需新增 type，必须先在 insight-analysis-mode.md 加对应模板。
 
 **返回格式**：Markdown 或 JSON，由 UXR 服务端决定。客户端 `detectCard` 自动识别格式，无需 Octo 侧约束。多文档时须在结果中注明来源文件。
 

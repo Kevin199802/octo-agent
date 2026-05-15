@@ -153,9 +153,8 @@ async def analyze_interview(doc_urls: list[str], analysis_type: str, context: st
     对访谈逐字稿进行结构化分析。
     doc_urls 是 S3/OBS 文件地址列表（由 InsightPage 上传后提供，非文件名）。
     context 为必填项，填写业务背景可显著提升分析质量。
-    analysis_type 枚举：key_findings=关键发现; user_journey=用户旅程;
-      pain_points=痛点聚类; opportunity_map=机会地图; mindmap=思维导图JSON。
-    除 mindmap 外均返回 Markdown 表格；mindmap 返回 JSON。
+    analysis_type 枚举与含义见 mcp-contract.md（保持单一真相来源，避免与本文档漂移）。
+    除 mindmap 类型返回 JSON 外，其余类型均返回 Markdown 表格。
     """
     result = await internal_service.analyze(doc_urls=doc_urls, type=analysis_type, context=context)
     return result  # Markdown 字符串或 JSON 字符串

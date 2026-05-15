@@ -17,7 +17,7 @@
 | `markdown` | 用研知识问答 + 长文本 fallback | Markdown 纯文本 | MarkdownRenderer | ✅ 已实现 |
 
 **未规划**：
-- 文件渲染（docx/pptx 等，由系统应用打开，见 P1 ROADMAP `FileRenderer`）
+- Office 文件应用内预览（docx/pptx/xlsx）—— 伪需求，详见 [ADR-009](../../adr/009-no-office-preview.md)
 
 实际 type 集合最终以 UXR MCP 服务端返回的内容为准——客户端按内容形态路由，不绑定 analysis_type。HTML 渲染器先做基础能力（iframe sandbox），具体由哪些 MCP tool 触发等 UXR 上线后再调整 systemHint。
 

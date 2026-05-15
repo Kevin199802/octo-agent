@@ -1,14 +1,14 @@
 # SPEC-INS-003 — 中间面板结果查看器（ResultViewer）
 
-> 状态：草案 · 优先级 P1 · 规模 [L] · 领域 ui/insight
+> 状态：框架已实现 · 优先级 P1 · 规模 [L] · 领域 ui/insight
 >
-> 上游已实现：✓ Markdown 渲染（marked + shiki + KaTeX）；✓ HTML 表格；✗ Mermaid；✗ Tab 管理；✗ 结果查看器框架
+> 上游已实现：✓ Markdown 渲染（marked + shiki + KaTeX）；✓ HTML 表格；✗ Tab 管理；✗ 结果查看器框架
 
 ---
 
 ## 1. 目标
 
-InsightPage 中间面板：**多 Tab 并列显示** agent 产出结果，支持表格、Mermaid 思维导图、Markdown 文档、文件预览四种渲染模式，对应用研场景的典型输出物。
+InsightPage 中间面板：**多 Tab 并列显示** agent 产出结果。具体支持的渲染类型见 [output-renderers.md §1](output-renderers.md)，本 spec 只负责 ResultViewer 框架（Tab 管理、布局、空态、ActionBar shell）。
 
 ---
 
@@ -20,7 +20,6 @@ InsightPage 中间面板：**多 Tab 并列显示** agent 产出结果，支持�
 | HTML 表格（markdown `\|...\|`） | ✓ | marked 内置，DOMPurify 允许 HTML |
 | 代码高亮（shiki） | ✓ | 随 `<Markdown>` 一起工作 |
 | KaTeX 数学公式 | ✓ | 随 `<Markdown>` 一起工作 |
-| **Mermaid 流程图** | ✗ | 需在 insight/ 内引入 `mermaid` 包 |
 | **Tab 管理器** | ✗ | 需自写 |
 | **结果查看器框架** | ✗ | 需自写 |
 
@@ -88,60 +87,14 @@ function closeTab(id: string) { ... }
 
 ## 5. 内容渲染器
 
-### 5.1 表格渲染（TableRenderer）
+> 本节内容已迁移到 **[output-renderers.md](output-renderers.md)** 作为唯一真相来源。  
+> 当前支持 4 种渲染类型：`table` / `mindmap` / `html` / `markdown`，以及对应的 detectCard 分发规则、ActionBar 导出能力（CSV / Excel / .md / SVG），均见 output-renderers.md。
 
-输入：包含 `| ... |` 的 markdown 字符串。
+**已废弃的早期规划**（见各 ADR 决策）：
+- `MermaidRenderer` —— 思维导图改用 markmap-view 渲染 JSON，不再走 mermaid 路径。mermaid 移入 ROADMAP「挂起」
+- `FileRenderer` —— Office 文件应用内预览是伪需求，详见 [ADR-009](../../adr/009-no-office-preview.md)
 
-```
-insight/components/result-viewer/table-renderer.tsx
-```
-
-实现：
-1. 用 `marked.lexer()` 解析 markdown，提取 `table` token
-2. 渲染为 styled HTML table（sticky header、交替行颜色、hover 高亮）
-3. 若同时有多个表格，垂直堆叠
-4. 表格上方渲染前置说明段落（`<Markdown>`）
-
-**不**使用第三方表格库（如 TanStack Table），原始 HTML table 已满足需求。
-
-### 5.2 Mermaid 渲染（MermaidRenderer）
-
-输入：` ```mermaid\n...\n``` ` 代码块内容。
-
-```
-insight/components/result-viewer/mermaid-renderer.tsx
-```
-
-实现：
-1. `import mermaid from "mermaid"` — 在 insight/ 内 lazy import，不影响主包
-2. `mermaid.initialize({ startOnLoad: false, theme: "neutral" })`
-3. `mermaid.render(id, code)` → 得到 SVG 字符串
-4. 插入 DOM，支持 pinch-zoom（CSS `transform-origin`）
-5. 主题跟随 light/dark 切换（`useTheme()` 监听）
-
-> 引入 mermaid 需在 `docs/architecture.md §5.4` 登记（非业务包依赖变更）。
-
-### 5.3 Markdown 渲染
-
-直接复用 `@opencode-ai/ui` 的 `<Markdown>` 组件：
-
-```tsx
-import { Markdown } from "@opencode-ai/ui/markdown"
-<Markdown>{content}</Markdown>
-```
-
-### 5.4 文件预览（FileRenderer）
-
-对于 agent 产出的文件（write Part 生成的 .docx/.pptx 等）：
-
-```
-insight/components/result-viewer/file-renderer.tsx
-```
-
-- `.txt` / `.md` → 用 `<Markdown>` 渲染（读文件内容）
-- `.insight` / `.make` → 特殊格式，视为 markdown 渲染
-- `.docx` / `.xlsx` / `.pptx` → 显示"无法在浏览器内预览"+ [在本地应用中打开] 按钮，调用 `window.api.openPath(filePath)`
-- `.json` → 语法高亮代码块
+本 spec 保留的职责：ResultViewer **框架层**（Tab 管理、布局、空态、ActionBar shell），见下方 §6 / §7 / §8。
 
 ---
 
@@ -149,7 +102,7 @@ insight/components/result-viewer/file-renderer.tsx
 
 | 按钮 | 行为 |
 |---|---|
-| 下载 ↓ | 根据 Tab 类型导出：table → CSV/xlsx；markdown → .md；mermaid → PNG |
+| 下载 ↓ | 根据 Tab 类型导出（具体格式映射见 [output-renderers.md](output-renderers.md)）|
 | 复制 ⎘ | 复制原始 markdown 内容到剪贴板 |
 | 导出 ↗ | 保存到工作区（调用 server API 写文件，路径由用户选择） |
 
@@ -178,22 +131,12 @@ insight/components/result-viewer/
 ├── tab-bar.tsx          # Tab 条（含 × 和 + 按钮）
 ├── action-bar.tsx       # 下载/复制/导出按钮
 ├── table-renderer.tsx   # Markdown 表格 → styled table
-├── mermaid-renderer.tsx # Mermaid → SVG（lazy import mermaid.js）
-├── markdown-renderer.tsx# 复用 @opencode-ai/ui Markdown
-└── file-renderer.tsx    # 文件预览（含 openPath 唤起）
+├── mindmap-renderer.tsx # JSON → markmap（见 output-renderers.md §4）
+├── html-renderer.tsx    # iframe sandbox（见 output-renderers.md §5）
+└── markdown-renderer.tsx# 复用 @opencode-ai/ui Markdown
 ```
 
----
-
-## 9. Mermaid 依赖登记
-
-在实现前需在 `insight/` 的 package.json 范围内（或 monorepo catalog）加入 mermaid：
-
-```json
-"mermaid": "^11.x"
-```
-
-**同步更新 architecture.md §5.4**（非业务包依赖变更）。
+具体每个 renderer 的实现细节、依赖库选择、错误处理见 [output-renderers.md](output-renderers.md)。
 
 ---
 
@@ -257,5 +200,6 @@ insight/components/result-viewer/
 ## 11. 不做
 
 - ✗ 表格内联编辑（P2）
-- ✗ 结果实时流式渲染（等 session.idle 后整体渲染，避免表格/mermaid 增量渲染乱码）
-- ✗ Mermaid 以外的图表库（ECharts 等留 P2 专项 spec）
+- ✗ 结果实时流式渲染（等 session.idle 后整体渲染，避免表格/mindmap 增量渲染乱码）
+- ✗ Office 文件应用内预览（伪需求，详见 [ADR-009](../../adr/009-no-office-preview.md)）
+- ✗ 渲染类型扩展（新增由 [output-renderers.md](output-renderers.md) 统一规划，不在本框架 spec 范围）

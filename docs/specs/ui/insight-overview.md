@@ -107,10 +107,10 @@ ResultViewer 新建 Tab → 对应渲染器（TableRenderer / MermaidRenderer / 
    - `InsightTurn` + `OutputCard` — 对话输出卡片
    - `ResultViewer` 框架 + `TableRenderer`（最常用输出形式）
 
-2. **Phase 2**（补全结果形态）
-   - `MermaidRenderer`（引入 mermaid.js）
-   - `FileRenderer`（openPath 唤起本地应用）
-   - ActionBar 导出功能（CSV / MD 下载）
+2. **Phase 2**（补全结果形态，详见 [output-renderers.md](output-renderers.md)）
+   - `MindmapRenderer`（markmap-view 渲染 JSON 思维导图）
+   - `HtmlRenderer`（iframe sandbox）
+   - ActionBar 导出扩展（Excel / SVG）
 
 3. **Phase 3**（工作区面板）
    - `WorkspacePanel` — 上传文件 + 工作文件两个真实 section

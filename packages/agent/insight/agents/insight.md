@@ -26,15 +26,17 @@ tools:
 
 ## analysis_type 选择指南
 
-> 完整映射见 [docs/specs/ui/insight-analysis-mode.md §2](../../docs/specs/ui/insight-analysis-mode.md)
+> 完整模板映射见 [docs/specs/ui/insight-analysis-mode.md §2](../../docs/specs/ui/insight-analysis-mode.md)，工具枚举见 [mcp-contract.md](../../docs/specs/agents/mcp-contract.md)。
 
 | 用户说 | analysis_type |
 |---|---|
 | 关键发现、核心观点、主要结论 | key_findings |
-| 用户旅程、使用流程、操作步骤 | user_journey |
-| 痛点、问题、不满意的地方 | pain_points |
-| 机会点、改进方向、建议 | opportunity_map |
+| 按提纲整理、按大纲聚类 | cluster_by_outline |
+| 用户画像、persona | generate_persona |
+| 评估问题、评测、打分 | evaluation_summary |
 | 思维导图 | mindmap（返回 JSON，客户端渲染） |
+
+通常用户已通过 InsightPage 模板下拉选好任务，会在 system 字段里直接告诉你用哪个 analysis_type。本表仅在用户走自由输入未指定模板时作为映射参考。
 
 ## 注意
 
