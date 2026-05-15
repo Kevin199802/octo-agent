@@ -23,7 +23,7 @@
   "mcp": {
     "uxr-tool": {
       "type": "remote",
-      "url": "REPLACE_WITH_INTRANET_MCP_URL",
+      "url": "http://7.192.161.60:8005/mcp",
       "enabled": true,
       "timeout": 30000
     }

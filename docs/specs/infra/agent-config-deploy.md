@@ -246,6 +246,72 @@ export function initOctoConfig(): string {
 
 ---
 
+## 9.5 环境变量 override（调试期 escape hatch）
+
+### 9.5.1 动机
+
+内网调试时 MCP URL 可能频繁切换（test/staging/prod 环境）。如果只能改 `default-config.json` 重新打包，迭代慢；如果改用户文件污染 B+C 区，违反 ADR-008 约定。
+
+引入 env var 作为**第三层 override**，专门给 dev/CI/调试场景：
+
+```
+优先级（高到低）：
+1. process.env.OCTO_MCP_URL   ← 启动时临时 override，最高优先
+2. 用户文件 octo.config.json   ← 长期偏好
+3. bundled default-config.json ← 产品默认
+```
+
+这是 [12-factor app](https://12factor.net/config) 的标准做法：环境变量管理跨环境差异。
+
+### 9.5.2 命名约定
+
+跟现有 `OCTO_DEVTOOLS` 一致，全部以 `OCTO_` 前缀（不侵占上游 `OPENCODE_*` 命名空间）：
+
+| 环境变量 | 覆盖字段 | 示例值 |
+|---|---|---|
+| `OCTO_MCP_URL` | `mcp.uxr-tool.url` | `http://7.192.161.60:8005/mcp` |
+
+未来如有多个 MCP server 或其他需要切换的字段，按 `OCTO_<UPPER_SNAKE_CASE>` 扩展。**YAGNI**：当前只支持一个变量，扩展时再加。
+
+### 9.5.3 实现位置
+
+`config.ts` 中 `buildRuntimeConfig` 完成 deepMerge 之后、写 runtime 文件之前，加 env var override 阶段：
+
+```ts
+function applyEnvOverrides(merged: any): any {
+  if (process.env.OCTO_MCP_URL) {
+    merged.mcp ??= {}
+    merged.mcp["uxr-tool"] ??= {}
+    merged.mcp["uxr-tool"].url = process.env.OCTO_MCP_URL
+  }
+  return merged
+}
+```
+
+### 9.5.4 使用示例
+
+**Mac 终端启动**：
+```bash
+OCTO_MCP_URL=http://7.192.161.60:8005/mcp open -n /Applications/Octo\ Agent.app
+```
+
+**Windows PowerShell**：
+```powershell
+$env:OCTO_MCP_URL="http://7.192.161.60:8005/mcp"
+& "C:\Program Files\Octo Agent\Octo Agent.exe"
+```
+
+**dev 模式**：
+```bash
+OCTO_MCP_URL=http://localhost:8005/mcp bun --cwd packages/desktop-electron dev
+```
+
+### 9.5.5 与文档原则的关系
+
+虽然 ADR-008 强调"用户文件只放 B+C，A 类在 bundle"，但 env var 是**第三个独立维度**——不污染任何文件，只在进程内存里 override，进程退出即失效。这与"用户文件只放 B+C"约定不冲突，是补充。
+
+---
+
 ## 10. 错误处理
 
 | 场景 | 行为 |
