@@ -5,7 +5,6 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 
 export const STUB_USER_CONFIG = {
-  _note: "在这里填 API key、模型选择等个人设置。Agent 和 MCP 核心配置由 app 自带，不要写在这里。",
   $schema: "https://opencode.ai/config.json",
   provider: {
     deepseek: {

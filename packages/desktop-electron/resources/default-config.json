@@ -1,6 +1,4 @@
 {
-  "_version": 1,
-  "_note": "结构配置的唯一真相来源。主进程启动时读取此文件并与用户配置合并。不包含 API Key / 模型选择等个人设置。",
   "default_agent": "insight",
   "agent": {
     "insight": {
@@ -24,7 +22,6 @@
     "uxr-tool": {
       "type": "remote",
       "url": "http://7.192.161.60:8005/mcp",
-      "enabled": false,
       "timeout": 30000
     }
   }

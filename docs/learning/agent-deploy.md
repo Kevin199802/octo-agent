@@ -1,7 +1,8 @@
 # Agent 注册的作用与配置分发
 
 > 前置阅读：[agent-mental-model.md](agent-mental-model.md)  
-> 解答两个问题：①不注册也能对话，注册到底有什么用？②配置文件在本机，发布后用户侧怎么自带？
+> 解答两个问题：①不注册也能对话，注册到底有什么用？②配置文件在本机，发布后用户侧怎么自带？  
+> §3 记录 cascading config 的一次踩坑（2026-05-16）。
 
 ---
 
@@ -144,3 +145,61 @@ dev 与 production 行为一致——改源文件 → 重启 main 进程 → 自
 - 手动同步到 `~/.config/octo/octo.json` 的 `agent.insight.prompt` 字段
 
 实现完成后这些手动步骤全部消除。任务在 ROADMAP P2 infra：「首次启动配置写入」。
+
+---
+
+## 3. 踩坑：runtime config 含未知字段，opencode strict schema 拒收（2026-05-16）
+
+### 症状
+
+UI 启动后 console 三条 lazy 路由全部报错：
+
+```
+127.0.0.1:<port>/provider → 500
+127.0.0.1:<port>/project  → 500
+127.0.0.1:<port>/path     → 500
+```
+
+主进程 log 看不到错误（opencode server 自己的报错日志没接到 electron-log 通道），表面上 server ready 正常。
+
+### 根因
+
+[packages/opencode/src/config/config.ts](../../packages/opencode/src/config/config.ts) 顶层 `Config.Info` schema 调用了 `.strict()`，**任意未知字段都会抛 ZodError**。
+
+cascading 合并把 `default-config.json` 与用户 `octo.json` 原样深合并后写到 `~/.config/octo/.octo-runtime.json`，主进程把这个文件路径塞给 `OPENCODE_CONFIG` env var。当时 `default-config.json` 顶部带两行"开发者注释字段"：
+
+```json
+{
+  "_version": 1,
+  "_note": "结构配置的唯一真相来源...",
+  ...
+}
+```
+
+opencode bootstrap 加载 → strict 校验 → ZodError → AppRuntime 初始化失败。所有依赖 AppRuntime 的 lazy 路由（`/provider` `/project` `/path` 等）首次访问时抛 500。
+
+### 为什么之前能跑
+
+cascading config 是 ADR-008 引入的新机制，5月14日开始合并 commit。`.octo-runtime.json` 在 5月16日才**第一次实际生成**。在此之前主进程不注入 `OPENCODE_CONFIG`，opencode 直接读用户 `octo.json`（手写的，没 `_` 字段），所以一直正常。
+
+### 修复 + 防御原则
+
+**改源头，不加过滤逻辑救场**：
+
+1. 从 `default-config.json` 删 `_version` / `_note`（开发者注释应放 ADR / spec，不放 JSON 配置）
+2. 从 `STUB_USER_CONFIG` 删 `_note`（首次启动给新用户写出的 stub 也必须 schema-compliant）
+3. **拒绝在 `buildRuntimeConfig` 里加 `stripPrivateFields` 这种过滤函数** —— 过滤会掩盖未来同类问题：下次有人再在源文件加非 schema 字段，过滤会默默吞掉，bug 不再暴露。让源头错误立即抛，是更健康的反馈环。
+
+### 给后续合入者的硬约束
+
+凡是会进入 `~/.config/octo/.octo-runtime.json` 的字段（即 `default-config.json` 任何层级 + 用户 `octo.json` 任何层级），**必须严格遵守 [opencode Config schema](../../packages/opencode/src/config/config.ts)**：
+
+- 顶层只允许 `$schema` / `default_agent` / `agent` / `mcp` / `provider` / `model` / `permission` / ...（schema 全集见源码 line 93 起）
+- 不要为了"写注释"加 `_xxx` / `__comment` / `//` 一类字段——JSON 不支持注释，注释应写在 ADR、spec 或 learning 文档里
+- 顺手验证：改完 `default-config.json` 后跑一次 `bun --cwd packages/desktop-electron test`（V-01 测试会触发完整 cascading 合并 + 写盘 + opencode 加载路径）
+
+### 附带学到的：MCP 启动是 fault-tolerant 的
+
+[packages/opencode/src/mcp/index.ts](../../packages/opencode/src/mcp/index.ts) 里 `connectTransport` 失败有 `Effect.catch` 兜底返回 `failed` 状态，外层 `Effect.forEach({ concurrency: "unbounded" })` 再套一层 `Effect.catch(() => Effect.void)`。
+
+**含义**：MCP server 连不上不会拖垮 opencode bootstrap。因此 `mcp.uxr-tool.enabled: false` 这种"外网默认禁用"字段不必要——外网下连接超时只产生 error log，不影响 server 启动。把这个字段去掉，**内网外网用同一份 default-config，部署时不再需要"打包前改字段"步骤**。trade-off 是外网下 startup 会等到 mcp timeout（30s）才标记 mcp 为 failed，但 `concurrency: "unbounded"` 让它不阻塞其他工作。
