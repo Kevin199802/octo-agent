@@ -221,7 +221,7 @@ User → Primary "用研助手"
 
 opencode 从三处发现 agent:
 
-1. **配置文件 `agent` 字段**(在 `~/.config/octo/octo.config.json`):
+1. **配置文件 `agent` 字段**(在 `~/.config/octo/octo.json`):
    ```jsonc
    {
      "agent": {

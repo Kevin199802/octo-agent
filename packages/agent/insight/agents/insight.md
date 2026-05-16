@@ -26,8 +26,6 @@ tools:
 
 ## analysis_type 选择指南
 
-> 完整模板映射见 [docs/specs/ui/insight-analysis-mode.md §2](../../docs/specs/ui/insight-analysis-mode.md)，工具枚举见 [mcp-contract.md](../../docs/specs/agents/mcp-contract.md)。
-
 | 用户说 | analysis_type |
 |---|---|
 | 关键发现、核心观点、主要结论 | key_findings |

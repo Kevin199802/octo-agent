@@ -301,7 +301,7 @@ data: {"type":"message_stop"}
 
 ## 7. 配置示例汇总
 
-下面给 5 个常见 provider 的完整配置例,放进 `~/.config/octo/octo.config.json` 即可。
+下面给 5 个常见 provider 的完整配置例,放进 `~/.config/octo/octo.json` 即可。
 
 ### 7.1 Anthropic 直连
 

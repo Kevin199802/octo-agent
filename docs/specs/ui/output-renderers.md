@@ -465,30 +465,94 @@ iframe 默认高度 0，需要显式给。三种方案：
 
 ## 9. 验证清单
 
-### V-01 表格类型
-- [ ] 收到 Markdown 表格 → OutputCard 标记为 `table`
-- [ ] TableRenderer 正确渲染表格
-- [ ] ActionBar 复制按钮复制 Markdown 原文
-- [ ] CSV 下载文件能被 Excel 打开（中文不乱码，需 UTF-8 BOM）
-- [ ] Excel 下载文件能被 Excel/Numbers/WPS 打开
+### 9.0 联调前手动自验（无需 UXR MCP）
 
-### V-02 思维导图类型
-- [ ] 收到 mindmap JSON（即使带 ```json fence）→ OutputCard 标记为 `mindmap`
-- [ ] MindmapRenderer 渲染节点树
-- [ ] 节点可折叠/展开
-- [ ] JSON 解析失败时显示友好降级
+> **目的**：单测覆盖 detect 逻辑 / adapter 转换 / CSV 转义等纯逻辑（见 `packages/app/src/pages/insight/utils/detect.test.ts`，26 个 case）。本节流程覆盖**眼睛才能看见的东西**：markmap SVG 是否真画出、iframe 沙箱是否真隔离、.xlsx 在 Numbers/Excel 里是否真打开。
+>
+> **前置**：InsightPage 配好任意 LLM provider，能正常对话。下列 prompt 直接粘进输入框即可。
 
-### V-03 HTML 类型
-- [ ] 收到 ```html``` fence 包裹的内容 → OutputCard 标记为 `html`
-- [ ] 收到不带 fence 但以 `<!DOCTYPE` / `<html>` 开头的内容 → 同上
-- [ ] HtmlRenderer 渲染 iframe，sandbox 属性仅含 `allow-scripts`
-- [ ] 内嵌 JS（如 `<script>console.log(1)</script>`）能执行
-- [ ] 内嵌 JS 尝试访问 `parent.location` / `top.document` 失败（被沙箱拦截）
-- [ ] 下载 .html 文件能正确保存
+#### V0-A 思维导图渲染 + 导出
 
-### V-04 fallback
-- [ ] 短文本（< 200 字）→ 不开 OutputCard，对话内显示
-- [ ] 长文本（> 200 字、非表格非 JSON 非 HTML）→ markdown OutputCard
+**粘这条 prompt**：
+
+```
+直接输出 JSON，不要任何解释文字，不要 ```json fence。
+shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
+主题"调试工具用户研究"，至少 3 层、8 个节点。
+```
+
+**验收**：
+- [ ] 对话区出现 OutputCard，类型图标为思维导图（`IconCardMindmap`），标题非空
+- [ ] 点开卡片 → ResultViewer 显示 markmap SVG（**手绘曲线连接节点**，不是直线/矩形框）
+- [ ] 鼠标滚轮可缩放、拖拽可平移
+- [ ] 点节点可折叠/展开子树
+- [ ] ActionBar [下载 ▾] → JSON (.json) → 文件能用任意文本编辑器打开，内容是原始 JSON
+
+#### V0-B HTML 可视化 + 沙箱
+
+**粘这条 prompt**：
+
+```
+输出一段完整 HTML，用 ```html fence 包裹，含 <!DOCTYPE>、<style>、内联 <script>。
+内容：用 div + CSS 画一个 4 柱柱状图（柱高分别 30% / 60% / 80% / 45%，柱子颜色不同）。
+<script> 里加 console.log("html-renderer ok")。
+```
+
+**验收**：
+- [ ] OutputCard 类型图标为 HTML（`IconCardHtml`）
+- [ ] 点开卡片 → ResultViewer 渲染出 4 柱柱状图（**真的有不同高度和颜色**，不是源码 pre 块）
+- [ ] 打开 DevTools Console → 能看到 `html-renderer ok`（说明 `allow-scripts` 生效）
+- [ ] DevTools Elements 检查 iframe → `sandbox="allow-scripts"`，**不含** `allow-same-origin`
+- [ ] ActionBar [下载 ▾] → HTML (.html) → 双击下载文件能在浏览器打开
+
+#### V0-C 表格 + Excel 导出
+
+**触发方式**：用现有"观点解析"提示词模板触发一次正常分析（systemHint 已约束 markdown 表格输出）。或粘这条 prompt：
+
+```
+输出一个 markdown 表格，3 列，第一列"观点"，第二列"频次"，第三列"代表用户"，至少 5 行真实示例内容（用研场景）。
+```
+
+**验收**：
+- [ ] OutputCard 类型图标为表格（`IconCardTable`）
+- [ ] 点开卡片 → ResultViewer 显示 HTML 表格（表头浅灰、行斑马纹）
+- [ ] ActionBar [下载 ▾] 下拉显示 **3 个选项**：Markdown / CSV / Excel
+- [ ] 下载 .md → 用文本编辑器打开，是原始 markdown 表格语法
+- [ ] 下载 .csv → 双击用 Excel/Numbers 打开，**中文不乱码**，列结构正确
+- [ ] 下载 .xlsx → 双击用 Excel/Numbers 打开，**中文不乱码**，列结构正确
+
+#### V0-D fallback 行为
+
+**粘这条 prompt（短文本）**：
+
+```
+就回我一个字"好"，不要别的内容。
+```
+
+**验收**：
+- [ ] 对话区直接显示助手文字"好"，**不开 OutputCard**
+
+**粘这条 prompt（长 markdown）**：
+
+```
+写一段约 300 字的用研访谈纪要，包含 # 一级标题、若干 ## 二级标题、若干 - 项目。不要表格，不要 JSON，不要 HTML。
+```
+
+**验收**：
+- [ ] OutputCard 类型图标为 Markdown（`IconCardMarkdown`）
+- [ ] 点开卡片 → ResultViewer 用 markdown 渲染（标题大小不同、列表有缩进）
+
+---
+
+### 9.1 已被单测覆盖的部分（无需手动）
+
+下列项已在 `detect.test.ts` 验证，改代码会自动回归，不必每次手动跑：
+
+- detectCard 优先级（table > mindmap JSON > HTML > plain JSON > markdown）
+- `isMindmapJSON` 对带 fence / 不带 fence / 单根 / 双层数组 shape 的识别
+- `isHTML` 对 fence / doctype / 富片段（≥3 标签）的识别
+- `parseMarkdownTable` 切分 + `tableToCSV` 引号转义
+- `uxrJsonToMarkdown` 双层数组 → markmap markdown 转换、空节点占位、空数组返回 null
 
 ---
 

@@ -22,7 +22,7 @@
 
 > ⚠️ 以下参数待 S3 上传工作完成后由 UXR 团队确认并更新。
 
-**接口地址**：`POST <uxr.upload_url>`（来自 `octo.config.json` 的 `uxr.upload_url` 字段，待填写）
+**接口地址**：`POST <uxr.upload_url>`（来自 `octo.json` 的 `uxr.upload_url` 字段，待填写）
 
 **请求格式**：`multipart/form-data`
 
@@ -43,7 +43,7 @@
 ### 配置
 
 ```jsonc
-// ~/.config/octo/octo.config.json
+// ~/.config/octo/octo.json
 {
   "uxr": {
     "upload_url": "https://uxr-service.intranet.com/api/upload"  // 待填写

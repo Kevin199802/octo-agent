@@ -42,7 +42,7 @@ MCP Tool（具体清单见 mcp-contract.md）
 ┌──────────── Octo Agent（用户机器） ────────────┐
 │  InsightPage → session.prompt() → opencode    │
 │                       │                        │
-│                  读 octo.config.json           │
+│                  读 octo.json           │
 │                  发现 mcp.uxr-tool.url          │
 └───────────────────────┼────────────────────────┘
                         │ HTTP（MCP 协议）

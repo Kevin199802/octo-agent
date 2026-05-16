@@ -63,7 +63,7 @@ opencode 的实现见 [packages/opencode/src/mcp/index.ts](../../packages/openco
 
 ### 2.4 配置例子
 
-在 `~/.config/octo/octo.config.json` 里:
+在 `~/.config/octo/octo.json` 里:
 
 ```jsonc
 {

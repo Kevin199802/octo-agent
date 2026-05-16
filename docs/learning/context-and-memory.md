@@ -68,7 +68,7 @@ opencode 的实现是**渐进式**:
 
 ### 2.4 配置
 
-`~/.config/octo/octo.config.json`:
+`~/.config/octo/octo.json`:
 
 ```jsonc
 {
@@ -187,10 +187,10 @@ opencode 已有的能力**完全能覆盖 Claude Project 的功能**,组合方�
 
 ### 4.2 项目级附件 → 用 `instructions` 字段
 
-需要团队所有人共享的附加文档,放进项目级 `octo.config.json`(注意是项目级配置,不是全局):
+需要团队所有人共享的附加文档,放进项目级 `octo.json`(注意是项目级配置,不是全局):
 
 ```jsonc
-// <project>/.octo/octo.config.json
+// <project>/.octo/octo.json
 {
   "instructions": [
     "./docs/internal-conventions.md",
@@ -199,7 +199,7 @@ opencode 已有的能力**完全能覆盖 Claude Project 的功能**,组合方�
 }
 ```
 
-opencode 有项目级配置加载机制(从当前目录向上找 `opencode.json`),Octo 可以扩展为也支持 `.octo/octo.config.json`(实施细节见 spec)。
+opencode 有项目级配置加载机制(从当前目录向上找 `opencode.json`),Octo 可以扩展为也支持 `.octo/octo.json`(实施细节见 spec)。
 
 ### 4.3 项目内多 session 共享上下文 → 用 `parent_id`
 
@@ -301,7 +301,7 @@ agent 配置里可以设 `steps`(最大循环步数),防止失控:
 | 全局 `~/.config/opencode/AGENTS.md` | ✅ | 改成 `~/.config/octo/AGENTS.md`(可选,跟 OPENCODE_CONFIG 类似的隔离) |
 | `config.instructions` 字段 | ✅ | 设置页 UI 入口 |
 | 禁用 `~/.claude/CLAUDE.md` 污染 | ⚠️ 需主进程注入 `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=true` | **P0 修复** |
-| 项目目录扫描 `.octo/octo.config.json` | ❌ opencode 找的是 `opencode.json` | 改 OPENCODE_CONFIG_DIR 注入,或 P2 自行实现 |
+| 项目目录扫描 `.octo/octo.json` | ❌ opencode 找的是 `opencode.json` | 改 OPENCODE_CONFIG_DIR 注入,或 P2 自行实现 |
 | 项目级"主 session"长期记忆 | ⚠️ 用 parent_id 能拼,但没现成 UI | P3 设计 |
 
 ---

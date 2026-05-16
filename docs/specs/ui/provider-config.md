@@ -22,7 +22,7 @@
 
 ## 1. 背景与目标
 
-当前 `~/.config/octo/octo.config.json` 需要用户**手动编辑 JSON**配置 provider 和 model。痛点:
+当前 `~/.config/octo/octo.json` 需要用户**手动编辑 JSON**配置 provider 和 model。痛点:
 
 - 字段名容易拼错(`providers` vs `provider`、`apikey` vs `apiKey`)
 - 不知道某个 provider 支持哪些字段
@@ -211,8 +211,8 @@
 
 ### 7.1 写盘策略
 
-- 任何"添加 / 编辑 / 删除"操作 → **立即写盘** `~/.config/octo/octo.config.json`
-- 写之前**保留备份** `octo.config.json.bak`(覆盖,只留最近一份)
+- 任何"添加 / 编辑 / 删除"操作 → **立即写盘** `~/.config/octo/octo.json`
+- 写之前**保留备份** `octo.json.bak`(覆盖,只留最近一份)
 - 写盘失败(权限/磁盘满)→ 弹错误对话框,不修改内存状态
 
 ### 7.2 文件读取入口
@@ -331,7 +331,7 @@ export const PROVIDER_TEMPLATES = [
 | 7 | 删除 provider 弹确认对话框,确认后从列表消失,`config.json` 中对应字段被移除 |
 | 8 | 启用 thinking 选项,`config.json` 中该 model 的 `options.thinking` 字段正确生成 |
 | 9 | 关闭 octo 重开,设置页能正确加载之前的所有配置 |
-| 10 | `~/.config/octo/octo.config.json.bak` 文件存在,内容是上一次写盘前的状态 |
+| 10 | `~/.config/octo/octo.json.bak` 文件存在,内容是上一次写盘前的状态 |
 
 ---
 

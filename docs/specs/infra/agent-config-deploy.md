@@ -8,7 +8,7 @@
 ## 1. 设计目标
 
 - **改一处源文件，重启 main 进程即生效**（dev 与 production 行为一致）
-- **用户文件 (`~/.config/octo/octo.config.json`) 仅含用户机密 + 偏好**，我们永不写
+- **用户文件 (`~/.config/octo/octo.json`) 仅含用户机密 + 偏好**，我们永不写
 - **产品升级**（改 prompt、加工具、改 MCP URL）不污染用户文件
 - **零 CONFIG_VERSION 维护**
 
@@ -47,7 +47,7 @@
 └── default-config.json                                ← resources/ 自带
 
 用户机器（~/.config/octo/）
-├── octo.config.json                                   ← B + C，用户拥有
+├── octo.json                                   ← B + C，用户拥有
 └── .octo-runtime.json                                 ← 运行时合并产物（主进程生成）
 ```
 
@@ -69,7 +69,7 @@ app.whenReady()
        │     prod: process.resourcesPath/agents/<name>.md
        │
        ├─ 3. 读用户文件（如不存在则创建 stub）
-       │     ~/.config/octo/octo.config.json → userConfig (B + C)
+       │     ~/.config/octo/octo.json → userConfig (B + C)
        │
        ├─ 4. deepMerge(defaultConfig, userConfig)
        │     合并语义见 §5
@@ -104,7 +104,7 @@ app.whenReady()
 
 ## 6. 首次启动：用户文件创建 stub
 
-如果 `~/.config/octo/octo.config.json` 不存在，创建一个最小 stub：
+如果 `~/.config/octo/octo.json` 不存在，创建一个最小 stub：
 
 ```jsonc
 {
@@ -165,7 +165,7 @@ function getAgentPromptPath(agentName: string): string {
 **dev 调试**：
 - 改 `packages/agent/insight/agents/insight.md` → 重启 main 进程（Cmd+R 或 vite reload）→ runtime 文件刷新
 - 改 `packages/desktop-electron/resources/default-config.json` → 重启 main → runtime 刷新
-- 改 `~/.config/octo/octo.config.json` → 重启 main → runtime 刷新
+- 改 `~/.config/octo/octo.json` → 重启 main → runtime 刷新
 
 ---
 
@@ -199,7 +199,7 @@ import * as os from "node:os"
 import { app } from "electron"
 
 const USER_CONFIG_DIR  = path.join(os.homedir(), ".config", "octo")
-const USER_CONFIG_PATH = path.join(USER_CONFIG_DIR, "octo.config.json")
+const USER_CONFIG_PATH = path.join(USER_CONFIG_DIR, "octo.json")
 const RUNTIME_PATH     = path.join(USER_CONFIG_DIR, ".octo-runtime.json")
 
 const STUB_USER_CONFIG = { /* 见 §6 */ }
@@ -257,7 +257,7 @@ export function initOctoConfig(): string {
 ```
 优先级（高到低）：
 1. process.env.OCTO_MCP_URL   ← 启动时临时 override，最高优先
-2. 用户文件 octo.config.json   ← 长期偏好
+2. 用户文件 octo.json   ← 长期偏好
 3. bundled default-config.json ← 产品默认
 ```
 
@@ -376,5 +376,5 @@ bun run check-bundle   # scripts/check-bundle.ts，对比 bundle 与源文件
 
 实现完成后：
 - 删除 `packages/desktop-electron/resources/agents/insight.md`（手动副本）
-- 删除 `~/.config/octo/octo.config.json` 中的 A 类字段（精简到只含 B + C，配合 [docs/integration.md §6.2](../../integration.md) 更新示例）
+- 删除 `~/.config/octo/octo.json` 中的 A 类字段（精简到只含 B + C，配合 [docs/integration.md §6.2](../../integration.md) 更新示例）
 - 更新 [agent-deploy.md](../../learning/agent-deploy.md) §2 引用本 spec

@@ -66,6 +66,20 @@
 
 ---
 
+## 内网集成手册维护
+
+`docs/intranet-handoff.md` 是给内网集成者（人或 AI）的对外操作手册。
+
+**不需要每次改动立即同步**。代码 / 依赖 / 新增文件等改动 rsync/diff 自然能带过去，handoff 不重复登记。
+
+在两个时机 review + 更新即可：
+- 准备通知内网"可以合入"的里程碑前
+- 合入物**对外契约**明显变化时（如 `insight.md` frontmatter 字段约定调整、合入物目录结构变化）
+
+**目的**：降低单次 commit 的文档维护负担，避免和 §5.4 形成双写。
+
+---
+
 ## 设计素材清单（强制）
 
 **UI 开发过程中，凡遇到以下情况，须立即在 [`docs/specs/ui/design-assets-needed.md`](docs/specs/ui/design-assets-needed.md) 对应区块追加记录**：

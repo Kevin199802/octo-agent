@@ -104,7 +104,7 @@ Octo 独立价值:
 ### 不变
 
 - 后端架构(opencode 内嵌 Node 模块)、ADR-001(Electron)、ADR-003(provider 接入)继续有效
-- 配置隔离(`OPENCODE_CONFIG=~/.config/octo/octo.config.json`)、SQLite 持久化、SSE 协议不变
+- 配置隔离(`OPENCODE_CONFIG=~/.config/octo/octo.json`)、SQLite 持久化、SSE 协议不变
 - `@octo/shell` 和 `@octo/agent-*` 包结构不变
 
 ## 备选方案(已否决)

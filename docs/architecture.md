@@ -11,7 +11,7 @@
 │  packages/desktop-electron/  (上游壳，仅品牌+接线)               │
 │   ├─ 启动 BrowserWindow                                         │
 │   ├─ 内嵌 opencode Server (Node 模块，同进程)                    │
-│   └─ 注入 OPENCODE_CONFIG=~/.config/octo/octo.config.json       │
+│   └─ 注入 OPENCODE_CONFIG=~/.config/octo/octo.json       │
 │                                                                  │
 │   ┌─────────────────── Renderer ───────────────────┐             │
 │   │  packages/desktop-electron/src/renderer/        │             │
@@ -166,10 +166,10 @@ packages/agent/research/
 
 opencode 后端启动时优先级：
 
-1. `process.env.OPENCODE_CONFIG`（单文件路径）— Octo 主进程**强制注入**为 `~/.config/octo/octo.config.json`
+1. `process.env.OPENCODE_CONFIG`（单文件路径）— Octo 主进程**强制注入**为 `~/.config/octo/octo.json`
 2. fallback 到默认 `~/.config/opencode/config.json`
 
-由于第 1 项被主进程注入，**Octo Agent 永远只读 `~/.config/octo/octo.config.json`**，与用户机器上可能装的 opencode CLI 完全隔离。
+由于第 1 项被主进程注入，**Octo Agent 永远只读 `~/.config/octo/octo.json`**，与用户机器上可能装的 opencode CLI 完全隔离。
 
 ```jsonc
 {
@@ -304,9 +304,16 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 |---|---|
 | 新增 `IllustrationInsightEmpty.svg`、`IllustrationResultEmpty.svg` | Insight 页面插图静态资源；以 `<img src="/assets/insight/...">` 引用，避免 SVG `innerHTML` 内联无法渲染 base64 PNG |
 
+#### `packages/app/package.json`（补充）
+
+| 改了什么 | 性质 |
+|---|---|
+| 新增 `write-excel-file`（~30KB）依赖 | OutputCard Excel 导出（[spec](specs/ui/output-renderers.md) §3.3）；选 ESM/小体积库代替 SheetJS/exceljs |
+| 新增 `markmap-lib` + `markmap-view`（~300KB）依赖 | OutputCard 思维导图渲染器（[spec](specs/ui/output-renderers.md) §4.2）；视觉效果优于 jsmind/G6，bundle 桌面端可接受 |
+
 #### `bun.lock`
 
-随 `octo-app` workspace 条目删除自动更新。非手动修改。
+随 `octo-app` workspace 条目删除自动更新；后续随 `packages/app/package.json` 新增 `write-excel-file` / `markmap-*` 自动更新。非手动修改。
 
 **撤回到纯上游**（合入内网最坏情况）：
 

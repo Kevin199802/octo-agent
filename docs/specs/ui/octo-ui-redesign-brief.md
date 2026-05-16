@@ -175,7 +175,7 @@ bun add -D tailwindcss @tailwindcss/vite
 | 3 | ChatView 欢迎屏接近设计师视觉(标题、能力列表) |
 | 4 | 输入框样式升级,有 +/agent 选择器/发送按钮三个区域 |
 | 5 | 切换会话、新建会话、发消息、SSE 流式、思考折叠、复读保护 — **全部回归正常** |
-| 6 | 设置页能打开,内容仍是简单的"在 ~/.config/octo/octo.config.json 中配置..."的提示 |
+| 6 | 设置页能打开,内容仍是简单的"在 ~/.config/octo/octo.json 中配置..."的提示 |
 | 7 | 路由 `/skills`、`/assets` 可访问,显示空白占位页 |
 | 8 | 没有 console error,Vue 警告也清理 |
 | 9 | Tailwind utility class 和 CSS 变量都能用 |

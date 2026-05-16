@@ -13,7 +13,7 @@
 | `packages/app/src/pages/chat/` | 直接同步目录 | Chat 页面 |
 | `packages/app/src/pages/studio/` | 直接同步目录 | Studio 页面 |
 | `packages/app/src/app.tsx`（OctoShell 路由分叉） | 手动合并变更 | 见 §2 |
-| `packages/agent/insight/agents/insight.md` | 注入 `octo.config.json`（主进程自动写入，见 §3） | 见 §3 |
+| `packages/agent/insight/agents/insight.md` | 注入 `octo.json`（主进程自动写入，见 §3） | 见 §3 |
 
 **不合入**：`packages/desktop-electron/` 的 Electron 接线改动（内网有自己的启动方式）。
 
@@ -47,7 +47,7 @@ const StudioPage  = lazy(() => import("@/pages/studio"))
 ```bash
 ## 3. Agent 配置（主进程自动写入，用户无需手动操作）
 
-Agent 配置通过 Electron 主进程在首次启动时写入 `~/.config/octo/octo.config.json`，详见 §5 及 [learning/agent-deploy.md](learning/agent-deploy.md)。
+Agent 配置通过 Electron 主进程在首次启动时写入 `~/.config/octo/octo.json`，详见 §5 及 [learning/agent-deploy.md](learning/agent-deploy.md)。
 
 源文件：`packages/agent/insight/agents/insight.md`
 ```
@@ -67,7 +67,7 @@ bun --cwd packages/desktop-electron dev
 ## 5. 内网 LLM 配置
 
 ```jsonc
-// ~/.config/octo/octo.config.json
+// ~/.config/octo/octo.json
 {
   "provider": {
     "intranet": {
@@ -103,7 +103,7 @@ LLM 调 analyze_interview(doc_urls=[...]) ──MCP── UXR /mcp
 ### 6.2 Octo 客户端配置
 
 ```jsonc
-// ~/.config/octo/octo.config.json — 在 LLM 配置基础上追加
+// ~/.config/octo/octo.json — 在 LLM 配置基础上追加
 {
   "mcp": {
     "uxr-tool": {
@@ -189,7 +189,7 @@ app.mount("/mcp", mcp.streamable_http_app())
 ```ts
 // insight/components/attachment-bar.tsx
 async function uploadFiles(files: File[]): Promise<string[]> {
-  const uploadUrl = config.uxr.upload_url  // 来自 octo.config.json
+  const uploadUrl = config.uxr.upload_url  // 来自 octo.json
   const urls: string[] = []
   for (const file of files) {
     const form = new FormData()
@@ -273,5 +273,5 @@ async def log_mcp(request, call_next):
 
 | 文件 | 改动 | 目的 |
 |---|---|---|
-| `desktop-electron/src/main/index.ts` | 注入 `OPENCODE_CONFIG=~/.config/octo/octo.config.json` | 隔离 Octo 配置 |
+| `desktop-electron/src/main/index.ts` | 注入 `OPENCODE_CONFIG=~/.config/octo/octo.json` | 隔离 Octo 配置 |
 | `desktop-electron/src/main/index.ts` | 注入 `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=true` | 防污染 agent 行为 |

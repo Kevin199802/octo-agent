@@ -251,7 +251,7 @@ opencode 推 `permission.required` 事件时,UI 弹 modal:
 | 形式 | 位置 | 适合 |
 |---|---|---|
 | **Markdown 文件** | `~/.config/octo/agents/<name>.md` | 简单 agent,frontmatter + prompt 正文 |
-| **配置 JSON** | `~/.config/octo/octo.config.json` 的 `agent` 字段 | 复杂配置 |
+| **配置 JSON** | `~/.config/octo/octo.json` 的 `agent` 字段 | 复杂配置 |
 
 Markdown 例(`research.md`):
 

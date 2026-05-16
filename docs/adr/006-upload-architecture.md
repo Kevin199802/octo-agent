@@ -51,5 +51,5 @@ InsightPage → base64 编码文件 → POST /mcp
 
 - `upload_document` **不作为 MCP 工具**，insight agent 工具白名单不包含它
 - 上传是通用服务，各 agent 页面均可复用，接口规格见 [docs/specs/infra/file-upload.md](../specs/infra/file-upload.md)
-- InsightPage 需持有上传 API 地址（来自 `octo.config.json` 的 `uxr.upload_url` 字段）
+- InsightPage 需持有上传 API 地址（来自 `octo.json` 的 `uxr.upload_url` 字段）
 - 调试阶段可 hardcoded S3 URL 跳过上传，直接验证 MCP 分析流程（见 file-upload.md §调试阶段）

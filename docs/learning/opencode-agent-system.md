@@ -9,7 +9,7 @@ opencode 里一个 agent = **一份 markdown 文件**:
 - frontmatter(YAML)= 配置字段
 - markdown 正文 = 系统 prompt
 
-Octo 的 config-dir 已通过 `OPENCODE_CONFIG=~/.config/octo/octo.config.json` 隔离,所以 Octo agent 全部放在 `~/.config/octo/agent/<name>.md`。
+Octo 的 config-dir 已通过 `OPENCODE_CONFIG=~/.config/octo/octo.json` 隔离,所以 Octo agent 全部放在 `~/.config/octo/agent/<name>.md`。
 
 ## 2. 完整字段(zod schema:`packages/opencode/src/config/agent.ts`)
 

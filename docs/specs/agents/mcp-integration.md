@@ -241,7 +241,7 @@ agent 跑工具时,详情面板"最近调用"实时更新。点单条:
 
 ## 5. 配置文件 schema
 
-`~/.config/octo/octo.config.json` 的 `mcp` 字段(opencode 已实现):
+`~/.config/octo/octo.json` 的 `mcp` 字段(opencode 已实现):
 
 ```jsonc
 {

@@ -141,7 +141,7 @@ async def analyze_interview(doc_urls: list[str], analysis_type: str, context: st
 
 ## 与 agent 配置的对应关系
 
-`~/.config/octo/octo.config.json` 中 insight agent 的工具白名单：
+`~/.config/octo/octo.json` 中 insight agent 的工具白名单：
 
 ```jsonc
 "tools": {

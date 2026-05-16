@@ -53,7 +53,7 @@
 | **Workspace 工作区面板** | Spec 已写（[insight-workspace.md](docs/specs/ui/insight-workspace.md)）；等 Phase 1 完成后再做 |
 | **MermaidRenderer** | 当前结果渲染支持 MD 和 JSON 即可；mermaid 若有需求再规划 |
 | Agent 编辑器 GUI | 功能超前，后期再议 |
-| Skill 管理 UI | 用原生 opencode 配置（`octo.config.json`）即可，暂不做 UI |
+| Skill 管理 UI | 用原生 opencode 配置（`octo.json`）即可，暂不做 UI |
 | MCP 配置 UI | 同上，用原生配置 |
 
 ---
@@ -67,7 +67,7 @@
 | `[M]` | infra | **OctoShell 框架层** | `pages/_shell/`（sidebar + topbar）；RouterRoot 路由分叉；Chat/Studio 占位页 |
 | `[M]` | ui | **InsightPage 基础骨架** | DataStore + SSE 监听 + PromptInput + SessionTurn 渲染跑通 |
 | `[M]` | docs | ADR-004 + 架构文档重构 | 切回 SolidJS、上游一行不动、四层降级策略 |
-| `[S]` | infra | 配置文件路径隔离 | 主进程注入 `OPENCODE_CONFIG=~/.config/octo/octo.config.json` |
+| `[S]` | infra | 配置文件路径隔离 | 主进程注入 `OPENCODE_CONFIG=~/.config/octo/octo.json` |
 | `[S]` | infra | 防止读取用户 CLAUDE.md | 主进程注入 `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=true` |
 | `[S]` | infra | 动态端口修复 | preload 注入真实端口，不再写死 4096 |
 | `[L]` | docs | 架构与学习文档体系 | architecture.md / learning/ 8 篇 / specs/ 若干 |
@@ -78,4 +78,4 @@
 | `[L]` | ui | **ResultViewer — Tab 结果查看器（表格）** | Tab 管理（新建/切换/关闭）；TableRenderer；ActionBar 复制/下载；MermaidPlaceholder/JsonRenderer | insight-result-viewer.md |
 | `[S]` | ui | **OctoShell sidebar 精细化** | 侧栏宽度可拖拽（160–360px）；session 标题生成骨架动效；新建会话 + 按钮 | — |
 | `[S]` | agents | **insight.md — tool 声明 + 工作流 prompt** | 声明 MCP 工具（analyze_interview、search_reports）；含 analysis_type 选择指南和工作流约束；文件位于 `packages/agent/insight/agents/insight.md` | [mcp-contract.md](docs/specs/agents/mcp-contract.md) |
-| `[S]` | agents | **insight agent 注册到 octo.config.json** | `~/.config/octo/octo.config.json` 写入 insight agent 配置（prompt + tools）；`session.prompt()` 显式传 `agent: "insight"` |  |
+| `[S]` | agents | **insight agent 注册到 octo.json** | `~/.config/octo/octo.json` 写入 insight agent 配置（prompt + tools）；`session.prompt()` 显式传 `agent: "insight"` |  |

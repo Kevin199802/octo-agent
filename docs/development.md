@@ -33,7 +33,7 @@ bun install
 
 ### LLM Provider 配置
 
-Octo Agent 主进程会**强制注入** `OPENCODE_CONFIG=~/.config/octo/octo.config.json`,因此 opencode 后端**只读这个文件**(跟系统上可能装的 opencode CLI 完全隔离)。第一次需要手动建:
+Octo Agent 主进程会**强制注入** `OPENCODE_CONFIG=~/.config/octo/octo.json`,因此 opencode 后端**只读这个文件**(跟系统上可能装的 opencode CLI 完全隔离)。第一次需要手动建:
 
 ```bash
 mkdir -p ~/.config/octo
@@ -42,7 +42,7 @@ mkdir -p ~/.config/octo
 最小配置示例(以百炼 Anthropic 兼容网关 + Qwen 为例):
 
 ```jsonc
-// ~/.config/octo/octo.config.json
+// ~/.config/octo/octo.json
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {                                        // 注意是单数
@@ -184,7 +184,7 @@ bun run --cwd packages/desktop-electron package:mac
 | 现象 | 原因 | 解决 |
 |---|---|---|
 | `Error: Electron uninstall` (dev 启动时) | electron 包 postinstall 没跑 | `node packages/desktop-electron/node_modules/electron/install.js`,或仓库根重 `bun install` |
-| 创建会话报 500 | config.json schema 错误或路径不对 | 路径必须是 `~/.config/octo/octo.config.json`,`provider`(单数),`apiKey` 在 `options` 下 |
+| 创建会话报 500 | config.json schema 错误或路径不对 | 路径必须是 `~/.config/octo/octo.json`,`provider`(单数),`apiKey` 在 `options` 下 |
 | AI 回复显示 `opencode/big-pickle` | 配置没生效,后端用占位模型 | 同上,检查后端 stdout 里有没有"loaded provider"日志 |
 | 5175 端口冲突 | Vite strictPort 被占 | `lsof -i :5175` 找到占用进程 kill,或改 [electron.vite.config.ts](../packages/desktop-electron/electron.vite.config.ts) 的 `server.port` |
 | 4096 端口冲突 | 已在跑 opencode CLI / 上次 dev 没退干净 | `lsof -i :4096` 杀掉,或 `OPENCODE_PORT=4097 bun run dev:serve` |

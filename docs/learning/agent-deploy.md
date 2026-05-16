@@ -86,11 +86,11 @@ opencode 通过 `OPENCODE_CONFIG` 环境变量读取一个 JSON 文件。如果�
 
 最终方案是把配置分成三类，各管各的，运行时合并：
 
-| 类别 | 谁拥有 | 写在哪 | 升级行为 |
-|---|---|---|---|
-| **A 产品决策**（agent / 系统提示词 / MCP URL） | 我们 | bundle 内（仓库 + 安装包） | 每次启动从 bundle 读最新 |
-| **B 用户机密**（API key / Token） | 用户 | `~/.config/octo/octo.config.json` | 用户填，我们永不写 |
-| **C 用户偏好**（model / baseURL） | 用户（我们给默认） | 同上 | 用户改，我们永不写 |
+| 类别                                  | 谁拥有       | 写在哪                               | 升级行为             |
+| ----------------------------------- | --------- | --------------------------------- | ---------------- |
+| **A 产品决策**（agent / 系统提示词 / MCP URL） | 我们        | bundle 内（仓库 + 安装包）                | 每次启动从 bundle 读最新 |
+| **B 用户机密**（API key / Token）         | 用户        | `~/.config/octo/octo.json` | 用户填，我们永不写        |
+| **C 用户偏好**（model / baseURL）         | 用户（我们给默认） | 同上                                | 用户改，我们永不写        |
 
 主进程启动时把 A 与 B+C 合并，写到 `~/.config/octo/.octo-runtime.json`，opencode 实际读取这个 runtime 文件。
 
@@ -99,13 +99,13 @@ opencode 通过 `OPENCODE_CONFIG` 环境变量读取一个 JSON 文件。如果�
 
 ### 各层在仓库里的实际位置
 
-| 类别 | 角色 | 路径 |
-|---|---|---|
-| A | 系统提示词源 | `packages/agent/insight/agents/insight.md` |
-| A | agent/MCP 结构源 | `packages/desktop-electron/resources/default-config.json` |
-| A | 安装包内的副本 | `Octo Agent.app/Contents/Resources/{agents/insight.md, default-config.json}` |
-| B/C | 用户配置 | `~/.config/octo/octo.config.json` |
-| - | 运行时合并产物 | `~/.config/octo/.octo-runtime.json`（opencode 读这个）|
+| 类别  | 角色            | 路径                                                                           |
+| --- | ------------- | ---------------------------------------------------------------------------- |
+| A   | 系统提示词源        | `packages/agent/insight/agents/insight.md`                                   |
+| A   | agent/MCP 结构源 | `packages/desktop-electron/resources/default-config.json`                    |
+| A   | 安装包内的副本       | `Octo Agent.app/Contents/Resources/{agents/insight.md, default-config.json}` |
+| B/C | 用户配置          | `~/.config/octo/octo.json`                                            |
+| -   | 运行时合并产物       | `~/.config/octo/.octo-runtime.json`（opencode 读这个）                            |
 
 ### 本地开发 vs 打包生产
 
@@ -113,18 +113,18 @@ opencode 通过 `OPENCODE_CONFIG` 环境变量读取一个 JSON 文件。如果�
 
 | 阶段 | A 类源读取自 | B/C 类源 |
 |---|---|---|
-| 开发（`bun dev`）| `packages/agent/...` 和 `packages/desktop-electron/resources/...` 直接读 | `~/.config/octo/octo.config.json` |
-| 打包后 | `process.resourcesPath` 下的副本（extraResources 在构建时同步）| `~/.config/octo/octo.config.json` |
+| 开发（`bun dev`）| `packages/agent/...` 和 `packages/desktop-electron/resources/...` 直接读 | `~/.config/octo/octo.json` |
+| 打包后 | `process.resourcesPath` 下的副本（extraResources 在构建时同步）| `~/.config/octo/octo.json` |
 
 dev 与 production 行为一致——改源文件 → 重启 main 进程 → 自动生效。**不需要手动 cp 任何文件**。
 
 ### 改一处即生效的对应表
 
-| 改什么 | 改哪个文件 | 怎么生效 |
-|---|---|---|
-| 系统提示词 | `packages/agent/insight/agents/insight.md` | 重启 main 进程 |
+| 改什么                   | 改哪个文件                                                     | 怎么生效       |
+| --------------------- | --------------------------------------------------------- | ---------- |
+| 系统提示词                 | `packages/agent/insight/agents/insight.md`                | 重启 main 进程 |
 | agent 工具白名单 / MCP URL | `packages/desktop-electron/resources/default-config.json` | 重启 main 进程 |
-| 用户 API key / model 选择 | `~/.config/octo/octo.config.json` | 重启 main 进程 |
+| 用户 API key / model 选择 | `~/.config/octo/octo.json`                         | 重启 main 进程 |
 
 ### 业界对照
 
@@ -140,6 +140,6 @@ dev 与 production 行为一致——改源文件 → 重启 main 进程 → 自
 
 完整自动部署逻辑见 spec，实现完成前是手动维护：
 - 改 `insight.md` 后手动 cp 到 `packages/desktop-electron/resources/agents/insight.md`
-- 手动同步到 `~/.config/octo/octo.config.json` 的 `agent.insight.prompt` 字段
+- 手动同步到 `~/.config/octo/octo.json` 的 `agent.insight.prompt` 字段
 
 实现完成后这些手动步骤全部消除。任务在 ROADMAP P2 infra：「首次启动配置写入」。

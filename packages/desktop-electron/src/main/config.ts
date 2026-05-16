@@ -23,7 +23,7 @@ function getAgentPromptPath(agentName: string): string {
 
 export function initOctoConfig(): string {
   const userConfigDir = path.join(os.homedir(), ".config", "octo")
-  const userConfigPath = path.join(userConfigDir, "octo.config.json")
+  const userConfigPath = path.join(userConfigDir, "octo.json")
   const runtimePath = path.join(userConfigDir, ".octo-runtime.json")
 
   fs.mkdirSync(userConfigDir, { recursive: true })

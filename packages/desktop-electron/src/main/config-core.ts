@@ -57,7 +57,7 @@ export function deepMerge(
  *
  * @param defaultConfigPath  default-config.json 路径
  * @param getPromptPath      agentName → prompt markdown 路径
- * @param userConfigPath     用户 octo.config.json 路径
+ * @param userConfigPath     用户 octo.json 路径
  * @param runtimePath        运行时合并产物路径
  */
 export function buildRuntimeConfig(

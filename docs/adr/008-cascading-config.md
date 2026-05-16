@@ -5,7 +5,7 @@
 
 ## 背景
 
-Octo 的 `octo.config.json` 同时混合了两类信息：
+Octo 的 `octo.json` 同时混合了两类信息：
 1. **产品决策**：agent 定义、系统提示词、MCP endpoint URL
 2. **用户机密 + 偏好**：API key、Token、模型选择
 
@@ -31,7 +31,7 @@ Octo 的 `octo.config.json` 同时混合了两类信息：
 
 ### 方案 1：单文件混合（旧 agent-deploy.md 思路）
 
-主进程首次启动写入完整默认配置到 `octo.config.json`，靠 `CONFIG_VERSION` 决定是否重写。
+主进程首次启动写入完整默认配置到 `octo.json`，靠 `CONFIG_VERSION` 决定是否重写。
 
 ❌ 问题：
 - 用户文件有 100+ 行默认值，不直观
@@ -47,7 +47,7 @@ bundle 内（A 类，我们维护，每次启动从 bundle 读最新）
   └─ packages/desktop-electron/resources/default-config.json  ← agent 结构 + MCP 配置
 
 用户文件（B + C 类，用户拥有，我们永不写）
-  └─ ~/.config/octo/octo.config.json
+  └─ ~/.config/octo/octo.json
 
 运行时合并产物（主进程生成，opencode 读）
   └─ ~/.config/octo/.octo-runtime.json
@@ -55,7 +55,7 @@ bundle 内（A 类，我们维护，每次启动从 bundle 读最新）
 
 主进程启动流程：
 1. 读 bundled defaults + insight.md → 拼成 A 类完整配置
-2. 读用户的 octo.config.json → B + C 类
+2. 读用户的 octo.json → B + C 类
 3. deepMerge(A, B+C) → 写到 .octo-runtime.json
 4. `OPENCODE_CONFIG=.octo-runtime.json` 启动 opencode
 

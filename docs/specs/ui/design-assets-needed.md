@@ -52,6 +52,7 @@
 | `IconCardJson` | JSON 类型卡片 | 16×16 | `{}`（文字） | `TYPE_ICON.json` |
 | `IconCardFile` | 文件类型卡片 | 16×16 | `📄`（Emoji） | `TYPE_ICON.file` |
 | `IconCardMarkdown` | Markdown 报告卡片 | 16×16 | `📋`（Emoji） | `TYPE_ICON.markdown` |
+| `IconCardHtml` | HTML 可视化卡片 | 16×16 | 自绘 SVG 占位（HTML5 简化图形） | `CardTypeIcon.html`（`insight/icons/index.tsx`） |
 
 ---
 

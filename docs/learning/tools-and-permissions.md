@@ -40,12 +40,12 @@ LLM **只能调用它看得到的工具**。agent 的 `tools` 白名单决定了
 
 ## 3. MCP 工具（动态接入）
 
-MCP 工具来自外部 MCP server，通过 `~/.config/octo/octo.config.json` 的 `mcp` 字段配置。
+MCP 工具来自外部 MCP server，通过 `~/.config/octo/octo.json` 的 `mcp` 字段配置。
 
 ### 3.1 配置格式
 
 ```jsonc
-// ~/.config/octo/octo.config.json
+// ~/.config/octo/octo.json
 {
   "mcp": {
     "uxr-tool": {                         // 自定义名称，任意字符串
@@ -95,7 +95,7 @@ MCP 工具来自外部 MCP server，通过 `~/.config/octo/octo.config.json` 的
 
 ## 4. Agent 工具白名单配置
 
-### 4.1 写法（`octo.config.json`）
+### 4.1 写法（`octo.json`）
 
 ```jsonc
 {

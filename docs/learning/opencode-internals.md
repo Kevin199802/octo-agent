@@ -136,13 +136,13 @@ opencode 启动时按以下**优先级**加载配置(在 [packages/opencode/src/
 
 ```typescript
 if (!process.env.OPENCODE_CONFIG) {
-  process.env.OPENCODE_CONFIG = join(homedir(), ".config", "octo", "octo.config.json")
+  process.env.OPENCODE_CONFIG = join(homedir(), ".config", "octo", "octo.json")
 }
 ```
 
 效果:
 
-- Octo Agent **永远只读** `~/.config/octo/octo.config.json`
+- Octo Agent **永远只读** `~/.config/octo/octo.json`
 - 用户机器上即便装了 opencode CLI(读 `~/.config/opencode/config.json`),两者数据完全隔离
 - 用户可以用环境变量临时覆盖(高级用法,如调试)
 
@@ -277,7 +277,7 @@ opencode 通过 `npm` 字段动态加载 [Vercel AI SDK](https://sdk.vercel.ai/)
 
 ## 9. 切换 provider 不会热重载
 
-修改 `~/.config/octo/octo.config.json` 后:
+修改 `~/.config/octo/octo.json` 后:
 
 - opencode **不会自动重新加载配置**
 - 需要重启整个 dev 进程(因为 opencode 内嵌主进程,主进程不重启就拿不到新配置)

@@ -55,7 +55,7 @@ describe("deepMerge", () => {
 describe("buildRuntimeConfig — 读真实源文件", () => {
   test("V-01 全新机器：runtime 含 insight prompt，用户 stub 自动创建", () => {
     const dir = path.join(tmpDir, "fresh")
-    const userConfigPath = path.join(dir, "octo.config.json")
+    const userConfigPath = path.join(dir, "octo.json")
     const runtimePath = path.join(dir, ".octo-runtime.json")
 
     buildRuntimeConfig(DEFAULT_CONFIG, devPromptPath, userConfigPath, runtimePath)
@@ -83,7 +83,7 @@ describe("buildRuntimeConfig — 读真实源文件", () => {
 
   test("V-02 升级路径：改 prompt 源文件后重跑，runtime 立即更新", () => {
     const dir = path.join(tmpDir, "upgrade")
-    const userConfigPath = path.join(dir, "octo.config.json")
+    const userConfigPath = path.join(dir, "octo.json")
     const runtimePath = path.join(dir, ".octo-runtime.json")
 
     // 第一次运行（使用真实 insight.md）
@@ -109,7 +109,7 @@ describe("buildRuntimeConfig — 读真实源文件", () => {
 
   test("V-04 用户 override A 类：用户改 prompt，runtime 以用户值为准", () => {
     const dir = path.join(tmpDir, "override")
-    const userConfigPath = path.join(dir, "octo.config.json")
+    const userConfigPath = path.join(dir, "octo.json")
     const runtimePath = path.join(dir, ".octo-runtime.json")
     fs.mkdirSync(dir, { recursive: true })
 
@@ -129,7 +129,7 @@ describe("buildRuntimeConfig — 读真实源文件", () => {
 
   test("用户 model 优先：用户设置的模型不被 bundle 覆盖", () => {
     const dir = path.join(tmpDir, "model-override")
-    const userConfigPath = path.join(dir, "octo.config.json")
+    const userConfigPath = path.join(dir, "octo.json")
     const runtimePath = path.join(dir, ".octo-runtime.json")
     fs.mkdirSync(dir, { recursive: true })
 
