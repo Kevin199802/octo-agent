@@ -24,7 +24,7 @@
     "uxr-tool": {
       "type": "remote",
       "url": "http://7.192.161.60:8005/mcp",
-      "enabled": true,
+      "enabled": false,
       "timeout": 30000
     }
   }

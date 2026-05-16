@@ -5,6 +5,61 @@
 
 ---
 
+## 0. 业界 agent frontmatter schema 对照（调研事实）
+
+**调研时间**：2026-05-16
+
+### 0.1 opencode 上游（我们 fork 自此）
+
+源：[packages/opencode/src/config/agent.ts:16-50](../../../packages/opencode/src/config/agent.ts#L16-L50)，YAML frontmatter 用 `gray-matter` 解析。
+
+| 字段 | 类型 | 备注 |
+|---|---|---|
+| `name` | string | 通常从文件名派生 |
+| `description` | string | agent 用途说明 |
+| `mode` | enum | `subagent` / `primary` / `all` |
+| `prompt` | string | body 自动注入此字段 |
+| `tools` | `Record<string, boolean>` | **⚠️ @deprecated，迁移到 permission** |
+| `permission` | Ruleset | 工具权限规则（替代 tools） |
+| `model` | `{providerID, modelID}` | 模型选择 |
+| `variant` / `temperature` / `top_p` / `options` | — | 模型行为 |
+| `color` / `hidden` | — | UI 元数据 |
+| `steps` | int | 最大 agentic 步数 |
+| `disable` | boolean | 禁用此 agent |
+
+**关键事实**：
+- ❌ **不支持 `mcp` 字段** — 上游不内置 per-agent MCP 绑定
+- ❌ **不支持 `skills` 字段** — 上游无 skills 概念
+- ⚠️ `tools` deprecated，应迁移到 `permission`
+
+### 0.2 Claude Code agents（业界另一参照）
+
+源：[Claude Code 官方文档 subagents](https://code.claude.com/docs/en/subagents.md#supported-frontmatter-fields)
+
+支持字段：`name` `description` `tools` `disallowedTools` `model` `permissionMode` `mcpServers` `skills` `hooks` `maxTurns` `memory` `background` `effort` `isolation` `color` `initialPrompt`
+
+**关键差异**：
+- ✅ 支持 `mcpServers`（数组或内联定义）
+- ✅ 支持 `skills`（列表）
+
+### 0.3 内网 octoAI fork
+
+agent 定义硬编码在 `packages/opencode/src/agent/agent.ts` 中（非 .md frontmatter），含 `mcp: ["uxr-tool"]` 和 `skills: ["interview-analysis"]` 字段 —— 这两个字段是**他们 fork 自加的扩展**，上游 opencode 没有。
+
+### 0.4 结论
+
+| 维度 | 业界基准（opencode 上游）| 我们应该 |
+|---|---|---|
+| Agent SOT | `.md` frontmatter + body | 跟上游一致 |
+| `mcp` per-agent 字段 | 不支持 | **不加**——保持跨 fork 可移植 |
+| `skills` per-agent 字段 | 不支持 | **不加**——同上 |
+| `tools` vs `permission` | tools deprecated | **迁移到 permission** |
+| 配置文件双写 agent 字段 | 可选，但 `.md` 已足够 | **default-config.json 不重复声明** |
+
+**内网团队的 mcp/skills 字段是他们 fork 内部决定，由他们自家维护**（agent.ts 硬编码或加私有 frontmatter 扩展 + loader）。我方 frontmatter 保持上游对齐。
+
+---
+
 ## 1. 设计目标
 
 - **改一处源文件，重启 main 进程即生效**（dev 与 production 行为一致）

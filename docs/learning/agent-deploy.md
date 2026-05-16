@@ -95,7 +95,8 @@ opencode 通过 `OPENCODE_CONFIG` 环境变量读取一个 JSON 文件。如果�
 主进程启动时把 A 与 B+C 合并，写到 `~/.config/octo/.octo-runtime.json`，opencode 实际读取这个 runtime 文件。
 
 **决策背景**：[ADR-008](../adr/008-cascading-config.md)  
-**完整实现规格**：[docs/specs/infra/agent-config-deploy.md](../specs/infra/agent-config-deploy.md)
+**完整实现规格**：[docs/specs/infra/agent-config-deploy.md](../specs/infra/agent-config-deploy.md)  
+**业界 agent frontmatter schema 对照**：[agent-config-deploy.md §0](../specs/infra/agent-config-deploy.md)（含 opencode 上游、Claude Code、内网 fork 三方对比和我方对齐结论）
 
 ### 各层在仓库里的实际位置
 
