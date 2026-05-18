@@ -49,16 +49,17 @@ opencode 不是 sidecar 二进制，是 `import("virtual:opencode-server")` 加�
 
 ### 2.1 Octo 自研 — 自由改
 
-| 路径 | 角色 | 合入内网 |
-|---|---|---|
-| `packages/app/src/pages/_shell/` | OctoShell 框架层（sidebar + topbar） | 直接同步目录 |
-| `packages/app/src/pages/insight/` | 用研 Agent 页面 | 直接同步目录 |
-| `packages/app/src/pages/chat/` | Chat 页面 | 直接同步目录 |
-| `packages/app/src/pages/studio/` | Studio 页面 | 直接同步目录 |
-| `packages/agent/research/agents/` | opencode agent 配置文件（`.md`） | 部署至 `~/.config/octo/agent/` |
-| `docs/`、`ROADMAP.md`、`CLAUDE.md` | 文档 | 自由维护 |
+| 路径 | 角色 |
+|---|---|
+| `packages/app/src/pages/_shell/` | OctoShell 框架层（sidebar + topbar） |
+| `packages/app/src/pages/insight/` | 用研 Agent 页面 |
+| `packages/app/src/pages/chat/` | Chat 页面 |
+| `packages/app/src/pages/studio/` | Studio 页面 |
+| `packages/agent/insight/agents/` | opencode agent 配置文件（`.md`） |
+| `docs/`、`ROADMAP.md`、`CLAUDE.md` | 文档 |
 
-> 其他 agent 各自在 `packages/app/src/pages/<name>/` 建立相同结构。
+> 其他 agent 各自在 `packages/app/src/pages/<name>/` 建立相同结构。  
+> **合入内网的操作清单见 [docs/intranet-handoff.md §1](intranet-handoff.md)**（避免双写漂移，此处不重复）。
 
 ### 2.2 上游核心 — 不动
 

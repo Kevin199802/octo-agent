@@ -51,13 +51,11 @@ cp /path/to/octo-agent/packages/agent/insight/agents/insight.md \
 
 加到你方对应 package.json 后 install。
 
-### 1.4 打包前必改：MCP 启用
+### 1.4 MCP URL
 
-我方 `default-config.json` 中 `mcp.uxr-tool.enabled = false`（默认禁用，避免外网开发连不上内网 URL 导致 server 启动失败）。
+我方 `default-config.json.mcp.uxr-tool.url` 当前是 `http://7.192.161.60:8005/mcp`（内网测试地址）。如内网生产用别的 URL，你方在等效配置位置同步修改。
 
-**你方打包内网版本前，需在等效配置位置改为 `enabled: true`**，否则装机后 MCP 不工作。
-
-URL 字段当前是 `http://7.192.161.60:8005/mcp`（内网测试地址），如内网生产用别的 URL，同步修改。
+不再需要 enabled 字段——opencode 默认即启用，MCP 启动失败不会阻塞 server。
 
 ---
 
