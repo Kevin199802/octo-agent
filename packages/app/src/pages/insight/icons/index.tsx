@@ -78,6 +78,12 @@ export const IconCardTable = mk("0 0 14 14", `
 	</g>
 `, 14)
 
+export const IconCardHtml = mk("0 0 14 14", `
+	<g>
+		<path d="M2 1.5L2.4 12.2L7 13.5L11.6 12.2L12 1.5L2 1.5ZM10.05 4.3L4.35 4.3L4.5 5.95L9.9 5.95L9.45 10.95L7 11.65L4.55 10.95L4.4 9.05L5.6 9.05L5.7 10L7 10.4L8.3 10L8.45 8.45L4.35 8.45L4 4.3L4 2.95L10.2 2.95L10.05 4.3Z" fill="rgb(119,119,119)" fill-rule="evenodd" />
+	</g>
+`, 14)
+
 export const IconActionCopy = mk("0 0 20 20", `
 	<defs>
 		<filter id="pixso_custom_mask_type_alpha">

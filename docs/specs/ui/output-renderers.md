@@ -21,6 +21,8 @@
 
 实际 type 集合最终以 UXR MCP 服务端返回的内容为准——客户端按内容形态路由，不绑定 analysis_type。HTML 渲染器先做基础能力（iframe sandbox），具体由哪些 MCP tool 触发等 UXR 上线后再调整 systemHint。
 
+**原始文字显示策略**：OutputCard 出现时，对机器可读类型（`mindmap` / `html` / `json`）隐藏 assistant 的原始文字区；对 `markdown` / `table` 保留显示（内容本身对用户有可读价值）。当前实现：`InsightTurn` 在卡片 ready 后挂 `data-suppress-raw` 属性，CSS 规则隐藏文字区（过渡方案，流完才生效）。MCP 联调后将升级为路线 B（tool_call part 到达时即切换 loading 占位，原始内容从不暴露），详见 [ADR-010](../../adr/010-suppress-raw-output.md)。
+
 ---
 
 ## 2. detectCard 分发规则
@@ -484,7 +486,6 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 **验收**：
 - [ ] 对话区出现 OutputCard，类型图标为思维导图（`IconCardMindmap`），标题非空
 - [ ] 点开卡片 → ResultViewer 显示 markmap SVG（**手绘曲线连接节点**，不是直线/矩形框）
-- [ ] 鼠标滚轮可缩放、拖拽可平移
 - [ ] 点节点可折叠/展开子树
 - [ ] ActionBar [下载 ▾] → JSON (.json) → 文件能用任意文本编辑器打开，内容是原始 JSON
 

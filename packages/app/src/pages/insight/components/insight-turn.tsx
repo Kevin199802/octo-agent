@@ -4,9 +4,10 @@ import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { useData } from "@opencode-ai/ui/context"
 import { createMemo, Show } from "solid-js"
 import type { JSX } from "solid-js"
-import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown } from "../icons"
+import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml } from "../icons"
+import { isMarkdownTable, isMindmapJSON, isHTML, isPlainJSON } from "../utils/detect"
 
-export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json"
+export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html"
 
 export type OutputCard = {
   id: string
@@ -16,31 +17,26 @@ export type OutputCard = {
   createdAt: Date
 }
 
-// 宽松的表格检测：有标准分隔行 OR 有 2 行以上含 3+ 个 | 的行
-function isMarkdownTable(text: string): boolean {
-  if (/\|[\s]*[-:]+[-:\s|]*\|/.test(text)) return true
-  const tableLines = text
-    .split("\n")
-    .filter((l) => l.trim().startsWith("|") && (l.match(/\|/g) ?? []).length >= 3)
-  return tableLines.length >= 2
-}
-
 function detectCard(text: string): { type: OutputCardType; title: string } | null {
   const heading = (t: string) => t.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim()
 
-  // 1. 表格
+  // 1. Markdown 表格
   if (isMarkdownTable(text)) {
     return { type: "table", title: heading(text) ?? "分析结果" }
   }
-  // 2. Mermaid
-  if (/```mermaid/i.test(text)) {
+  // 2. 思维导图 JSON（在 HTML 之前，避免 HTML 内嵌 JSON-like 字符串误判）
+  if (isMindmapJSON(text)) {
     return { type: "mindmap", title: heading(text) ?? "思维导图" }
   }
-  // 3. JSON 代码块
-  if (/```json/i.test(text)) {
+  // 3. HTML（在 plain JSON 之前，因为 HTML 内可能含 <script>{…}</script> 文本）
+  if (isHTML(text)) {
+    return { type: "html", title: heading(text) ?? "可视化页面" }
+  }
+  // 4. 通用 JSON
+  if (isPlainJSON(text)) {
     return { type: "json", title: heading(text) ?? "JSON 数据" }
   }
-  // 4. 长文本 Markdown（>200 字）
+  // 5. 长文本 Markdown（>200 字）
   if (text.trim().length > 200) {
     return { type: "markdown", title: heading(text) ?? "分析报告" }
   }
@@ -54,6 +50,7 @@ function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
     case "json": return <IconCardJson size={16} />
     case "file": return <IconCardFile size={16} />
     case "markdown": return <IconCardMarkdown size={16} />
+    case "html": return <IconCardHtml size={16} />
   }
 }
 
@@ -105,9 +102,11 @@ export function InsightTurn(props: {
   const showGenerating = createMemo(() => props.active && isLatestTurn())
 
   // 只要有 text 内容就生成卡片（不依赖 time.completed 避免字段缺失时卡住）
+  // 注意：parts 必须在 showGenerating 判断之前读，确保 SolidJS 始终追踪该依赖；
+  // 若先 return null 则 assistantParts() 从未被追踪，session idle 后 memo 不会因 parts 变化重新触发。
   const outputCard = createMemo((): OutputCard | null => {
-    if (showGenerating()) return null
     const parts = assistantParts()
+    if (showGenerating()) return null
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
@@ -115,6 +114,7 @@ export function InsightTurn(props: {
     const text = textPart.text.trim()
     if (text.length < 10) return null
     const info = detectCard(text)
+    console.log("[octo:card] detectCard", { type: info?.type ?? null, textLen: text.length, msgID: props.messageID })
     if (!info) return null
     return {
       id: `card-${props.messageID}`,
@@ -124,8 +124,14 @@ export function InsightTurn(props: {
     }
   })
 
+  // mindmap / html / json 的原始文字对用户无价值，有卡片时隐藏 assistant 文字区
+  const suppressRawOutput = createMemo(() => {
+    const card = outputCard()
+    return card && (card.type === "mindmap" || card.type === "html" || card.type === "json")
+  })
+
   return (
-    <div class="flex flex-col">
+    <div class="flex flex-col" data-suppress-raw={suppressRawOutput() ? "" : undefined}>
       <SessionTurn
         sessionID={props.sessionID}
         messageID={props.messageID}

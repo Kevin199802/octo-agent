@@ -105,12 +105,18 @@ export default function InsightPage() {
       const part = event.properties.part
       if (part.sessionID !== sessionId) return
       if (SKIP_PART_TYPES.has(part.type)) return
+      // log tool_call parts (critical for MCP debugging)
+      if ((part as { type: string }).type === "tool-invocation" || (part as { type: string }).type === "tool_call") {
+        console.log("[octo:sse] tool part", { type: part.type, part })
+      }
       const parts = dataStore.part[part.messageID]
       if (!parts) { setDataStore("part", part.messageID, [part]); return }
       const result = Binary.search(parts, part.id, (p) => p.id)
       if (result.found) {
         setDataStore("part", part.messageID, result.index, reconcile(part))
       } else {
+        // new part first arrival
+        console.log("[octo:sse] new part", { type: part.type, partID: part.id, msgID: part.messageID })
         setDataStore("part", part.messageID, produce((d) => { d.splice(result.index, 0, part) }))
       }
       return
@@ -119,6 +125,7 @@ export default function InsightPage() {
     if (event.type === "session.status") {
       const { sessionID, status } = event.properties
       if (sessionID !== sessionId) return
+      console.log("[octo:sse] session.status", sessionID, status)
       setDataStore("session_status", sessionID, reconcile(status))
       return
     }
@@ -226,12 +233,21 @@ export default function InsightPage() {
         url: a.dataUrl,
       }))
       const textPart: TextPartInput = { type: "text", text }
-      await globalSDK.client.session.prompt({
+      const promptPayload = {
         sessionID: sessionId,
         agent: "insight",
         system: template.systemHint,
         parts: [textPart, ...fileParts],
+      }
+      console.log("[octo:prompt] send", {
+        sessionID: sessionId,
+        agent: promptPayload.agent,
+        template: templateId(),
+        systemHint: template.systemHint?.slice(0, 80),
+        partsCount: promptPayload.parts.length,
+        filenames: fileParts.map((f) => f.filename),
       })
+      await globalSDK.client.session.prompt(promptPayload)
       setAttachments([])
     } catch (err) {
       console.error("[InsightPage] prompt failed", err)

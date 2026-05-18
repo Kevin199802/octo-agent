@@ -5,45 +5,15 @@ import type { ResultTab } from "./tab-store"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
+import { MindmapRenderer } from "./mindmap-renderer"
+import { HtmlRenderer } from "./html-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
+import { stripCodeFence } from "../../utils/detect"
 
-// ── 从 markdown 字符串里提取第一个特定语言代码块的内容 ──────────
-function extractCodeBlock(text: string, lang: string): string {
-  const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
-  const m = text.match(re)
-  return m ? m[1].trim() : text.trim()
-}
-
-// ── Mermaid 占位渲染器（Phase 2 将替换为 SVG 渲染） ────────────
-function MermaidPlaceholder(props: { content: string }): JSX.Element {
-  const code = createMemo(() => extractCodeBlock(props.content, "mermaid"))
-  return (
-    <div class="p-4 h-full overflow-auto flex flex-col gap-3">
-      <div
-        class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
-        style={{
-          background: "rgba(251,191,36,0.08)",
-          border: "1px solid rgba(251,191,36,0.25)",
-          color: "#92400e",
-        }}
-      >
-        <span>⚠️</span>
-        <span>Mermaid 图表渲染将在 Phase 2 实现，当前显示源码</span>
-      </div>
-      <pre
-        class="flex-1 text-sm text-[var(--octo-text-primary)] p-4 rounded-lg overflow-auto"
-        style={{ background: "rgba(243,244,246,1)", "font-family": "monospace" }}
-      >
-        {code()}
-      </pre>
-    </div>
-  )
-}
-
-// ── JSON 代码块渲染器 ──────────────────────────────────────────
+// ── JSON 渲染器 ────────────────────────────────────────────────
 function JsonRenderer(props: { content: string }): JSX.Element {
   const code = createMemo(() => {
-    const raw = extractCodeBlock(props.content, "json")
+    const raw = stripCodeFence(props.content)
     try {
       return JSON.stringify(JSON.parse(raw), null, 2)
     } catch {
@@ -111,7 +81,10 @@ export function ResultViewer(props: {
                     <MarkdownRenderer content={tab().content} />
                   </Match>
                   <Match when={tab().type === "mindmap"}>
-                    <MermaidPlaceholder content={tab().content} />
+                    <MindmapRenderer content={tab().content} />
+                  </Match>
+                  <Match when={tab().type === "html"}>
+                    <HtmlRenderer content={tab().content} />
                   </Match>
                   <Match when={tab().type === "json"}>
                     <JsonRenderer content={tab().content} />

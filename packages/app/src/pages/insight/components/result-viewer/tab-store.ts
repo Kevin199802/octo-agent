@@ -4,7 +4,7 @@ import type { OutputCard } from "../insight-turn"
 export type ResultTab = {
   id: string
   title: string
-  type: "table" | "mindmap" | "markdown" | "file" | "json"
+  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html"
   content: string
   createdAt: Date
 }

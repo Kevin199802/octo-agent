@@ -29,7 +29,7 @@
 
 | 规模 | 领域 | 任务 | 说明 |
 |-----|------|------|------|
-| `[M]` ✅ | ui | **OutputCard 渲染器扩展** | 1) detectCard 改造：mermaid → mindmap JSON 检测，新增 HTML 检测；2) MindmapRenderer + UXR JSON 适配层（markmap-view）；3) HtmlRenderer + iframe sandbox（仅 allow-scripts）；4) TableRenderer 增加 Excel 导出（write-excel-file）；5) 共享 `parseMarkdownTable` helper | [output-renderers.md](docs/specs/ui/output-renderers.md) |
+| `[S]` | ui | **原始输出隐藏升级（路线 B）** | MCP 联调后，tool_call part 到达时立即切换 loading 占位，原始内容从不暴露（当前 CSS 过渡方案在流完后才隐藏） | [ADR-010](docs/adr/010-suppress-raw-output.md) |
 | `[S]` | agents | **内网 skill 联调** | 同事完成 MCP server 后，本地验证 research agent 能通过 skill 调内网接口 | — |
 | `[S]` | agents | **mock 脚本** | `packages/agent/research/mock/` 放本地测试脚本，无内网环境也能跑基础流程 | — |
 
@@ -79,3 +79,4 @@
 | `[S]` | ui | **OctoShell sidebar 精细化** | 侧栏宽度可拖拽（160–360px）；session 标题生成骨架动效；新建会话 + 按钮 | — |
 | `[S]` | agents | **insight.md — tool 声明 + 工作流 prompt** | 声明 MCP 工具（analyze_interview、search_reports）；含 analysis_type 选择指南和工作流约束；文件位于 `packages/agent/insight/agents/insight.md` | [mcp-contract.md](docs/specs/agents/mcp-contract.md) |
 | `[S]` | agents | **insight agent 注册到 octo.json** | `~/.config/octo/octo.json` 写入 insight agent 配置（prompt + tools）；`session.prompt()` 显式传 `agent: "insight"` |  |
+| `[M]` | ui | **OutputCard 渲染器扩展** | detectCard 改造（mindmap JSON + HTML 检测）；MindmapRenderer（markmap-view + UXR JSON 适配层）；HtmlRenderer（iframe sandbox allow-scripts）；TableRenderer Excel 导出（write-excel-file）；共享 parseMarkdownTable helper；debug 日志埋点 | [output-renderers.md](docs/specs/ui/output-renderers.md) |

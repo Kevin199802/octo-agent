@@ -241,3 +241,12 @@
   line-height: 1;
 }
 
+
+
+/* ── OutputCard: 有机器可读卡片时隐藏 assistant 原始文字 ────────
+   仅对 mindmap / html / json 类型生效；
+   markdown / table 保留原始显示（内容对用户有可读价值）。
+   data-suppress-raw 属性由 InsightTurn 在卡片 ready 后挂上。     */
+[data-suppress-raw] [data-slot="session-turn-assistant-content"] {
+  display: none;
+}

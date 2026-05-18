@@ -1,6 +1,10 @@
+import { createSignal, onCleanup, Show, For } from "solid-js"
 import type { JSX } from "solid-js"
+import writeXlsxFile from "write-excel-file/browser"
 import type { ResultTab } from "./tab-store"
 import { IconActionCopy, IconActionDownload } from "../../icons"
+import { parseMarkdownTable, tableToCSV } from "../../utils/markdown-table"
+import { stripCodeFence } from "../../utils/detect"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).catch(console.error)
@@ -18,31 +22,77 @@ function downloadBlob(content: string, filename: string, mimeType: string) {
   URL.revokeObjectURL(url)
 }
 
-function markdownTableToCSV(md: string): string {
-  const lines = md.split("\n")
-  const tableLines = lines.filter((l) => l.trim().startsWith("|"))
-  return tableLines
-    .filter((l) => !/^\|[\s\-:|]+\|$/.test(l.trim()))
-    .map((l) =>
-      l
-        .trim()
-        .slice(1, -1)
-        .split("|")
-        .map((cell) => `"${cell.trim().replace(/"/g, '""')}"`)
-        .join(","),
-    )
-    .join("\n")
+function sanitizeFilename(name: string): string {
+  return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "untitled"
+}
+
+async function tableToXlsx(md: string, filename: string) {
+  const rows = parseMarkdownTable(md)
+  if (rows.length === 0) return
+  const data = rows.map((row) => row.map((c) => ({ value: c, type: String })))
+  await writeXlsxFile(data).toFile(filename)
+}
+
+type DownloadOption = { label: string; onClick: () => void }
+
+function downloadOptions(tab: ResultTab): DownloadOption[] {
+  const base = sanitizeFilename(tab.title)
+  switch (tab.type) {
+    case "table":
+      return [
+        {
+          label: "Markdown (.md)",
+          onClick: () => downloadBlob(tab.content, `${base}.md`, "text/markdown;charset=utf-8"),
+        },
+        {
+          label: "CSV (.csv)",
+          onClick: () =>
+            downloadBlob("﻿" + tableToCSV(tab.content), `${base}.csv`, "text/csv;charset=utf-8"),
+        },
+        {
+          label: "Excel (.xlsx)",
+          onClick: () => {
+            tableToXlsx(tab.content, `${base}.xlsx`).catch((err) => {
+              console.error("Excel 导出失败:", err)
+            })
+          },
+        },
+      ]
+    case "html":
+      return [
+        {
+          label: "HTML (.html)",
+          onClick: () =>
+            downloadBlob(stripCodeFence(tab.content), `${base}.html`, "text/html;charset=utf-8"),
+        },
+      ]
+    case "mindmap":
+      return [
+        {
+          label: "JSON (.json)",
+          onClick: () =>
+            downloadBlob(stripCodeFence(tab.content), `${base}.json`, "application/json;charset=utf-8"),
+        },
+      ]
+    case "json":
+      return [
+        {
+          label: "JSON (.json)",
+          onClick: () =>
+            downloadBlob(stripCodeFence(tab.content), `${base}.json`, "application/json;charset=utf-8"),
+        },
+      ]
+    default:
+      return [
+        {
+          label: "Markdown (.md)",
+          onClick: () => downloadBlob(tab.content, `${base}.md`, "text/markdown;charset=utf-8"),
+        },
+      ]
+  }
 }
 
 export function ActionBar(props: { tab: ResultTab }): JSX.Element {
-  function handleDownload() {
-    if (props.tab.type === "table") {
-      downloadBlob(markdownTableToCSV(props.tab.content), `${props.tab.title}.csv`, "text/csv;charset=utf-8")
-    } else {
-      downloadBlob(props.tab.content, `${props.tab.title}.md`, "text/markdown;charset=utf-8")
-    }
-  }
-
   return (
     <div
       class="flex items-center justify-between px-4 py-1.5 shrink-0"
@@ -55,8 +105,56 @@ export function ActionBar(props: { tab: ResultTab }): JSX.Element {
       <span class="text-xs truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
       <div class="flex items-center gap-0.5">
         <ActionBtn icon={<IconActionCopy size={14} />} label="复制" onClick={() => copyToClipboard(props.tab.content)} />
-        <ActionBtn icon={<IconActionDownload size={14} />} label="下载" onClick={handleDownload} />
+        <DownloadMenu tab={props.tab} />
       </div>
+    </div>
+  )
+}
+
+function DownloadMenu(props: { tab: ResultTab }): JSX.Element {
+  const [open, setOpen] = createSignal(false)
+  let containerRef: HTMLDivElement | undefined
+
+  const onDocClick = (e: MouseEvent) => {
+    if (!containerRef) return
+    if (!containerRef.contains(e.target as Node)) setOpen(false)
+  }
+  document.addEventListener("click", onDocClick)
+  onCleanup(() => document.removeEventListener("click", onDocClick))
+
+  return (
+    <div class="relative" ref={(el) => (containerRef = el)}>
+      <ActionBtn
+        icon={<IconActionDownload size={14} />}
+        label="下载"
+        onClick={() => setOpen((v) => !v)}
+      />
+      <Show when={open()}>
+        <div
+          class="absolute right-0 mt-1 py-1 min-w-[140px] z-10 rounded shadow-md"
+          style={{
+            background: "var(--octo-surface-page)",
+            border: "1px solid var(--octo-border-default)",
+            top: "100%",
+          }}
+        >
+          <For each={downloadOptions(props.tab)}>
+            {(opt) => (
+              <button
+                type="button"
+                class="block w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--octo-brand-a5)]"
+                style={{ color: "var(--octo-text-primary)" }}
+                onClick={() => {
+                  setOpen(false)
+                  opt.onClick()
+                }}
+              >
+                {opt.label}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
     </div>
   )
 }
