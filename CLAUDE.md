@@ -37,7 +37,7 @@
 | 路径 | 说明 |
 |---|---|
 | `packages/app/src/pages/insight/` | 用研 Agent 页面（**合入物**，对应内网同路径） |
-| `packages/agent/research/agents/` | opencode agent 配置文件（**合入物**，部署至 `~/.config/octo/agent/`） |
+| `packages/agent/insight/agents/` | opencode agent 配置文件（**合入物**，详见 [docs/intranet-handoff.md](docs/intranet-handoff.md)） |
 | `packages/app/src/pages/_shell/` | OctoShell 框架层：sidebar + topbar |
 | `packages/app/src/app.tsx` | OctoShell 路由分叉（限改） |
 
@@ -49,7 +49,7 @@
 
 | 范围 | 政策 |
 |---|---|
-| `packages/app/src/pages/insight/`、`packages/app/src/pages/_shell/`、`packages/agent/research/`、`docs/` | **自由改**（合入物） |
+| `packages/app/src/pages/insight/`、`packages/app/src/pages/_shell/`、`packages/agent/insight/`、`docs/` | **自由改**（合入物） |
 | `packages/app/src/app.tsx` | **限改**：仅 OctoShell 路由分叉所需，内网同步 |
 | `packages/app/` 其他文件、`packages/ui/`、`packages/opencode/`、`packages/sdk/` | **不动**：改了跟上游 diff 会乱 |
 | `packages/desktop-electron/src/main/`、`electron.vite.config.ts` 等接线文件 | **限改**：仅品牌、接线、调试 |
@@ -114,3 +114,4 @@
 - ADR-007 — 提示词模板通过 session.prompt() 的 system 字段传递 → [docs/adr/007-prompt-template-via-system-field.md](docs/adr/007-prompt-template-via-system-field.md)
 - ADR-008 — Agent 配置走 cascading 模式（A 类 bundle 内写死，B/C 类用户文件）→ [docs/adr/008-cascading-config.md](docs/adr/008-cascading-config.md)
 - ADR-009 — 不在客户端预览 Office 文件（docx/pptx/xlsx）→ [docs/adr/009-no-office-preview.md](docs/adr/009-no-office-preview.md)
+- ADR-010 — 机器可读卡片原始输出隐藏策略（路线 B：tool_call 检测）→ [docs/adr/010-suppress-raw-output.md](docs/adr/010-suppress-raw-output.md)
