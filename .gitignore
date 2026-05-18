@@ -31,3 +31,4 @@ logs/
 tsconfig.tsbuildinfo
 
 .obsidian/
+.claude/
