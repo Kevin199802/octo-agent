@@ -82,14 +82,9 @@ MCP 工具来自外部 MCP server，通过 `~/.config/octo/octo.json` 的 `mcp` 
 
 > **[docs/specs/agents/mcp-contract.md](../specs/agents/mcp-contract.md)** — 唯一真相来源，本节不重复参数细节。
 
-当前共 **2 个 MCP 工具**：
+MCP 工具按业务能力铺开（[ADR-012](../adr/012-mcp-tools-by-capability.md)），**完整清单 / 入参 / 出参以 [mcp-contract.md](../specs/agents/mcp-contract.md) 为准**，本文档不复述（避免双写漂移）。
 
-| 工具 ID | 作用 | 状态 |
-|---|---|---|
-| `analyze_interview` | 结构化分析（支持 8 种 analysis_type，含思维导图 JSON） | 待联调 |
-| `search_reports` | 内网用研知识库 RAG 检索 | 待联调 |
-
-> 注：文件上传（`upload_document`）**不是 MCP 工具**，由 InsightPage 直接调用 HTTP 上传接口，详见 [ADR-006](../adr/006-upload-architecture.md)。
+> 注：文件上传**不是 MCP 工具**，由 InsightPage 直接调用 HTTP 上传接口，详见 [ADR-006](../adr/006-upload-architecture.md)。
 
 ---
 

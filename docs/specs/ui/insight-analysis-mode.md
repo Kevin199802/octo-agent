@@ -1,8 +1,8 @@
 # InsightPage 提示词模板选择器 — Spec
 
-> **架构决策**：[ADR-007](../../adr/007-prompt-template-via-system-field.md) — 模板指令通过 `session.prompt({ system })` 传递。  
+> **架构决策**：[ADR-007](../../adr/007-prompt-template-via-system-field.md) — 模板指令通过 `session.prompt({ system })` 传递；[ADR-012](../../adr/012-mcp-tools-by-capability.md) — MCP 工具按业务能力铺开。  
 > **机制原理**：[per-call-system-prompt.md](../../learning/per-call-system-prompt.md) — opencode 的 system 字段拼接行为。  
-> **MCP 接口**：[mcp-contract.md](../agents/mcp-contract.md) — analyze_interview / search_reports 参数。
+> **MCP 接口**：[mcp-contract.md](../agents/mcp-contract.md) — 工具清单、入参 / 出参契约的单一真相来源（本文档不重复定义）。
 
 ---
 
@@ -10,11 +10,15 @@
 
 - 模板指令通过 `session.prompt()` 的 `system` 字段传给 LLM，**不污染用户消息**
 - 同一个 `insight` primary agent，模板只是单次系统指令注入
-- agent.prompt（insight.md）描述全局工作流和工具规则，模板只补充"本轮用哪个 analysis_type"
+- agent.prompt（insight.md）描述全局工作流和工具规则，模板只补充"本轮用哪个 MCP 工具"
 
 ---
 
-## 2. 提示词模板清单（6 个）
+## 2. 提示词模板清单
+
+> 工具清单和契约以 [mcp-contract.md](../agents/mcp-contract.md) 为准。本节只列模板 → 工具的映射和 systemHint 文案。
+>
+> 历史草案中的 `generate_persona` / `evaluation_summary` 在本轮内网未实现，对应模板已移除；可用性测试模板（对应 `run_usability_analysis`）是否加入下拉待产品 / 设计确认。
 
 ### 分组结构
 
@@ -22,24 +26,18 @@
 访谈观点洞察
   ├─ 观点解析
   ├─ 按提纲聚类
-  ├─ AI用户画像
   └─ 思维导图
-评估问题整理
 用研知识问答
 ```
 
 ### 每个模板的规格
 
-| 模板 | analysis_type | systemHint（精简后） | UXR 服务端支持 |
-|---|---|---|---|
-| 观点解析 | `key_findings` | 见下 | 已有 |
-| 按提纲聚类 | `cluster_by_outline` | 见下 | 待 UXR 实现 |
-| AI用户画像 | `generate_persona` | 见下 | 待 UXR 实现 |
-| 思维导图 | `mindmap` | 见下 | 待 UXR 实现 |
-| 评估问题整理 | `evaluation_summary` | 见下 | 待 UXR 实现 |
-| 用研知识问答 | —（`search_reports`） | 见下 | 已有 |
-
-> **服务端支持状态不在客户端 UI 中体现**——所有模板均可选，调用失败时由错误提示告知用户（见 §7）。
+| 模板 | MCP 工具 | systemHint（见下） |
+|---|---|---|
+| 观点解析 | `key_findings` | 见下 |
+| 按提纲聚类 | `run_guide_analysis` | 见下 |
+| 思维导图 | `mindmap` | 见下 |
+| 用研知识问答 | `search_reports` | 见下 |
 
 ### systemHint 文本
 
@@ -47,31 +45,19 @@
 
 **观点解析**
 ```
-本轮使用 analyze_interview(analysis_type="key_findings")。
+本轮使用 key_findings 工具。
 输出三列 Markdown 表格：访谈问题 | 用户观点 | 场景主体。
 ```
 
 **按提纲聚类**
 ```
-本轮使用 analyze_interview(analysis_type="cluster_by_outline")。
+本轮使用 run_guide_analysis 工具。
 若用户未提供提纲，先询问后再调用。
-```
-
-**AI用户画像**
-```
-本轮使用 analyze_interview(analysis_type="generate_persona")。
-画像维度：目标与动机 | 典型行为 | 核心痛点 | 常用工具与环境。
 ```
 
 **思维导图**
 ```
-本轮使用 analyze_interview(analysis_type="mindmap")，返回 JSON 直接原样输出，客户端会渲染。
-```
-
-**评估问题整理**
-```
-本轮使用 analyze_interview(analysis_type="evaluation_summary")。
-输出三列：访谈问题 | 回答摘要 | 情感倾向。
+本轮使用 mindmap 工具，返回 JSON 直接原样输出，客户端会渲染。
 ```
 
 **用研知识问答**
@@ -89,10 +75,8 @@
 
 export type PromptTemplateId =
   | "key_findings"
-  | "cluster_by_outline"
-  | "generate_persona"
+  | "run_guide_analysis"
   | "mindmap"
-  | "evaluation_summary"
   | "knowledge_qa"
 
 export type PromptTemplate = {
@@ -107,31 +91,19 @@ export const PROMPT_TEMPLATES: PromptTemplate[] = [
     id: "key_findings",
     label: "观点解析",
     group: "访谈观点洞察",
-    systemHint: `本轮使用 analyze_interview(analysis_type="key_findings")。\n输出三列 Markdown 表格：访谈问题 | 用户观点 | 场景主体。`,
+    systemHint: `本轮使用 key_findings 工具。\n输出三列 Markdown 表格：访谈问题 | 用户观点 | 场景主体。`,
   },
   {
-    id: "cluster_by_outline",
+    id: "run_guide_analysis",
     label: "按提纲聚类",
     group: "访谈观点洞察",
-    systemHint: `本轮使用 analyze_interview(analysis_type="cluster_by_outline")。\n若用户未提供提纲，先询问后再调用。`,
-  },
-  {
-    id: "generate_persona",
-    label: "AI用户画像",
-    group: "访谈观点洞察",
-    systemHint: `本轮使用 analyze_interview(analysis_type="generate_persona")。\n画像维度：目标与动机 | 典型行为 | 核心痛点 | 常用工具与环境。`,
+    systemHint: `本轮使用 run_guide_analysis 工具。\n若用户未提供提纲，先询问后再调用。`,
   },
   {
     id: "mindmap",
     label: "思维导图",
     group: "访谈观点洞察",
-    systemHint: `本轮使用 analyze_interview(analysis_type="mindmap")，返回 JSON 直接原样输出，客户端会渲染。`,
-  },
-  {
-    id: "evaluation_summary",
-    label: "评估问题整理",
-    group: "评估问题整理",
-    systemHint: `本轮使用 analyze_interview(analysis_type="evaluation_summary")。\n输出三列：访谈问题 | 回答摘要 | 情感倾向。`,
+    systemHint: `本轮使用 mindmap 工具，返回 JSON 直接原样输出，客户端会渲染。`,
   },
   {
     id: "knowledge_qa",
@@ -167,18 +139,14 @@ export const DEFAULT_TEMPLATE_ID: PromptTemplateId = "key_findings"
 │  访谈观点洞察                            │  ← group label（灰色，不可点）
 │    ✓ 观点解析                           │  ← 选中态
 │      按提纲聚类                         │
-│      AI用户画像                         │
 │      思维导图                           │
-│  ─────────────────────────────────────  │
-│  评估问题整理                            │
-│      评估问题整理                       │
 │  ─────────────────────────────────────  │
 │  用研知识问答                            │
 │      用研知识问答                       │
 └─────────────────────────────────────────┘
 ```
 
-所有模板均可选，UI 不基于服务端支持状态做 disable。服务端尚未实现的 analysis_type 由 MCP 错误响应触发友好提示（见 §7）。
+所有模板均可选，UI 不基于服务端支持状态做 disable。服务端尚未实现的工具由 MCP 错误响应触发友好提示（见 §7）。
 
 ### 4.3 组件实现草图
 
@@ -307,34 +275,22 @@ function detectCard(text: string) {
 
 | 场景 | 行为 |
 |---|---|
-| MCP 返回 unknown analysis_type（服务端尚未实现该模板） | 对话区显示"该分析类型 UXR 服务端尚未支持"的友好提示卡片，不影响其他模板使用 |
-| 用户没上传文件就选 key_findings 发送 | LLM 收到 system hint 但无 doc_urls，会按 insight.md 工作流询问用户 |
-| 用户选了 knowledge_qa 但又上传了文件 | LLM 优先按 knowledge_qa 处理（search_reports），文件作为补充材料 |
+| MCP 返回未知工具 / 服务端尚未支持 | 对话区显示"该分析类型 UXR 服务端尚未支持"的友好提示卡片，不影响其他模板使用 |
+| 用户没上传文件就选观点解析发送 | LLM 收到 system hint 但无文件 URL，会按 insight.md 工作流询问用户 |
+| 用户选了用研知识问答但又上传了文件 | LLM 优先按 `search_reports` 处理，文件作为补充材料 |
+
+> MCP 工具支持状态以 [mcp-contract.md](../agents/mcp-contract.md) 为准。
 
 ---
 
-## 8. 需要 MCP server 配合新增的 analysis_type
-
-| analysis_type | 期望返回 | 状态 |
-|---|---|---|
-| `key_findings` | Markdown 表格 | ✅ Phase 1 已支持 |
-| `cluster_by_outline` | Markdown 表格 | ⚠️ Phase 2 待 UXR 实现 |
-| `generate_persona` | Markdown 表格 | ⚠️ Phase 2 待 UXR 实现 |
-| `evaluation_summary` | Markdown 表格 | ⚠️ Phase 2 待 UXR 实现 |
-| `mindmap` | JSON（思维导图结构） | ⚠️ Phase 2 待 UXR 复用现有接口 |
-
-`knowledge_qa` 模板使用已有的 `search_reports`，无需新增。
-
----
-
-## 9. 验证清单
+## 8. 验证清单
 
 ### V-01 下拉 UI（不依赖 MCP）
 
 | 操作 | 预期 |
 |---|---|
 | 打开 InsightPage | 工具栏显示"访谈观点洞察 / 观点解析"（默认） |
-| 点击下拉按钮 | 菜单弹出，3 个分组，6 个选项，全部可选 |
+| 点击下拉按钮 | 菜单弹出，2 个分组，4 个选项，全部可选 |
 | 点击"用研知识问答" | 按钮文字更新为对应分组/标签，菜单关闭 |
 | 切换 session | 模板**重置**为 default（key_findings） |
 
@@ -342,23 +298,12 @@ function detectCard(text: string) {
 
 | 操作 | 预期 |
 |---|---|
-| 选"观点解析"，发送"帮我分析" | DevTools Network 里 `session.prompt` body 含 `system: "本轮使用 analyze_interview..."`，`parts[0].text` 仅含 "帮我分析" |
+| 选"观点解析"，发送"帮我分析" | DevTools Network 里 `session.prompt` body 含 `system: "本轮使用 key_findings 工具..."`，`parts[0].text` 仅含 "帮我分析" |
 | 用户消息历史显示 | 仅 "帮我分析"，不含 systemHint 内容 |
 
 ### V-03 端到端（需 MCP 联通）
 
 | 模板 | 操作 | 预期 LLM 行为 |
 |---|---|---|
-| 观点解析 | 发"帮我分析" + hardcoded doc_urls | 调 analyze_interview(analysis_type="key_findings", doc_urls=[...]) → 表格 OutputCard |
-| 用研知识问答 | 发"有没有算子工具的相关报告" | 调 search_reports(query="...") → 文本回复 |
-
----
-
-## 10. Phase 说明
-
-| 阶段 | 范围 |
-|---|---|
-| **Phase 1（当前）** | UI（下拉 + 状态管理 + system 字段传递）；端到端依赖 MCP，需联调 |
-| **Phase 2（MCP 联调后）** | UXR 实现 4 个新 analysis_type（cluster_by_outline / generate_persona / evaluation_summary / mindmap）；客户端无需改动，错误提示自动消失 |
-
-Phase 1 完成判定：V-01 + V-02 通过即可（不依赖 MCP），V-03 在 MCP 联调阶段验证。
+| 观点解析 | 发"帮我分析" + hardcoded 文件 URL | 调 `key_findings` 工具 → 表格 OutputCard |
+| 用研知识问答 | 发"有没有算子工具的相关报告" | 调 `search_reports` 工具 → 文本回复 |

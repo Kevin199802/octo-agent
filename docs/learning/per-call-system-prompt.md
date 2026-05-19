@@ -38,7 +38,7 @@ InsightPage 有 6 个提示词模板。每次发送时需要告诉 LLM 当前选
 await session.prompt({
   sessionID,
   agent: "insight",
-  system: "本轮请使用 analysis_type=key_findings",   // ← 单次系统指令
+  system: "本轮使用 key_findings 工具",               // ← 单次系统指令（具体工具名见 mcp-contract）
   parts: [{ type: "text", text: 用户输入 }]
 })
 ```
@@ -97,7 +97,7 @@ system.push([
 │ Layer 1：agent.prompt（系统提示词，per-agent 写死）          │
 │   位置：insight.md frontmatter                              │
 │   生效范围：这个 agent 的所有对话                              │
-│   内容：角色定位、工作流、analysis_type 选择规则、注意事项         │
+│   内容：角色定位、工作流、MCP 工具选择规则、注意事项               │
 ├──────────────────────────────────────────────────────────┤
 │ Layer 2：input.system（per-CALL 系统指令，每次调用可不同）     │
 │   位置：session.prompt({ system: "..." })                  │
@@ -153,7 +153,7 @@ Layer 2 和 Layer 3 都是 per-call 的，区别在于：Layer 2 进 system role
 ```ts
 // 用户选了"观点解析"模板
 session.prompt({
-  system: "本轮使用 analysis_type=key_findings，三列 Markdown 表格输出",
+  system: "本轮使用 key_findings 工具，三列 Markdown 表格输出",
   parts: [{ type: "text", text: 用户消息 }]
 })
 ```
@@ -184,7 +184,7 @@ session.prompt({
 
 - 国产模型（DeepSeek / Qwen / GLM / MiniMax）协议层完全兼容
 - 不同模型对系统指令的**遵循能力**不一样：大模型严格执行，小模型可能忽略细节
-- 联调时观察"切换模板 → LLM 是否真的换了 analysis_type"
+- 联调时观察"切换模板 → LLM 是否真的换了 MCP 工具"
 
 ### 5.2 prompt cache 影响
 

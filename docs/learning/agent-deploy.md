@@ -34,7 +34,7 @@ const agents = {
 
 `build` 没有业务相关的 system prompt，LLM 接到"分析这份访谈稿"时，只能靠对话上下文猜测该怎么做：
 - 不知道应该调哪个分析 tool 还是自己读文件内容
-- 不知道有哪些 analysis_type 选项
+- 不知道有哪些 MCP 工具可用
 - 不知道输出应该是 Markdown 表格格式
 
 注册 `insight` agent 后，system prompt 写明了工作流程和工具选择指南，LLM 每次对话都从这个上下文出发，行为可预期。

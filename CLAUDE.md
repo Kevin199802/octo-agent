@@ -115,3 +115,5 @@
 - ADR-008 — Agent 配置走 cascading 模式（A 类 bundle 内写死，B/C 类用户文件）→ [docs/adr/008-cascading-config.md](docs/adr/008-cascading-config.md)
 - ADR-009 — 不在客户端预览 Office 文件（docx/pptx/xlsx）→ [docs/adr/009-no-office-preview.md](docs/adr/009-no-office-preview.md)
 - ADR-010 — 机器可读卡片原始输出隐藏策略（路线 B：tool_call 检测）→ [docs/adr/010-suppress-raw-output.md](docs/adr/010-suppress-raw-output.md)
+- ADR-011 — MCP 工具结果走"摘要 + Resource URI"，大内容不内联 → [docs/adr/011-tool-result-resource-uri.md](docs/adr/011-tool-result-resource-uri.md)
+- ADR-012 — MCP 工具按业务能力铺开（N tools），而非单 tool + enum 参数 → [docs/adr/012-mcp-tools-by-capability.md](docs/adr/012-mcp-tools-by-capability.md)

@@ -102,14 +102,11 @@ cp /path/to/octo-agent/packages/agent/insight/agents/insight.md \
 
 只派生 `permission`（从我方 frontmatter `tools` 字段转），`mcp` / `skills` 由你方继续在 agent.ts 维护。
 
-### 4.3 `analysis_type` 枚举对齐
+### 4.3 MCP 工具清单对齐
 
-我方已对齐 5 个有效值，移除 3 个孤儿：
+MCP 工具按业务能力铺开（[ADR-012](adr/012-mcp-tools-by-capability.md)），完整工具清单、入参 / 出参约定见 [mcp-contract.md](specs/agents/mcp-contract.md)（单一真相来源，本文档不重复列出，避免漂移）。
 
-**有效**：`key_findings` / `cluster_by_outline` / `generate_persona` / `evaluation_summary` / `mindmap`  
-**已移除**：`user_journey` / `pain_points` / `opportunity_map`
-
-你方 `octo_insight.txt` 当前可能还在用旧值，合入新版 prompt 后自然对齐。**确认 UXR 服务端不依赖旧枚举值**。
+你方 `octo_insight.txt` 中的工具引用以最新 mcp-contract.md 为准对齐。
 
 ---
 

@@ -95,7 +95,7 @@ InsightPage ──multipart/form-data──▶ UXR HTTP 上传接口（非 /mcp�
 InsightPage 将 URL 注入 session.prompt()
                 │
                 ▼
-LLM 调 analyze_interview(doc_urls=[...]) ──MCP── UXR /mcp
+LLM 调用对应业务工具（见 mcp-contract）──MCP── UXR /mcp
 ```
 
 两个接口分开：上传走普通 HTTP（binary），分析走 MCP（JSON-RPC）。
@@ -140,43 +140,22 @@ async def upload_file(file: UploadFile, path: str = Form(...), prefix_dir: str =
     return {"url": obs_url}
 ```
 
-**② MCP 分析接口**（`/mcp` 路由，2 个工具）：
+**② MCP 分析接口**（`/mcp` 路由）：
+
+工具清单、每个工具的入参 / 出参约定、description 写法原则，**完全以 [mcp-contract.md](specs/agents/mcp-contract.md) 为准**，本文档不复述（避免双写漂移）。
+
+按 [ADR-012](adr/012-mcp-tools-by-capability.md)，工具按业务能力铺开（N tools），不走单 tool + enum 形态。挂载方式示例：
 
 ```python
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("uxr-tool")
 
-@mcp.tool()
-async def analyze_interview(doc_urls: list[str], analysis_type: str, context: str) -> str:
-    """
-    对访谈逐字稿进行结构化分析。
-    doc_urls 是 S3/OBS 文件地址列表（由 InsightPage 上传后提供，非文件名）。
-    context 为必填项，填写业务背景可显著提升分析质量。
-    analysis_type 枚举与含义见 mcp-contract.md（保持单一真相来源，避免与本文档漂移）。
-    除 mindmap 类型返回 JSON 外，其余类型均返回 Markdown 表格。
-    """
-    result = await internal_service.analyze(doc_urls=doc_urls, type=analysis_type, context=context)
-    return result  # Markdown 字符串或 JSON 字符串
+# 每个业务能力一个 @mcp.tool()，具体清单见 mcp-contract.md
+# 工具内部可 dispatch 到同一个核心 handler
 
-@mcp.tool()
-async def search_reports(query: str) -> str:
-    """
-    基于内网用研知识库 RAG 检索。
-    query 为自然语言检索词，经 embedding 后做向量检索，非 LLM prompt。
-    返回 JSON 数组。
-    """
-    results = await rag_service.search(query)
-    return json.dumps(results, ensure_ascii=False)
-
-# 挂载到现有 FastAPI 应用
 app.mount("/mcp", mcp.streamable_http_app())
 ```
-
-**Tool description 写法原则**（影响 LLM 调用准确性）：
-- 写明 `doc_urls` 来源："来自客户端上传后的 S3 URL，非文件名"
-- 写明 `context` 必填
-- 枚举每个 `analysis_type` 的中文含义
 
 ---
 
@@ -222,7 +201,7 @@ session.prompt({
 })
 ```
 
-LLM 从 `[已上传文件]` 区块提取 `doc_urls`，调用 `analyze_interview`。
+LLM 从 `[已上传文件]` 区块提取文件 URL，调用对应业务工具（具体工具清单见 [mcp-contract.md](specs/agents/mcp-contract.md)）。
 
 ### 7.3 文件格式支持
 
@@ -237,10 +216,10 @@ UXR 服务负责文档解析（txt、md、docx、xlsx、pdf），客户端直接
 1. 打开 DevTools（`OCTO_DEVTOOLS=1` 启动），Console 里确认：
    ```
    [mcp] connected
-   [mcp] tools: analyze_interview, search_reports
+   [mcp] tools: <mcp-contract.md 中列出的工具清单>
    ```
 2. 上传文件 → 确认 Network 面板出现对 `upload_url` 的 POST 请求，返回 S3 URL
-3. 发指令后 Console 出现 `[mcp] tool call: analyze_interview`，参数中 `doc_urls` 包含正确 URL
+3. 发指令后 Console 出现 `[mcp] tool call: <对应业务工具>`，参数中文件 URL 正确
 4. 对话区出现 OutputCard（表格类型）
 
 ### UXR 服务侧检查
@@ -255,9 +234,9 @@ async def log_mcp(request, call_next):
 ```
 
 确认：
-- `GET /mcp` 返回工具清单（2 个工具）
+- `GET /mcp` 返回工具清单（与 [mcp-contract.md](specs/agents/mcp-contract.md) 工具清单一致）
 - `POST /api/upload` 收到 multipart 请求，返回 S3 URL
-- `POST /mcp` 收到 `analyze_interview` 请求并返回 Markdown 表格
+- `POST /mcp` 收到对应业务工具的请求并按约定格式返回
 
 ### 端到端验证提示词
 
@@ -265,7 +244,7 @@ async def log_mcp(request, call_next):
 我上传了一份访谈逐字稿，请提取关键用户发现，用表格输出。
 ```
 
-附一个任意文件，观察完整链路：文件上传 → S3 URL 注入 → LLM 调 analyze_interview → OutputCard。
+附一个任意文件，观察完整链路：文件上传 → S3 URL 注入 → LLM 调对应业务工具 → OutputCard。
 
 ---
 
