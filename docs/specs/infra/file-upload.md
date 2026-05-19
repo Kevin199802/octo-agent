@@ -13,7 +13,7 @@
 用户选文件 → 页面直接 POST /api/upload（binary）
   → 返回 S3 URL
   → 注入 session.prompt() context
-  → LLM 调 analyze_interview(doc_urls=[...])
+  → LLM 调对应 MCP 业务工具（见 mcp-contract.md）
 ```
 
 ---
