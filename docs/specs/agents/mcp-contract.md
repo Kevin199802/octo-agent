@@ -23,15 +23,83 @@
 
 | 工具 | 业务含义 | 输入材料 | 备注 |
 |---|---|---|---|
-| `run_usability_analysis` | 可用性测试分析 | 上传的访谈 / 测试材料 | 长任务，异步返回 task_id |
-| `run_guide_analysis` | 大纲聚类分析（按提纲整理） | 上传的访谈材料 + 提纲 | 长任务，异步返回 task_id |
-| `key_findings` | 自由解析 — 提取用户观点、场景主体、痛点需求等 | 上传的访谈材料 | 长任务，异步返回 task_id |
-| `mindmap` | 思维导图生成 | 上传的访谈材料 | 长任务，异步返回 task_id；返回结构化 JSON |
+| `run_usability_analysis` | 可用性测试分析 | 上传的访谈 / 测试材料 | 长任务，调用即提交，返回 task_id |
+| `run_guide_analysis` | 大纲聚类分析（按提纲整理） | 上传的访谈材料 + 提纲 | 长任务，调用即提交，返回 task_id |
+| `key_findings` | 自由解析 — 提取用户观点、场景主体、痛点需求等 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id |
+| `mindmap` | 思维导图生成 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id；完成时结果为结构化 JSON |
 | `search_reports` | 基于内网用研知识库的 RAG 检索 | 自然语言 query | 同步返回 |
+
+**业务工具通用出参（长任务提交即返回）：**
+
+| 字段 | 位置 | 说明 |
+|---|---|---|
+| `task_id` | `content[].text`（嵌在友好提示文本中）+ `structuredContent.task_id` | 客户端读 structuredContent 做状态记录；LLM 从 text 转述给用户 |
+| 友好提示 | `content[].text` | 告知用户 task_id 与"稍后回来查询"的引导，由 LLM 转述 |
+
+业务工具提交时**不返回** `resource_link`（结果尚未产出）。详细查询契约见下方 [§任务管理](#任务管理长任务通用)。
 
 ### 任务管理（长任务通用）
 
-- 任务状态查询和取消由统一的任务管理工具承担，具体工具名和形态待定，**本文档此处占位**，定稿后补回。
+> 决策依据：[ADR-011 §异步长任务的提交-查询模型](../../adr/011-tool-result-resource-uri.md)。  
+> 业务工具调用即提交（< 5s 同步返回 task_id），实际分析后台异步执行。**LLM 不自动轮询，由用户在对话中显式触发查询/终止**。
+
+#### `get_task_result(task_id)`
+
+查询任务状态与结果。同步返回（< 5s）。
+
+**参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `task_id` | string | ✓ | 来自业务工具提交时返回的 ID |
+
+**status 枚举：**
+
+| 值 | 含义 |
+|---|---|
+| `pending` | 任务已入库，尚未开始分析（排队中） |
+| `processing` | 分析进行中 |
+| `completed` | 分析完成，结果可取 |
+| `failed` | 分析失败 |
+| `stopped` | 任务被手动终止（来自 `stop_task` 调用） |
+
+**返回（按 status 分流）：**
+
+| status | content | structuredContent | isError |
+|---|---|---|---|
+| `pending` / `processing` | `text` part：友好提示"任务进行中，稍后再来查询"，可含 `message` 描述当前阶段 | `{task_id, status, message?}` | — |
+| `completed` | `text` 摘要 part + `resource_link` part（按 [§返回格式总则 路径 2](#返回格式总则)） | `{task_id, status: "completed"}` | — |
+| `failed` | `text` part：错误说明（来自 `message` 字段） | `{task_id, status: "failed", message}` | `true` |
+| `stopped` | `text` part："任务已被终止" | `{task_id, status: "stopped"}` | — |
+
+#### `stop_task(task_id)`
+
+终止正在进行的任务。同步返回（< 5s）。
+
+**参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `task_id` | string | ✓ | 待终止任务 ID |
+
+**返回：**
+
+| 调用结果 | content | structuredContent | isError |
+|---|---|---|---|
+| 任务被成功终止 | `text` part："任务 xxx 已终止" | `{task_id, status: "stopped"}` | — |
+| 任务已是终态（completed / failed / stopped） | `text` part：说明当前终态，无需终止 | `{task_id, status: <当前终态>}` | — |
+| task_id 不存在 | `text` part："未找到任务 xxx" | `{task_id, status: "not_found"}` | `true` |
+
+> `stop_task` 对已终态任务返回非 isError，是因为这不是工具自身错误，而是状态机不允许的正常分支；LLM 可基于此向用户解释"任务已经完成了，无需取消"。
+
+#### LLM 调用规范（写入 agent prompt）
+
+- 调用业务工具拿到 `task_id` 后，**必须**在回复中显式告知用户 task_id，并提示稍后回来查询
+- **绝不在 LLM 内部自动轮询** `get_task_result`：看到 pending/processing 状态不要立即重试或循环
+- 仅当用户**显式**询问进度（"看看好了没"、"查询任务 xxx"）时才调 `get_task_result`
+- 用户说"取消任务 / 不跑了 / 停掉 xxx"时调 `stop_task`
+- 从对话历史中查找最近的 task_id（用户常省略 id 只说"刚才那个"）
+- task_id 可同时出现在 `text` part 和 `structuredContent.task_id`，LLM 主要从 text 转述给用户，客户端 UI 可读 structuredContent 做状态展示
 
 ---
 
@@ -47,7 +115,7 @@
 
 ### 通用出参骨架
 
-- **长任务工具**：异步返回 task_id + 预估完成时间
+- **长任务工具**：同步返回 task_id（< 5s），实际结果通过后续 `get_task_result` 查询获取，详见 [§任务管理](#任务管理长任务通用)
 - **search_reports**：同步返回检索结果列表（标题 / 摘要 / 来源 URL）
 - 客户端 `detectCard` 自动识别 Markdown / JSON 内容形态做渲染路由，无需 Octo 侧约束具体返回格式
 
@@ -97,17 +165,25 @@
 联调完成后双方确认：
 
 **UXR 服务侧**
-- [ ] `GET /mcp` 返回工具清单，至少包含上文列出的业务工具 + `search_reports`
-- [ ] `POST /mcp` 处理 `key_findings`、`run_guide_analysis`、`mindmap`、`run_usability_analysis`，长任务返回 task_id
-- [ ] `POST /mcp` 处理 `search_reports`，同步返回检索结果
+- [ ] `GET /mcp` 返回工具清单，至少包含业务工具 + `search_reports` + `get_task_result` + `stop_task`
+- [ ] 业务工具（`key_findings` / `run_guide_analysis` / `mindmap` / `run_usability_analysis`）**5 秒内**同步返回 task_id，不阻塞到分析完成
+- [ ] `search_reports` 同步返回检索结果
+- [ ] `get_task_result` 五个 status 分支均能命中：`pending` / `processing` / `completed` / `failed` / `stopped`
+- [ ] `get_task_result(completed)` 返回 `text` 摘要 part + `resource_link` part；`resource_link.uri` 两小时后再次访问仍可达
+- [ ] `stop_task` 对进行中任务能成功终止，对已终态任务返回当前 status 不抛 isError
+- [ ] 业务工具幂等性：相同入参短期重复提交返回同一 task_id
 - [ ] 文件上传 HTTP API 可用，返回可用于 MCP 入参的 URL
 
 **Octo 客户端侧**
 - [ ] DevTools Console 出现 `[mcp] connected`
-- [ ] Console 出现工具清单
+- [ ] Console 出现工具清单（含任务管理工具）
 - [ ] InsightPage 上传文件后 URL 出现在 session context 中
-- [ ] 发"观点解析"指令后，Console 出现对应 tool 调用
-- [ ] 对话区出现 OutputCard（表格 / JSON / 文本）
+- [ ] 发"观点解析"指令后，Console 出现业务工具调用，**5s 内**收到 task_id
+- [ ] LLM 在 task_id 返回后向用户**显式提示** task_id 与"稍后回来查询"
+- [ ] LLM **不在内部自动轮询** `get_task_result`（连续观察 2 分钟，无 LLM 主动发起的状态查询）
+- [ ] 用户说"查询任务 xxx" → LLM 调 `get_task_result`，completed 时 OutputCard（按 resource_link 渲染）出现
+- [ ] 用户说"取消任务 xxx" → LLM 调 `stop_task`，对话中确认终止
+- [ ] 关闭 app 重开同一 session，对话历史里的 task_id 仍可通过"查询刚才那个"继续查
 
 ---
 

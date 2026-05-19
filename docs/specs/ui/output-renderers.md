@@ -16,10 +16,17 @@
 | `html` | 未来富展示类 MCP tool（如独立的用户画像/可视化 tool）| HTML 字符串（建议 ```html``` fence 包裹） | HtmlRenderer | ⚠️ 待实现 |
 | `markdown` | 用研知识问答 + 长文本 fallback | Markdown 纯文本 | MarkdownRenderer | ✅ 已实现 |
 
+**两种内容来源（[ADR-011](../../adr/011-tool-result-resource-uri.md)）**：
+
+- `source: "inline"`——内容嵌在 assistant text part 里（短表格 / 短 JSON），现状路径
+- `source: "uri"`——MCP 工具返回 `resource_link`，URI 指向内网 S3 上的完整内容，渲染器按 mimeType 路由后 fetch URI
+
+OutputCard 类型集合不变，新增的是 `source` 维度。检测分发与各 renderer 改造见 §2.5。
+
 **未规划**：
 - Office 文件应用内预览（docx/pptx/xlsx）—— 伪需求，详见 [ADR-009](../../adr/009-no-office-preview.md)
 
-实际 type 集合最终以 UXR MCP 服务端返回的内容为准——客户端按内容形态路由，不绑定 analysis_type。HTML 渲染器先做基础能力（iframe sandbox），具体由哪些 MCP tool 触发等 UXR 上线后再调整 systemHint。
+实际 type 集合最终以 UXR MCP 服务端返回的内容为准——客户端按内容形态路由，不绑定具体 MCP 工具名。HTML 渲染器先做基础能力（iframe sandbox），具体由哪些 MCP 工具触发等 UXR 上线后再调整 systemHint。MCP 工具清单见 [mcp-contract.md](../agents/mcp-contract.md)。
 
 **原始文字显示策略**：OutputCard 出现时，对机器可读类型（`mindmap` / `html` / `json`）隐藏 assistant 的原始文字区；对 `markdown` / `table` 保留显示（内容本身对用户有可读价值）。当前实现：`InsightTurn` 在卡片 ready 后挂 `data-suppress-raw` 属性，CSS 规则隐藏文字区（过渡方案，流完才生效）。MCP 联调后将升级为路线 B（tool_call part 到达时即切换 loading 占位，原始内容从不暴露），详见 [ADR-010](../../adr/010-suppress-raw-output.md)。
 
@@ -119,6 +126,99 @@ function tryParseJSON(text: string): any {
 
 ---
 
+## 2.5 resource_link 来源的检测与分发
+
+> 上游决策：[ADR-011](../../adr/011-tool-result-resource-uri.md)。MCP 工具按内容大小分级返回——短内容走 text part（沿用 §2.3），长内容 / 二进制内容走 text 摘要 + `resource_link` 双 part。
+
+### 2.5.1 检测优先级（覆盖 §2.3）
+
+```
+对于每条 assistant 消息的 parts:
+1. 扫描是否存在 type === "resource_link" 的 part
+   ├─ 有 → 按 mimeType 路由(§2.5.2),source: "uri"
+   └─ 无 → 走原有 §2.3 启发式,source: "inline"
+```
+
+`resource_link` part 形态（来自 MCP 协议）：
+
+```ts
+type ResourceLinkPart = {
+  type: "resource_link"
+  uri: string
+  name: string
+  mimeType: string
+  description?: string
+}
+```
+
+opencode 将 MCP `CallToolResult.content[]` 中的 `resource_link` 项作为独立 part 转发到 SSE，前端读 `data.store.part[messageID]` 即可拿到。
+
+### 2.5.2 mimeType → OutputCard 类型路由
+
+| mimeType | OutputCardType | 渲染策略 |
+|---|---|---|
+| `text/html` | `html` | fetch URI → 拿到 HTML → 走 HtmlRenderer 的 iframe sandbox（§5）|
+| `text/markdown` | `markdown` | fetch URI → 走 MarkdownRenderer |
+| `application/json` | 进二级判断 | 解析 JSON → `isMindmapJSON` 命中 → `mindmap`；否则 → `json` |
+| `text/csv` | `table` | fetch URI → 转 Markdown 表格 → 走 TableRenderer |
+| Office / PDF / 图片 | `file` | 不在 ResultViewer 内渲染，走 [ADR-009](../../adr/009-no-office-preview.md) `window.api.openPath` 唤起本地应用 |
+| 其他 | `file` fallback | 仅提供"下载"按钮 |
+
+### 2.5.3 OutputCard / ResultTab 类型扩展
+
+```ts
+// insight-turn.tsx
+export type OutputCard = {
+  id: string
+  title: string
+  type: OutputCardType
+  source: "inline" | "uri"          // 新增
+  content?: string                  // source === "inline" 时必填(沿用现状)
+  uri?: string                      // source === "uri" 时必填
+  mimeType?: string                 // source === "uri" 时必填,影响渲染分支
+  fileName?: string                 // source === "uri" 时,来自 resource_link.name
+  createdAt: Date
+}
+```
+
+`tab-store.ts` 的 `ResultTab` 同步扩展。
+
+### 2.5.4 各 renderer 改造点（fetch 路径）
+
+```tsx
+// 通用辅助
+async function loadResourceText(uri: string): Promise<string> {
+  const res = await fetch(uri)
+  if (!res.ok) throw new Error(`fetch ${uri}: ${res.status}`)
+  return res.text()
+}
+```
+
+| Renderer | 改造 |
+|---|---|
+| TableRenderer | 入参从 `content: string` 改为 `content?: string \| uri?: string`；URI 模式下 createResource + Suspense fallback "加载中..." |
+| MindmapRenderer | 同上；fetch 后走 `uxrJsonToMarkdown` 适配 |
+| HtmlRenderer | 同上；`srcdoc={inlineHtml}` 或 `src={uri}`（URI 模式直接走 iframe src，省一次 fetch，但需确认 sandbox 跨域规则——见 §5.4 决策） |
+| MarkdownRenderer | 同上 |
+
+加载状态由 SolidJS `createResource` 处理，错误走 §8 错误处理 fallback。
+
+### 2.5.5 缓存策略
+
+- **session 内缓存**：同一 URI 在同一 session 内只 fetch 一次，存入 `tab-store` 的 `content` 字段（懒填充）
+- **跨 session 不持久化**：用户重开 session 点旧卡片仍重新 fetch（依赖 ADR-011 约定的"URI 长期可用"）
+- 关闭 session 时不主动清缓存，由内存回收
+
+### 2.5.6 错误处理
+
+| 场景 | 行为 |
+|---|---|
+| URI 网络不可达（404 / 超时） | OutputCard 显示"加载失败，点击重试"占位，ActionBar 提供"复制链接"按钮供手动排查 |
+| mimeType 未识别 | 走 `file` fallback，仅提供下载链接 |
+| `resource_link` 缺 `mimeType` 字段 | 视作 `application/octet-stream` → `file` fallback；日志输出 `[mcp:invalid-resource]` 警告 |
+
+---
+
 ## 3. TableRenderer
 
 ### 3.1 现状
@@ -212,7 +312,7 @@ Excel 文件在浏览器/Electron 渲染进程**生成 .xlsx 二进制**后下�
 
 ### 4.1 输入
 
-UXR `analyze_interview(analysis_type="mindmap")` 返回的 JSON。实际 shape（UXR 测试环境确认）：
+UXR `mindmap` 工具返回的 JSON（工具契约见 [mcp-contract.md](../agents/mcp-contract.md)）。实际 shape（UXR 测试环境确认）：
 
 ```json
 [
@@ -561,11 +661,15 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 
 | 工作项 | Phase | 依赖 |
 |---|---|---|
-| detectCard 改造（mermaid → mindmap JSON + HTML 检测） | 当前可做 | 无 |
-| TableRenderer Excel 导出 + parseMarkdownTable helper | 当前可做 | 无 |
-| MindmapRenderer + 适配层 | 当前可做（用 mock JSON 调试） | UXR mindmap JSON 实际 shape（待 MCP 联调时确认并调整 adapter）|
-| HtmlRenderer + sandbox iframe + 下载 | 当前可做（用 mock HTML 调试） | 无（UXR 上线 HTML tool 后无需改客户端，已 ready）|
+| detectCard 改造（mermaid → mindmap JSON + HTML 检测） | 已完成 | — |
+| TableRenderer Excel 导出 + parseMarkdownTable helper | 已完成 | — |
+| MindmapRenderer + 适配层 | 已完成 | — |
+| HtmlRenderer + sandbox iframe + 下载 | 已完成 | — |
+| **resource_link 检测分发 + OutputCard `source: "uri"` 改造**（§2.5） | 联调可做 | UXR 服务端按 [ADR-011](../../adr/011-tool-result-resource-uri.md) 实际返回 resource_link |
+| **各 renderer URI fetch 路径**（§2.5.4） | 联调可做 | 同上 |
+| **resource_link 错误占位 + 缓存策略**（§2.5.5 / §2.5.6） | 联调可做 | 同上 |
 
 **联调期可能的小调整**：
-- mindmap：`parseMindmapJSON` (§4.4) adapter 字段名根据 UXR 实际 shape 微调
+- resource_link：opencode 转发 MCP `resource_link` content 为 part 的实际字段名 / 形态，待联调时确认（spec 假设 `type === "resource_link"` 直接平铺，若被嵌在其他结构里需要调整 §2.5.1 的探测逻辑）
+- mimeType 路由表（§2.5.2）按 UXR 实际产出的 MIME 类型补充
 - html：如 UXR 输出 HTML 不带 fence 也不带 doctype，可能需要在 `isHTML` (§2.3) 加更宽松的检测规则
