@@ -1,6 +1,6 @@
 import "./octo-tokens.css"
 import type { Message, Part, Session, SessionStatus, SnapshotFileDiff } from "@opencode-ai/sdk/v2/client"
-import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
+import type { TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { Binary } from "@opencode-ai/shared/util/binary"
@@ -27,6 +27,7 @@ import { createTabStore } from "./components/result-viewer/tab-store"
 import { PROMPT_TEMPLATES, DEFAULT_TEMPLATE_ID, type PromptTemplateId } from "./store/prompt-template"
 import { IconAttach, IconSend } from "./icons"
 import { IllustrationInsightEmpty } from "./icons/illustrations"
+import { uploadFile, validateFile, formatUploadsForPrompt, UploadError } from "./lib/upload"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -226,28 +227,28 @@ export default function InsightPage() {
     setSending(true)
     try {
       const template = PROMPT_TEMPLATES.find((t) => t.id === templateId())!
-      const fileParts: FilePartInput[] = attachments().map((a) => ({
-        type: "file",
-        mime: a.mime,
-        filename: a.filename,
-        url: a.dataUrl,
-      }))
-      const textPart: TextPartInput = { type: "text", text }
+      // 仅消费上传成功的附件；error/uploading 项不进 LLM context
+      const doneAttachments = attachments().filter((a) => a.status === "done" && a.url)
+      const fullText = text + formatUploadsForPrompt(
+        doneAttachments.map((a) => ({ filename: a.filename, url: a.url! })),
+      )
+      const textPart: TextPartInput = { type: "text", text: fullText }
       const promptPayload = {
         sessionID: sessionId,
         agent: "insight",
         system: template.systemHint,
-        parts: [textPart, ...fileParts],
+        parts: [textPart],
       }
       console.log("[octo:prompt] send", {
         sessionID: sessionId,
         agent: promptPayload.agent,
         template: templateId(),
         systemHint: template.systemHint?.slice(0, 80),
-        partsCount: promptPayload.parts.length,
-        filenames: fileParts.map((f) => f.filename),
+        attachmentsCount: doneAttachments.length,
+        uploads: doneAttachments.map((a) => ({ name: a.filename, url: a.url })),
       })
       await globalSDK.client.session.prompt(promptPayload)
+      filesById.clear()
       setAttachments([])
     } catch (err) {
       console.error("[InsightPage] prompt failed", err)
@@ -278,30 +279,65 @@ export default function InsightPage() {
   // ── 附件管理 ─────────────────────────────────────────────
 
   let fileInputRef!: HTMLInputElement
+  // id -> File，保留原 File 引用以支持重传（不进 Attachment 类型避免污染 chip 渲染）
+  const filesById = new Map<string, File>()
 
   function addAttachments(files: File[]) {
     const slots = 5 - attachments().length
     const toAdd = files.slice(0, slots)
     for (const file of toAdd) {
-      const reader = new FileReader()
-      reader.onload = (ev) => {
-        const dataUrl = ev.target?.result as string
+      const id = crypto.randomUUID()
+      const mime = file.type || "application/octet-stream"
+      const validationErr = validateFile(file)
+      if (validationErr) {
         setAttachments((prev) => [
           ...prev,
-          {
-            id: crypto.randomUUID(),
-            filename: file.name,
-            mime: file.type || "application/octet-stream",
-            dataUrl,
-          },
+          { id, filename: file.name, mime, size: file.size, status: "error", error: validationErr.message },
         ])
+        continue
       }
-      reader.readAsDataURL(file)
+      filesById.set(id, file)
+      setAttachments((prev) => [
+        ...prev,
+        { id, filename: file.name, mime, size: file.size, status: "uploading" },
+      ])
+      void doUpload(id, file)
+    }
+  }
+
+  async function doUpload(id: string, file: File) {
+    try {
+      const result = await uploadFile(file)
+      setAttachments((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status: "done", url: result.url, error: undefined } : a)),
+      )
+    } catch (err) {
+      const message =
+        err instanceof UploadError ? err.message :
+        err instanceof Error ? err.message :
+        "上传失败"
+      console.error("[InsightPage] upload failed", { id, filename: file.name, err })
+      setAttachments((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status: "error", error: message } : a)),
+      )
     }
   }
 
   function removeAttachment(id: string) {
+    filesById.delete(id)
     setAttachments((prev) => prev.filter((a) => a.id !== id))
+  }
+
+  function retryUpload(id: string) {
+    const file = filesById.get(id)
+    if (!file) {
+      // 客户端 validate 失败的 chip 没有原 File，无法重传；用户应删除重新选
+      return
+    }
+    setAttachments((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, status: "uploading", error: undefined } : a)),
+    )
+    void doUpload(id, file)
   }
 
   function handleFileInputChange(e: Event) {
@@ -335,6 +371,7 @@ export default function InsightPage() {
 
   const inputDisabled = () => sending() || isBusy()
   const maxAttachments = () => attachments().length >= 5
+  const hasUploadingAttachments = () => attachments().some((a) => a.status === "uploading")
 
   return (
     <DataProvider data={dataStore} directory={homeDir() || ""}>
@@ -385,6 +422,7 @@ export default function InsightPage() {
               <AttachmentBar
                 attachments={attachments()}
                 onRemove={removeAttachment}
+                onRetry={retryUpload}
               />
 
               <div
@@ -438,7 +476,8 @@ export default function InsightPage() {
                   <button
                     type="button"
                     onClick={() => void handleSubmit()}
-                    disabled={!prompt().trim() || inputDisabled()}
+                    disabled={!prompt().trim() || inputDisabled() || hasUploadingAttachments()}
+                    title={hasUploadingAttachments() ? "等待附件上传完成" : undefined}
                     class="octo-btn-send flex-shrink-0 ml-auto"
                   >
                     {sending() ? "…" : <IconSend size={14} />}
