@@ -31,21 +31,37 @@
 
 **业务工具通用出参（长任务提交即返回）：**
 
-| 字段 | 位置 | 说明 |
-|---|---|---|
-| `task_id` | `content[].text`（嵌在友好提示文本中）+ `structuredContent.task_id` | 客户端读 structuredContent 做状态记录；LLM 从 text 转述给用户 |
-| 友好提示 | `content[].text` | 告知用户 task_id 与"稍后回来查询"的引导，由 LLM 转述 |
+业务工具调用 → 立即创建任务记录 → 同步返回 task_id（< 5s），实际分析后台异步执行。**不返回** `resource_link`（结果尚未产出）；客户端通过后续 [`get_task_result`](#1-get_task_resulttask_id) 查询拿结果。
 
-业务工具提交时**不返回** `resource_link`（结果尚未产出）。详细查询契约见下方 [§任务管理](#任务管理长任务通用)。
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "已提交访谈分析任务（task_id: a8f3c2d1）。\n分析在后台进行，需要一些时间。\n稍后请对我说「查询任务 a8f3c2d1」或「看看分析好了没」，我来帮你查结果。"
+    }
+  ],
+  "structuredContent": {
+    "task_id": "a8f3c2d1",
+    "status": "pending"
+  }
+}
+```
+
+- `content[].text`：**面向用户的友好提示**，LLM 会原样转述；task_id 嵌在文本里，用户可以记住，也存在 message 历史里供后续轮次 grep
+- `structuredContent`：**面向客户端的元数据**，LLM 不看；客户端 UI 可用于显示"任务进行中" badge
+- 不返回任何预估时间字段（无法可靠估算，详见 [ADR-011 §LLM 行为约束](../../adr/011-tool-result-resource-uri.md)）
+
+详细查询契约见下方 [§任务管理](#任务管理长任务通用)。
 
 ### 任务管理（长任务通用）
 
 > 决策依据：[ADR-011 §异步长任务的提交-查询模型](../../adr/011-tool-result-resource-uri.md)。  
 > 业务工具调用即提交（< 5s 同步返回 task_id），实际分析后台异步执行。**LLM 不自动轮询，由用户在对话中显式触发查询/终止**。
 
-#### `get_task_result(task_id)`
+#### 1. `get_task_result(task_id)`
 
-查询任务状态与结果。同步返回（< 5s）。
+查询任务状态与结果。同步返回（< 5s）。客户端只在用户**显式**要求查询时调用。
 
 **参数：**
 
@@ -55,24 +71,104 @@
 
 **status 枚举：**
 
-| 值 | 含义 |
-|---|---|
-| `pending` | 任务已入库，尚未开始分析（排队中） |
-| `processing` | 分析进行中 |
-| `completed` | 分析完成，结果可取 |
-| `failed` | 分析失败 |
-| `stopped` | 任务被手动终止（来自 `stop_task` 调用） |
+| 值 | 含义 | isError |
+|---|---|---|
+| `pending` | 任务已入库，尚未开始分析（排队中） | — |
+| `processing` | 分析进行中 | — |
+| `completed` | 分析完成，结果可取 | — |
+| `failed` | 分析失败 | `true` |
+| `stopped` | 任务被手动终止（来自 `stop_task` 调用） | — |
 
-**返回（按 status 分流）：**
+**返回示例（按 status 分流，UXR 团队按此 wire 形态实现）：**
 
-| status | content | structuredContent | isError |
-|---|---|---|---|
-| `pending` / `processing` | `text` part：友好提示"任务进行中，稍后再来查询"，可含 `message` 描述当前阶段 | `{task_id, status, message?}` | — |
-| `completed` | `text` 摘要 part + `resource_link` part（按 [§返回格式总则 路径 2](#返回格式总则)） | `{task_id, status: "completed"}` | — |
-| `failed` | `text` part：错误说明（来自 `message` 字段） | `{task_id, status: "failed", message}` | `true` |
-| `stopped` | `text` part："任务已被终止" | `{task_id, status: "stopped"}` | — |
+**① pending / processing（进行中）：**
 
-#### `stop_task(task_id)`
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "任务 a8f3c2d1 仍在分析中（正在聚合洞察）。稍后再来查询。"
+    }
+  ],
+  "structuredContent": {
+    "task_id": "a8f3c2d1",
+    "status": "processing",
+    "message": "正在聚合洞察"
+  }
+}
+```
+
+- `message` 可选；缺失时客户端不显示阶段描述，仅显示"进行中"
+- pending 与 processing 形态一致，只差 status 取值
+
+**② completed（完成，走 [§返回格式总则 路径 2](#返回格式总则) 的摘要+resource_link 形态）：**
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "任务 a8f3c2d1 已完成。\n\n已完成 3 份访谈的分析,提取 5 个核心洞察:\n1. 调试流程复杂是最普遍痛点 (3/3 受访者提及)\n2. 算子调参高度依赖经验积累\n3. 现有可视化工具难以满足复杂场景\n4. 团队协作中文档同步成本高\n5. 新人上手周期超过预期\n\n完整报告见下方。"
+    },
+    {
+      "type": "resource_link",
+      "uri": "https://uxr.intranet/output/a8f3c2d1.html",
+      "name": "interview-analysis-a8f3c2d1.html",
+      "mimeType": "text/html",
+      "description": "完整分析报告"
+    }
+  ],
+  "structuredContent": {
+    "task_id": "a8f3c2d1",
+    "status": "completed"
+  }
+}
+```
+
+- `text` 摘要写法见 [§返回格式总则 §摘要写法](#返回格式总则)
+- `resource_link.uri` 必须长期可用（≥ 7 天，最好持久），见 ADR-011 §URL 鉴权 / 生命周期
+
+**③ failed（失败）：**
+
+```json
+{
+  "isError": true,
+  "content": [
+    {
+      "type": "text",
+      "text": "任务 a8f3c2d1 分析失败:文档 3 解析超时,UXR 端已记录,请联系服务团队定位。"
+    }
+  ],
+  "structuredContent": {
+    "task_id": "a8f3c2d1",
+    "status": "failed",
+    "message": "文档 3 解析超时"
+  }
+}
+```
+
+- `isError: true` 是 MCP 标准失败标志
+- `message` 在 `text` 和 `structuredContent` 双通道,LLM 转述用 text,客户端 UI 错误展示用 structuredContent
+
+**④ stopped（已被手动终止）：**
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "任务 a8f3c2d1 已被终止。"
+    }
+  ],
+  "structuredContent": {
+    "task_id": "a8f3c2d1",
+    "status": "stopped"
+  }
+}
+```
+
+#### 2. `stop_task(task_id)`
 
 终止正在进行的任务。同步返回（< 5s）。
 
@@ -82,15 +178,62 @@
 |---|---|---|---|
 | `task_id` | string | ✓ | 待终止任务 ID |
 
-**返回：**
+**返回示例：**
 
-| 调用结果 | content | structuredContent | isError |
-|---|---|---|---|
-| 任务被成功终止 | `text` part："任务 xxx 已终止" | `{task_id, status: "stopped"}` | — |
-| 任务已是终态（completed / failed / stopped） | `text` part：说明当前终态，无需终止 | `{task_id, status: <当前终态>}` | — |
-| task_id 不存在 | `text` part："未找到任务 xxx" | `{task_id, status: "not_found"}` | `true` |
+**① 任务被成功终止（pending / processing → stopped）：**
 
-> `stop_task` 对已终态任务返回非 isError，是因为这不是工具自身错误，而是状态机不允许的正常分支；LLM 可基于此向用户解释"任务已经完成了，无需取消"。
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "任务 a8f3c2d1 已终止。"
+    }
+  ],
+  "structuredContent": {
+    "task_id": "a8f3c2d1",
+    "status": "stopped"
+  }
+}
+```
+
+**② 任务已是终态（completed / failed / stopped，无需终止）：**
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "任务 a8f3c2d1 已经完成,无需终止。可以用「查询任务 a8f3c2d1」拿结果。"
+    }
+  ],
+  "structuredContent": {
+    "task_id": "a8f3c2d1",
+    "status": "completed"
+  }
+}
+```
+
+- 返回**当前终态**(completed / failed / stopped 任一)
+- **不抛 isError**——这不是工具自身错误,是状态机不允许的正常分支,LLM 可基于此向用户解释
+
+**③ task_id 不存在：**
+
+```json
+{
+  "isError": true,
+  "content": [
+    {
+      "type": "text",
+      "text": "未找到任务 a8f3c2d1,请确认 task_id 是否正确。"
+    }
+  ],
+  "structuredContent": {
+    "task_id": "a8f3c2d1",
+    "status": "not_found"
+  }
+}
+```
 
 #### LLM 调用规范（写入 agent prompt）
 
