@@ -28,6 +28,9 @@ import { PROMPT_TEMPLATES, DEFAULT_TEMPLATE_ID, type PromptTemplateId } from "./
 import { IconAttach, IconSend } from "./icons"
 import { IllustrationInsightEmpty } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, UploadError } from "./lib/upload"
+import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
+import { mimeToOutputType } from "./utils/resource-link"
+import { clearRefreshState, markRefreshed, isInCooldown } from "./utils/task-refresh"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -154,6 +157,51 @@ export default function InsightPage() {
     return (dataStore.message[id] ?? []).filter((m) => m.role === "user")
   })
 
+  // ── 长任务卡片聚合(spec: docs/specs/ui/task-card.md §3.3)──
+  // 扫所有 assistant message 的 part,按 task_id 分组取最新状态;锚点 = 最早 part 所在 user message
+  const taskCards = createMemo((): Map<string, TaskCardEntry> => {
+    const id = params.id
+    if (!id) return new Map()
+    const messages = dataStore.message[id] ?? []
+    const items: Parameters<typeof aggregateTaskCards>[0] = []
+    let lastUserMsgID = ""
+    for (const msg of messages) {
+      if (msg.role === "user") {
+        lastUserMsgID = msg.id
+        continue
+      }
+      if (msg.role !== "assistant" || !lastUserMsgID) continue
+      const parts = dataStore.part[msg.id] ?? []
+      const msgTime = (msg as { time?: { created?: number } }).time?.created ?? Date.now()
+      for (const part of parts) {
+        const info = readTaskInfo(part)
+        if (!info) continue
+        items.push({
+          taskId: info.taskId,
+          status: info.status,
+          message: info.message,
+          toolName: info.toolName,
+          resultText: info.resultText,
+          resourceLink: info.resourceLink,
+          userMsgID: lastUserMsgID,
+          time: msgTime,
+        })
+      }
+    }
+    return aggregateTaskCards(items)
+  })
+
+  // 按 anchor userMessageID 分组,InsightTurn 接收"挂在自己 turn 下"的卡片
+  const taskCardsByAnchor = createMemo((): Map<string, TaskCardEntry[]> => {
+    const out = new Map<string, TaskCardEntry[]>()
+    for (const card of taskCards().values()) {
+      const arr = out.get(card.anchorUserMessageID) ?? []
+      arr.push(card)
+      out.set(card.anchorUserMessageID, arr)
+    }
+    return out
+  })
+
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
@@ -196,10 +244,14 @@ export default function InsightPage() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // 切换 session 时重置 ResultViewer tabs 和提示词模板
+  // 切换 session 时重置 ResultViewer tabs / 模板 / 任务卡片防抖 / 自动 openTab 记录
   createEffect(on(() => params.id, () => {
     tabStore.reset()
     setTemplateId(DEFAULT_TEMPLATE_ID)
+    clearRefreshState()
+    autoOpenedTaskIds.clear()
+    lastTaskSnapshot = new Map()
+    console.log("[octo:task] session switched, refresh state cleared", { sessionID: params.id })
   }, { defer: true }))
 
   // ── session 操作 ──────────────────────────────────────────
@@ -223,12 +275,19 @@ export default function InsightPage() {
     return undefined
   }
 
-  async function sendMessage(sessionId: string, text: string) {
+  /**
+   * 共享的 prompt 调用底层。
+   *   - consumeAttachments=true(用户手动发送):附件随消息发送,发送后清空附件状态
+   *   - consumeAttachments=false(刷新/终止/follow-up 按钮 inject):不消费附件,保留用户正在选的附件状态
+   * spec: docs/specs/ui/task-card.md §6.1
+   */
+  async function doSendPrompt(sessionId: string, text: string, opts: { consumeAttachments: boolean; source: string }) {
     setSending(true)
     try {
       const template = PROMPT_TEMPLATES.find((t) => t.id === templateId())!
-      // 仅消费上传成功的附件；error/uploading 项不进 LLM context
-      const doneAttachments = attachments().filter((a) => a.status === "done" && a.url)
+      const doneAttachments = opts.consumeAttachments
+        ? attachments().filter((a) => a.status === "done" && a.url)
+        : []
       const fullText = text + formatUploadsForPrompt(
         doneAttachments.map((a) => ({ filename: a.filename, url: a.url! })),
       )
@@ -240,21 +299,35 @@ export default function InsightPage() {
         parts: [textPart],
       }
       console.log("[octo:prompt] send", {
+        source: opts.source,
         sessionID: sessionId,
         agent: promptPayload.agent,
         template: templateId(),
         systemHint: template.systemHint?.slice(0, 80),
+        text: text.length > 120 ? `${text.slice(0, 120)}…` : text,
+        textLen: text.length,
         attachmentsCount: doneAttachments.length,
         uploads: doneAttachments.map((a) => ({ name: a.filename, url: a.url })),
       })
       await globalSDK.client.session.prompt(promptPayload)
-      filesById.clear()
-      setAttachments([])
+      if (opts.consumeAttachments) {
+        filesById.clear()
+        setAttachments([])
+      }
     } catch (err) {
-      console.error("[InsightPage] prompt failed", err)
+      console.error("[InsightPage] prompt failed", { source: opts.source, err })
     } finally {
       setSending(false)
     }
+  }
+
+  function sendMessage(sessionId: string, text: string) {
+    return doSendPrompt(sessionId, text, { consumeAttachments: true, source: "user" })
+  }
+
+  /** 任务卡片"刷新 / 终止 / follow-up"按钮通过本函数 inject prompt;不消费附件状态 */
+  function sendInjectedPrompt(sessionId: string, text: string, source: string) {
+    return doSendPrompt(sessionId, text, { consumeAttachments: false, source })
   }
 
   async function handleSubmit() {
@@ -369,13 +442,145 @@ export default function InsightPage() {
     tabStore.openTab(card)
   }
 
+  // ── 长任务卡片操作(spec: docs/specs/ui/task-card.md §6) ──────
+
+  function handleTaskRefresh(taskId: string) {
+    const sid = params.id
+    if (!sid) return
+    if (isBusy() || sending()) {
+      console.log("[octo:task] refresh blocked: busy", { taskId })
+      return
+    }
+    if (isInCooldown(taskId)) {
+      console.log("[octo:task] refresh blocked: cooldown", { taskId })
+      return
+    }
+    markRefreshed(taskId)
+    void sendInjectedPrompt(sid, `查询任务 ${taskId} 的进度`, "task-refresh")
+  }
+
+  function handleTaskStop(taskId: string) {
+    const sid = params.id
+    if (!sid) return
+    if (isBusy() || sending()) {
+      console.log("[octo:task] stop blocked: busy", { taskId })
+      return
+    }
+    void sendInjectedPrompt(sid, `终止任务 ${taskId}`, "task-stop")
+  }
+
+  function handleTaskFollowup(taskId: string) {
+    // 填种子文本到输入框,光标定位,不自动发送(spec §6.1 "在对话里继续讨论")
+    const card = taskCards().get(taskId)
+    const toolHint = card ? toolDisplayName(card.toolName) : "任务"
+    const seed = `基于 task ${taskId}(${toolHint})的结果,我想…`
+    setPrompt(seed)
+    console.log("[octo:task] followup seed", { taskId, seed })
+    // 滚动到输入框 / focus — 由用户自然交互完成,不强抢焦点
+  }
+
+  function buildOutputCardFromTask(card: TaskCardEntry): OutputCard | null {
+    if (card.status !== "completed") return null
+    const baseTitle = `${toolDisplayName(card.toolName)} 结果`
+    if (card.resourceLink) {
+      return {
+        id: `task-${card.taskId}`,
+        title: card.resourceLink.name || baseTitle,
+        type: mimeToOutputType(card.resourceLink.mimeType),
+        source: "uri",
+        uri: card.resourceLink.uri,
+        mimeType: card.resourceLink.mimeType,
+        fileName: card.resourceLink.name,
+        createdAt: card.lastUpdatedAt,
+      }
+    }
+    if (card.resultText && card.resultText.length > 0) {
+      return {
+        id: `task-${card.taskId}`,
+        title: baseTitle,
+        type: "markdown",
+        source: "inline",
+        content: card.resultText,
+        createdAt: card.lastUpdatedAt,
+      }
+    }
+    return null
+  }
+
+  function handleTaskOpenResult(taskId: string) {
+    const card = taskCards().get(taskId)
+    if (!card) {
+      console.warn("[octo:task] openResult: card not found", { taskId })
+      return
+    }
+    const oc = buildOutputCardFromTask(card)
+    if (!oc) {
+      console.warn("[octo:task] openResult: no result yet", { taskId, status: card.status })
+      return
+    }
+    console.log("[octo:task] openResult", { taskId, tabType: oc.type, source: oc.source })
+    tabStore.openTab(oc)
+  }
+
+  // ── 自动 openTab(ResultViewer 当前为空时,首个 completed 任务自动开;spec §8.3)──
+  const autoOpenedTaskIds = new Set<string>()
+  createEffect(() => {
+    if (tabStore.tabs().length > 0) return
+    for (const card of taskCards().values()) {
+      if (card.status !== "completed") continue
+      if (autoOpenedTaskIds.has(card.taskId)) continue
+      const oc = buildOutputCardFromTask(card)
+      if (!oc) continue
+      autoOpenedTaskIds.add(card.taskId)
+      console.log("[octo:task] auto-openResult (viewer empty)", { taskId: card.taskId, tabType: oc.type })
+      tabStore.openTab(oc)
+      break  // 一次只自动开一个
+    }
+  })
+
+  // ── 全链路 console diff:taskCards 变化时打快照 ──────────────
+  let lastTaskSnapshot = new Map<string, string>()
+  createEffect(() => {
+    const current = taskCards()
+    const currentSnap = new Map<string, string>()
+    for (const [id, card] of current) {
+      currentSnap.set(id, `${card.status}|${card.message ?? ""}`)
+    }
+    // diff:状态变化的卡片
+    const changes: Array<{ taskId: string; from: string | null; to: string }> = []
+    for (const [id, sig] of currentSnap) {
+      const prev = lastTaskSnapshot.get(id) ?? null
+      if (prev !== sig) changes.push({ taskId: id, from: prev, to: sig })
+    }
+    for (const id of lastTaskSnapshot.keys()) {
+      if (!currentSnap.has(id)) changes.push({ taskId: id, from: lastTaskSnapshot.get(id)!, to: "gone" })
+    }
+    if (changes.length > 0) {
+      console.log("[octo:task] aggregate diff", {
+        sessionID: params.id,
+        total: current.size,
+        changes,
+        snapshot: Array.from(current.values()).map((c) => ({
+          taskId: c.taskId,
+          tool: c.toolName,
+          status: c.status,
+          message: c.message,
+          anchor: c.anchorUserMessageID,
+          hasResourceLink: !!c.resourceLink,
+          hasResultText: !!c.resultText,
+        })),
+      })
+    }
+    lastTaskSnapshot = currentSnap
+  })
+
   const inputDisabled = () => sending() || isBusy()
   const maxAttachments = () => attachments().length >= 5
   const hasUploadingAttachments = () => attachments().some((a) => a.status === "uploading")
 
   return (
     <DataProvider data={dataStore} directory={homeDir() || ""}>
-      <div class="size-full flex overflow-hidden relative">
+      <div class="size-full flex overflow-hidden relative" data-page="insight">
 
         {/* ── 左栏：对话面板（固定宽度，始终可拖拽） ──── */}
         <div
@@ -410,6 +615,11 @@ export default function InsightPage() {
                         status={sessionStatus()}
                         active={isBusy()}
                         onOpenResult={handleOpenResult}
+                        taskCards={taskCardsByAnchor().get(msg.id) ?? []}
+                        onTaskRefresh={handleTaskRefresh}
+                        onTaskStop={handleTaskStop}
+                        onTaskOpenResult={handleTaskOpenResult}
+                        onTaskFollowup={handleTaskFollowup}
                       />
                     )}
                   </For>
@@ -518,6 +728,7 @@ export default function InsightPage() {
           activeId={tabStore.activeId()}
           onActivate={tabStore.activate}
           onClose={tabStore.closeTab}
+          onCacheContent={tabStore.cacheContent}
         />
 
         {/* ── 右栏：Workspace 占位 (P2) ──────────────── */}

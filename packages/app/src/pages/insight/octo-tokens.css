@@ -38,6 +38,13 @@
   --octo-border-input:   #C9C9C9;
   --octo-border-divider: rgba(0, 0, 0, 0.07);  /* 面板间分隔线 */
 
+  /* ── Status (长任务卡片) ─────────────────────
+     设计师校准前的估值;实际值见 design-assets-needed.md */
+  --octo-success:        #16A34A;
+  --octo-success-subtle: rgba(22, 163, 74, 0.08);
+  --octo-danger:         #DC2626;
+  --octo-danger-subtle:  rgba(220, 38, 38, 0.08);
+
   /* ── Radius ─────────────────────────────── */
   --octo-radius-sm: 4px;
   --octo-radius-md: 6px;
@@ -242,6 +249,40 @@
 }
 
 
+
+/* ── 防止 opencode 深色主题污染 Insight ───────────────────────────
+   Insight 不做深色模式。opencode ThemeProvider 把上游 token 写到 :root，
+   系统切深色时这些变量会变为暗值。
+   在 [data-page="insight"] 作用域内把用到的上游 token 钉死为 OC-2 亮色值：
+   CSS 自定义属性在子元素上声明会覆盖从 :root 继承的值。               */
+[data-page="insight"] {
+  --background-base:              #ffffff;
+  --background-stronger:          #f7f7f7;
+  --surface-base:                 #F8F8F8;
+  --surface-weak:                 #f7f7f7;
+  --surface-raised-stronger-non-alpha: #ececec;
+  --surface-interactive-weak:     #F5FAFF;
+  --surface-critical-weak:        #FFF2F0;
+  --text-strong:                  #171717;
+  --text-base:                    #6F6F6F;
+  --text-weak:                    #8F8F8F;
+  --text-weaker:                  #C7C7C7;
+  --text-interactive-base:        #0067D1;
+  --text-on-critical-base:        #ffffff;
+  --text-on-critical-weak:        #dc2626;
+  --border-weak-base:             #DBDBDB;
+  --border-weaker-base:           #E8E8E8;
+  --border-strong-base:           #b0b0b0;
+  --border-interactive-base:      #0067D1;
+  --border-critical-base:         #dc2626;
+  --icon-base:                    #8F8F8F;
+  --icon-strong-base:             #171717;
+  --icon-weak-base:               #C7C7C7;
+  --icon-weak:                    #C7C7C7;
+  --icon-weaker:                  #e0e0e0;
+  --icon-interactive-base:        #0067D1;
+  --icon-invert-base:             #ffffff;
+}
 
 /* ── OutputCard: 有机器可读卡片时隐藏 assistant 原始文字 ────────
    仅对 mindmap / html / json 类型生效；
