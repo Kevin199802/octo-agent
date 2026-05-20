@@ -117,3 +117,4 @@
 - ADR-010 — 机器可读卡片原始输出隐藏策略（路线 B：tool_call 检测）→ [docs/adr/010-suppress-raw-output.md](docs/adr/010-suppress-raw-output.md)
 - ADR-011 — MCP 工具结果走"摘要 + Resource URI"，大内容不内联 → [docs/adr/011-tool-result-resource-uri.md](docs/adr/011-tool-result-resource-uri.md)
 - ADR-012 — MCP 工具按业务能力铺开（N tools），而非单 tool + enum 参数 → [docs/adr/012-mcp-tools-by-capability.md](docs/adr/012-mcp-tools-by-capability.md)
+- ADR-013 — 长任务进度查询策略：卡片刷新按钮 + LLM 触发（业界没有 30min + agent 对话的标配，2.3 是当前阶段务实选择）→ [docs/adr/013-long-task-progress-strategy.md](docs/adr/013-long-task-progress-strategy.md)
