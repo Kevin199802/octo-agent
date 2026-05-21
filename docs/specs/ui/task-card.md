@@ -158,6 +158,25 @@ turn 3: 用户再次刷新
 
 同 turn 内既有 task_id 又有 text 的情况:走 task_id 路径,文字内容由 `SessionTurn` 自身渲染(任务卡片下方),不再额外开 OutputCard。
 
+### 3.5 故意保留的冗余:刷新 turn 的 OutputCard
+
+刷新场景下,turn N(用户点 ↻ 触发的 `get_task_result` turn)的 part 里**也含有** N 个 resource_link(completed 返回)。当前实现没有抑制这些 part 进 `outputCards` memo,因此 turn N 会和 turn 1 的 TaskCard 同时呈现同一批文件入口("一式两份")。
+
+**这不是 bug,是 trade-off 的产物**:
+
+- ADR-013 明确不做"任务面板 / 跨 session 任务列表 / 任务托盘"
+- 当前也没有"从 turn N 跳回锚点 turn 1 卡片"的导航能力
+- 长对话(十几轮以上)场景下,用户在 turn N 看到 LLM 转述"任务完成了"时,**滚回 turn 1 找 TaskCard 按钮的成本高**
+- turn N 直接 surface OutputCard 是这种约束下的**导航兜底** — 用户在当前位置就能点开结果
+
+**未来若引入下列任一能力,可考虑去掉冗余**(改动只需 `outputCards` memo 加一行 filter):
+
+- "活跃任务"chip 条(输入框上方),点击滚回锚点
+- ResultViewer Tab 顶部加"返回任务卡片"链接(从 tab.id 推回 task_id → 滚到锚点 user message)
+- 任务列表 / 任务托盘(ADR-013 排除,需重新评估)
+
+未实现上述任一前,**不要**为了"看起来清爽"去抑制 turn N 的 OutputCard。
+
 ---
 
 ## 4. 状态机
