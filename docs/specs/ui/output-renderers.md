@@ -132,11 +132,15 @@ function tryParseJSON(text: string): any {
 
 ### 2.5.1 检测优先级（覆盖 §2.3）
 
+一条 assistant 消息可能包含 **0 至 N 个** `resource_link` part（多文件场景下 N > 1，见 [mcp-contract.md §completed](../agents/mcp-contract.md)），加上至多一个文本摘要 part。
+
 ```
 对于每条 assistant 消息的 parts:
-1. 扫描是否存在 type === "resource_link" 的 part
-   ├─ 有 → 按 mimeType 路由(§2.5.2),source: "uri"
-   └─ 无 → 走原有 §2.3 启发式,source: "inline"
+1. 收集所有 type === "resource_link" 的 part(0~N 个)
+   ├─ N >= 1 → 为每个 resource_link 各建一张 OutputCard
+   │            按各自 mimeType 路由(§2.5.2),source: "uri"
+   │            (摘要 text part 用作 InsightTurn 的对话区文字,不再单独建卡)
+   └─ N == 0 → 走原有 §2.3 启发式,source: "inline"(单卡)
 ```
 
 `resource_link` part 形态（来自 MCP 协议）：
@@ -151,7 +155,7 @@ type ResourceLinkPart = {
 }
 ```
 
-opencode 将 MCP `CallToolResult.content[]` 中的 `resource_link` 项作为独立 part 转发到 SSE，前端读 `data.store.part[messageID]` 即可拿到。
+opencode 将 MCP `CallToolResult.content[]` 中的 `resource_link` 项作为独立 part 转发到 SSE，前端读 `data.store.part[messageID]` 即可拿到。多个 resource_link 在 `parts` 数组里按声明顺序出现。
 
 ### 2.5.2 mimeType → OutputCard 类型路由
 
@@ -170,18 +174,30 @@ opencode 将 MCP `CallToolResult.content[]` 中的 `resource_link` 项作为独�
 // insight-turn.tsx
 export type OutputCard = {
   id: string
-  title: string
+  title: string                     // 多文件场景下用 resource_link.name 派生
   type: OutputCardType
   source: "inline" | "uri"          // 新增
   content?: string                  // source === "inline" 时必填(沿用现状)
   uri?: string                      // source === "uri" 时必填
   mimeType?: string                 // source === "uri" 时必填,影响渲染分支
   fileName?: string                 // source === "uri" 时,来自 resource_link.name
+  description?: string              // source === "uri" 时,来自 resource_link.description,展示在卡片副标题
   createdAt: Date
 }
 ```
 
 `tab-store.ts` 的 `ResultTab` 同步扩展。
+
+[insight-turn.tsx:107](../../../packages/app/src/pages/insight/components/insight-turn.tsx#L107) 现有的 `outputCard` memo（单卡）需改造为 `outputCards`（返回 `OutputCard[]`），相应地 `InsightTurn` 组件用 `For` 渲染 0~N 张卡片堆叠：
+
+```
+┌─ assistant 摘要文字（来自 text part）
+├─ [📊 interview-analysis-report.html        →]
+├─ [{} key-findings.json                      →]
+└─ [📋 user-quotes.xlsx                       →]
+```
+
+每张卡点击 → 各自 `openTab(card)` 打开独立 Tab；TabBar 横向滚动支持多 Tab 已具备，无需改 store。
 
 ### 2.5.4 各 renderer 改造点（fetch 路径）
 

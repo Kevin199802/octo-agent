@@ -102,21 +102,41 @@
 - `message` 可选；缺失时客户端不显示阶段描述，仅显示"进行中"
 - pending 与 processing 形态一致，只差 status 取值
 
-**② completed（完成，走 [§返回格式总则 路径 2](#返回格式总则) 的摘要+resource_link 形态）：**
+**② completed（完成，摘要 text + N 个 resource_link 形态，决策见 [ADR-011](../../adr/011-tool-result-resource-uri.md)）：**
+
+任务可能产出**多份产物文件**（如同时给出 HTML 报告 + 结构化 JSON + Excel 汇总）。MCP `content` 数组天然支持多个 `resource_link` part 并列，每份文件一个独立 part。
+
+> **关于 text 与 resource_link 混排在同一数组**：`content[]` 是 MCP 协议定义的**多态内容块数组**（同 Anthropic Messages API、OpenAI Chat Completions 的 `content` 形态），text 摘要 part 与 N 个 resource_link part 混排是协议标准，不是本文档的设计选择。数组**顺序即阅读顺序**（先摘要、后文件），承载了"先告诉用户产出什么、再列出文件"的语义。
+>
+> 不要拆成 `{summary, files}` 这种扁平结构——会脱离 MCP 标准，opencode / Claude Desktop 等所有 MCP client 都按 `content[]` 解析，自定义形态等于 fork 协议，并丢失顺序语义和未来扩展能力（image / audio / 富 part 混排）。
 
 ```json
 {
   "content": [
     {
       "type": "text",
-      "text": "任务 a8f3c2d1 已完成。\n\n已完成 3 份访谈的分析,提取 5 个核心洞察:\n1. 调试流程复杂是最普遍痛点 (3/3 受访者提及)\n2. 算子调参高度依赖经验积累\n3. 现有可视化工具难以满足复杂场景\n4. 团队协作中文档同步成本高\n5. 新人上手周期超过预期\n\n完整报告见下方。"
+      "text": "任务 a8f3c2d1 已完成,产出 3 份文件:\n\n核心洞察(5 条):\n1. 调试流程复杂是最普遍痛点 (3/3 受访者提及)\n2. 算子调参高度依赖经验积累\n3. 现有可视化工具难以满足复杂场景\n4. 团队协作中文档同步成本高\n5. 新人上手周期超过预期\n\n详细内容见下方文件。"
     },
     {
       "type": "resource_link",
-      "uri": "https://uxr.intranet/output/a8f3c2d1.html",
-      "name": "interview-analysis-a8f3c2d1.html",
+      "uri": "https://uxr.intranet/output/a8f3c2d1/report.html",
+      "name": "interview-analysis-report.html",
       "mimeType": "text/html",
-      "description": "完整分析报告"
+      "description": "完整分析报告（可视化版本）"
+    },
+    {
+      "type": "resource_link",
+      "uri": "https://uxr.intranet/output/a8f3c2d1/findings.json",
+      "name": "key-findings.json",
+      "mimeType": "application/json",
+      "description": "结构化洞察数据"
+    },
+    {
+      "type": "resource_link",
+      "uri": "https://uxr.intranet/output/a8f3c2d1/quotes.xlsx",
+      "name": "user-quotes.xlsx",
+      "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "description": "用户原话引用汇总"
     }
   ],
   "structuredContent": {
@@ -126,8 +146,21 @@
 }
 ```
 
-- `text` 摘要写法见 [§返回格式总则 §摘要写法](#返回格式总则)
-- `resource_link.uri` 必须长期可用（≥ 7 天，最好持久），见 ADR-011 §URL 鉴权 / 生命周期
+约束：
+
+- `text` 摘要 part **只有一个**，位于 `content[0]`，统一概括所有产物
+- `resource_link` part 可有 **1 至 N 个**，每个对应一份独立可下载的文件；客户端按 `mimeType` 各自路由到对应渲染器（见 [output-renderers.md §2.5](../ui/output-renderers.md)）
+- 单文件产出仍合法（N=1，最常见情形）
+- 不要把多文件合并成 zip——客户端按 mimeType 分发的能力会失效，业界标准是 N 个独立 resource_link
+- 所有 `uri` 都必须长期可用（≥ 7 天，最好持久），见 ADR-011 §URL 鉴权 / 生命周期
+- `description` 字段强烈建议填写——多文件场景下让 LLM 转述给用户时可以说明每份的用途
+
+**摘要 text 写法约束（LLM 在多轮对话中持续看到这段，写得好可省 token 又能回答追问）：**
+
+- ≤ 500 字 / ≤ 200 tokens
+- 必须包含：核心结构概览（如"产出 3 份文件"、"5 个核心洞察"）+ 关键要点极简列表（≤ 5 条，每条 ≤ 30 字）
+- **不要**塞完整段落、长引用、HTML / JSON 片段——这些放在 resource 里
+- 上方 ② 的 text 字段就是合格范本
 
 **③ failed（失败）：**
 
@@ -252,9 +285,16 @@
 
 ### 通用入参骨架
 
-- **业务工具**（除 search_reports）：接受**已上传的文件 URL 列表** + 业务上下文字符串
+每个业务工具的**精确入参 schema**由 UXR 团队在 MCP tool 的 `inputSchema` + `description` 字段里自描述（通过 `GET /mcp` 能力发现下发），本文档**不预定义** per-tool 字段。
+
+只约束以下共性：
+
+- **业务工具**（除 search_reports）：入参为**已上传文件 URL** + 业务上下文字符串
   - 文件 URL 来源：[file-upload.md](../infra/file-upload.md)，由 InsightPage 上传后注入 session context
+  - 具体形态因工具而异：单文件 / 多文件列表 / 多个角色分明的文件参数（如 `run_guide_analysis` 可能拆 `outline_doc_url` + `interview_doc_urls` 两个参数）—— 由每个工具自己声明
 - **search_reports**：自然语言 query 字符串
+
+> 不在本文档列具体字段名是为了避免漂移——MCP 协议天然让 tool 自描述，contract 文档强行复述等于双写。
 
 ### 通用出参骨架
 
@@ -297,7 +337,8 @@
 - **何时调用该工具**（明确业务语义，避免和其他 tool 混淆）
 - **入参来源说明**（如文件 URL 来自 InsightPage 上传，不是文件名）
 - **必填项标注**（业务上下文 context 缺失会显著降低分析质量）
-- **返回格式特点**（Markdown 表格 vs JSON vs 检索结果列表）
+- **多文件角色不明时主动追问用户**：当工具入参含多个角色分明的文件参数（如"大纲 vs 访谈"、"基线 vs 对照"）、而用户上传的文件命名 / 顺序无法可靠区分角色时，**在 description 里明确指示 LLM 先向用户确认对应关系，再发起 tool 调用**，不要硬猜
+- **返回为长任务还是同步**（长任务返回 task_id，详见 [§任务管理](#任务管理长任务通用)）
 
 具体每个 tool 的 description 文案由 UXR 团队按上述原则撰写，本文档不约束。
 
@@ -312,7 +353,7 @@
 - [ ] 业务工具（`key_findings` / `run_guide_analysis` / `mindmap` / `run_usability_analysis`）**5 秒内**同步返回 task_id，不阻塞到分析完成
 - [ ] `search_reports` 同步返回检索结果
 - [ ] `get_task_result` 五个 status 分支均能命中：`pending` / `processing` / `completed` / `failed` / `stopped`
-- [ ] `get_task_result(completed)` 返回 `text` 摘要 part + `resource_link` part；`resource_link.uri` 两小时后再次访问仍可达
+- [ ] `get_task_result(completed)` 返回 `text` 摘要 part + 1~N 个 `resource_link` part；每个 `uri` 两小时后再次访问仍可达；多文件场景下每个 `mimeType` 准确
 - [ ] `stop_task` 对进行中任务能成功终止，对已终态任务返回当前 status 不抛 isError
 - [ ] 业务工具幂等性：相同入参短期重复提交返回同一 task_id
 - [ ] 文件上传 HTTP API 可用，返回可用于 MCP 入参的 URL
