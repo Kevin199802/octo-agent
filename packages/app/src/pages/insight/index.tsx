@@ -58,11 +58,16 @@ export default function InsightPage() {
     part: {},
   })
 
+  // REST 快照加载后，标记"已有非空 text 的 part"，防止滞后的 SSE delta 追加导致重复。
+  // 收到 SSE message.part.updated 时解除标记（说明 SSE 已追上，后续 delta 为新增内容）。
+  const restSnapshotPartIds = new Set<string>()
+
   createEffect(
     on(
       () => params.id,
       async (id) => {
         if (!id) return
+        restSnapshotPartIds.clear()
         try {
           const result = await globalSDK.client.session.messages({ sessionID: id })
           const items = result.data ?? []
@@ -76,6 +81,9 @@ export default function InsightPage() {
           batch(() => {
             setDataStore("message", id, reconcile(msgs, { key: "id" }))
             for (const [msgId, ps] of Object.entries(partMap)) {
+              for (const p of ps) {
+                if ((p as { text?: string }).text) restSnapshotPartIds.add(p.id)
+              }
               setDataStore("part", msgId, reconcile(ps, { key: "id" }))
             }
           })
@@ -109,6 +117,8 @@ export default function InsightPage() {
       const part = event.properties.part
       if (part.sessionID !== sessionId) return
       if (SKIP_PART_TYPES.has(part.type)) return
+      // SSE updated 到达 → 该 part 已被 SSE 追上，解除 REST 快照保护
+      restSnapshotPartIds.delete(part.id)
       // 全量 tool part 形态(联调时定位 structuredContent / resource_link 字段路径关键)
       const ptype = (part as { type: string }).type
       const isTool = ptype === "tool" || ptype === "tool-invocation" || ptype === "tool_call"
@@ -147,6 +157,9 @@ export default function InsightPage() {
       const { messageID, partID, field, delta } = raw.properties as {
         messageID: string; partID: string; field: string; delta: string
       }
+      // REST 快照保护：该 part 由 REST 加载（已有积累文本），SSE 尚未追上
+      // 跳过可能是"旧的"滞后 delta，防止内容重复（如"任务仍在处理中仍在处理中"）
+      if (restSnapshotPartIds.has(partID)) return
       const parts = dataStore.part[messageID]
       if (!parts) return
       const result = Binary.search(parts, partID, (p) => p.id)
