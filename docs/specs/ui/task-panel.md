@@ -1,21 +1,31 @@
 # Spec — 任务面板(右侧产出过程区)
 
-> 状态:草案 · 优先级 P1 · 规模 [L] · 领域 ui
+> 状态:历史草案 · 部分落地为 ResultViewer · 时间线方向不再推进 · 领域 ui
 >
 > 前置阅读:[learning/agent-mental-model.md](../../learning/agent-mental-model.md)、[learning/opencode-internals.md §3-4](../../learning/opencode-internals.md#3-sse-事件协议)
 
-> **上游已实现:✓/✗ 混合**
+> **当前状态分类**(2026-05-20 整理,避免本 spec 被误读为完整待办):
 >
-> - ✓ 工具调用内联渲染:`@opencode-ai/ui` 的 `SessionTurn` / `MessagePart` 已在聊天区渲染工具卡片(`basic-tool.tsx`)、错误卡片(`tool-error-card.tsx`)、tool count(`tool-count-summary.tsx`)
-> - ✓ Reasoning 折叠块:上游 `PART_MAPPING["reasoning"]`(message-part.tsx:1512+)已处理
-> - ✓ Task 子任务卡片(本 spec U4):上游 `message-part.tsx:1318+` 已有 `task-tool-card` 渲染(含状态/颜色/spinner)
-> - ✗ 右侧独立任务面板框架(时间线 tab + 产出 tab 双栏):上游无此 UX,是 Octo 自写任务
-> - ✗ Artifact 提取与展示:上游无,Octo 自写
-> - ✗ 顶部状态条 + 计时器 + 中止按钮区域:上游无右侧状态条,Octo 自写
+> | 章节 | 状态 | 说明 |
+> |---|---|---|
+> | §1 背景与目标 / §2 不在范围 | ✅ 仍有效 | 整体方向描述,与当前架构一致 |
+> | §3 用户故事 U6(产出 tab) | ✅ **已落地**为 ResultViewer(`pages/insight/components/result-viewer/`) | "产出 tab" 概念演化为右侧 Tab 化结果区 |
+> | §3 U9(复制/下载 artifact) | ✅ 部分落地为 ActionBar(复制 / 下载 / Excel 导出) | 见 [output-renderers.md §3](output-renderers.md#3-tablerenderer) |
+> | §4.2 Artifact 数据模型 | ✅ 概念演化为 `OutputCard` | 见 [insight-turn.tsx](../../../packages/app/src/pages/insight/components/insight-turn.tsx) |
+> | §5.4 产出 tab UI | ✅ **已落地** | ResultViewer + tabStore + 多 renderer |
+> | §9 风险与待定中"长 output 卡 UI" / "任务面板状态丢失"等 | ✅ 仍可参考 | 实施 ResultViewer 时已部分处理 |
+> | §3 用户故事 U1-U5(时间线 / 步骤详情) | 🚫 **不做** | 时间线方向被 [ADR-013](../../adr/013-long-task-progress-strategy.md) 与当前阶段定位排除;对话流内的工具步骤由 `@opencode-ai/ui` `SessionTurn` 渲染,长任务进度由 [task-card.md](task-card.md) 卡片承担 |
+> | §3 U8(中止按钮) | 🔁 **被替代**:长任务的终止由 [task-card.md](task-card.md) 卡片"终止"按钮承担;普通 turn 中止由 opencode 上游能力承担,不在右侧面板顶部 | |
+> | §4.1 TimelineEvent / §4.3 SSE → Timeline 映射 | 🚫 不做 | 同上 |
+> | §5.1 双栏布局 / §5.2 顶部状态条 / §5.3 时间线项 / §5.5 折叠全屏 | 🚫 不做(或形态演化) | 当前是三栏布局(对话 / ResultViewer / 右占位),折叠用拖拽分隔线([index.tsx:491](../../../packages/app/src/pages/insight/index.tsx#L491)),不是顶部按钮 |
+> | §6 实现要点 / §8 实施步骤 / §10 brief 模板 | ⚠️ **过时** | 全部基于已废弃的 Vue 3 方案(`packages/octo-ui/` / `ChatView.vue` / Pinia / `ref + provide/inject`);切回 SolidJS 后不再适用,不要参考 |
+> | §7 验收 15 项 | 部分过时 | 涉及时间线 / 顶部状态条的项 🚫 不做;涉及产出 tab 的项 ✅ 已落地 |
 >
-> **⚠️ §6(实现要点)和 §8(实施步骤)全部引用了已废弃的 Vue 3 方案(`packages/octo-ui/`、`ChatView.vue`、`Pinia`、`ref + provide/inject` 等),这些内容完全过时。M2+ 按 SolidJS 重新规划,不参考 §6/§8。§10 的 brief 模板同样过时。**
+> **如果你在做长任务进度呈现**:看 [task-card.md](task-card.md),不是本 spec。
 >
-> **M2 结论**:右侧任务面板的布局框架和"产出 tab"是 Octo 自写 SolidJS 组件;工具卡片/reasoning/task卡片渲染直接 import `@opencode-ai/ui` 零件,不重写。
+> **如果你在做 ResultViewer / OutputCard 渲染**:看 [output-renderers.md](output-renderers.md) 与 [insight-result-viewer.md](insight-result-viewer.md),不是本 spec。
+>
+> **本 spec 保留为历史草案**:记录"任务面板"原始设计思路 + ADR-013 之前的形态比较起点,**不再作为开发任务**。
 
 ---
 

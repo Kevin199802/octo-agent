@@ -1,11 +1,17 @@
 import { createSignal } from "solid-js"
 import type { OutputCard } from "../insight-turn"
 
+export type ResultTabType = "table" | "mindmap" | "markdown" | "file" | "json" | "html"
+
 export type ResultTab = {
   id: string
   title: string
-  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html"
-  content: string
+  type: ResultTabType
+  source: "inline" | "uri"
+  content?: string          // inline 必填;uri 模式下作为 fetch 后的 session 缓存(懒填充)
+  uri?: string              // uri 模式必填
+  mimeType?: string         // uri 模式必填(影响渲染路由)
+  fileName?: string         // uri 模式来自 resource_link.name,供下载默认文件名
   createdAt: Date
 }
 
@@ -23,7 +29,11 @@ export function createTabStore() {
       id: card.id,
       title: card.title,
       type: card.type,
+      source: card.source,
       content: card.content,
+      uri: card.uri,
+      mimeType: card.mimeType,
+      fileName: card.fileName,
       createdAt: card.createdAt,
     }
     setTabs((prev) => [...prev, tab])
@@ -51,7 +61,14 @@ export function createTabStore() {
     setActiveId(null)
   }
 
-  return { tabs, activeId, activate, openTab, closeTab, reset }
+  // URI 模式下 fetch 完成后回写 content / 修正 type(json → mindmap 二次判断等)
+  function cacheContent(id: string, content: string, retypeAs?: ResultTabType) {
+    setTabs((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, content, type: retypeAs ?? t.type } : t)),
+    )
+  }
+
+  return { tabs, activeId, activate, openTab, closeTab, reset, cacheContent }
 }
 
 export type TabStore = ReturnType<typeof createTabStore>

@@ -36,23 +36,24 @@ async function tableToXlsx(md: string, filename: string) {
 type DownloadOption = { label: string; onClick: () => void }
 
 function downloadOptions(tab: ResultTab): DownloadOption[] {
-  const base = sanitizeFilename(tab.title)
+  const base = sanitizeFilename(tab.fileName?.replace(/\.[^.]+$/, "") || tab.title)
+  const content = tab.content ?? ""
   switch (tab.type) {
     case "table":
       return [
         {
           label: "Markdown (.md)",
-          onClick: () => downloadBlob(tab.content, `${base}.md`, "text/markdown;charset=utf-8"),
+          onClick: () => downloadBlob(content, `${base}.md`, "text/markdown;charset=utf-8"),
         },
         {
           label: "CSV (.csv)",
           onClick: () =>
-            downloadBlob("﻿" + tableToCSV(tab.content), `${base}.csv`, "text/csv;charset=utf-8"),
+            downloadBlob("﻿" + tableToCSV(content), `${base}.csv`, "text/csv;charset=utf-8"),
         },
         {
           label: "Excel (.xlsx)",
           onClick: () => {
-            tableToXlsx(tab.content, `${base}.xlsx`).catch((err) => {
+            tableToXlsx(content, `${base}.xlsx`).catch((err) => {
               console.error("Excel 导出失败:", err)
             })
           },
@@ -63,7 +64,7 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
         {
           label: "HTML (.html)",
           onClick: () =>
-            downloadBlob(stripCodeFence(tab.content), `${base}.html`, "text/html;charset=utf-8"),
+            downloadBlob(stripCodeFence(content), `${base}.html`, "text/html;charset=utf-8"),
         },
       ]
     case "mindmap":
@@ -71,7 +72,7 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
         {
           label: "JSON (.json)",
           onClick: () =>
-            downloadBlob(stripCodeFence(tab.content), `${base}.json`, "application/json;charset=utf-8"),
+            downloadBlob(stripCodeFence(content), `${base}.json`, "application/json;charset=utf-8"),
         },
       ]
     case "json":
@@ -79,20 +80,22 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
         {
           label: "JSON (.json)",
           onClick: () =>
-            downloadBlob(stripCodeFence(tab.content), `${base}.json`, "application/json;charset=utf-8"),
+            downloadBlob(stripCodeFence(content), `${base}.json`, "application/json;charset=utf-8"),
         },
       ]
     default:
       return [
         {
           label: "Markdown (.md)",
-          onClick: () => downloadBlob(tab.content, `${base}.md`, "text/markdown;charset=utf-8"),
+          onClick: () => downloadBlob(content, `${base}.md`, "text/markdown;charset=utf-8"),
         },
       ]
   }
 }
 
 export function ActionBar(props: { tab: ResultTab }): JSX.Element {
+  // URI 模式 fetch 未完成时 content 为空,禁用复制 / 下载
+  const ready = () => typeof props.tab.content === "string" && props.tab.content.length > 0
   return (
     <div
       class="flex items-center justify-between px-4 py-1.5 shrink-0"
@@ -104,14 +107,19 @@ export function ActionBar(props: { tab: ResultTab }): JSX.Element {
     >
       <span class="text-xs truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
       <div class="flex items-center gap-0.5">
-        <ActionBtn icon={<IconActionCopy size={14} />} label="复制" onClick={() => copyToClipboard(props.tab.content)} />
-        <DownloadMenu tab={props.tab} />
+        <ActionBtn
+          icon={<IconActionCopy size={14} />}
+          label="复制"
+          disabled={!ready()}
+          onClick={() => ready() && copyToClipboard(props.tab.content!)}
+        />
+        <DownloadMenu tab={props.tab} disabled={!ready()} />
       </div>
     </div>
   )
 }
 
-function DownloadMenu(props: { tab: ResultTab }): JSX.Element {
+function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   let containerRef: HTMLDivElement | undefined
 
@@ -127,9 +135,10 @@ function DownloadMenu(props: { tab: ResultTab }): JSX.Element {
       <ActionBtn
         icon={<IconActionDownload size={14} />}
         label="下载"
-        onClick={() => setOpen((v) => !v)}
+        disabled={props.disabled}
+        onClick={() => !props.disabled && setOpen((v) => !v)}
       />
-      <Show when={open()}>
+      <Show when={open() && !props.disabled}>
         <div
           class="absolute right-0 mt-1 py-1 min-w-[140px] z-10 rounded shadow-md"
           style={{
@@ -159,12 +168,18 @@ function DownloadMenu(props: { tab: ResultTab }): JSX.Element {
   )
 }
 
-function ActionBtn(props: { icon: JSX.Element; label: string; onClick: () => void }): JSX.Element {
+function ActionBtn(props: {
+  icon: JSX.Element
+  label: string
+  onClick: () => void
+  disabled?: boolean
+}): JSX.Element {
   return (
     <button
       type="button"
       onClick={props.onClick}
-      class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action"
+      disabled={props.disabled}
+      class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action disabled:opacity-40 disabled:cursor-not-allowed"
     >
       {props.icon}
       <span>{props.label}</span>

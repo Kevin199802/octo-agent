@@ -109,9 +109,17 @@ export default function InsightPage() {
       const part = event.properties.part
       if (part.sessionID !== sessionId) return
       if (SKIP_PART_TYPES.has(part.type)) return
-      // log tool_call parts (critical for MCP debugging)
-      if ((part as { type: string }).type === "tool-invocation" || (part as { type: string }).type === "tool_call") {
-        console.log("[octo:sse] tool part", { type: part.type, part })
+      // 全量 tool part 形态(联调时定位 structuredContent / resource_link 字段路径关键)
+      const ptype = (part as { type: string }).type
+      const isTool = ptype === "tool" || ptype === "tool-invocation" || ptype === "tool_call"
+      if (isTool) {
+        const tp = part as { type: string; tool?: string; state?: { status?: string } }
+        console.log("[octo:sse] tool part", {
+          type: ptype,
+          tool: tp.tool,
+          status: tp.state?.status,
+          fullPart: part,  // 完整对象,联调时展开看 state.output / state.metadata 形态
+        })
       }
       const parts = dataStore.part[part.messageID]
       if (!parts) { setDataStore("part", part.messageID, [part]); return }

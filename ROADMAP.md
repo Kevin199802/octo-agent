@@ -22,7 +22,9 @@
 | `[M]` | ui | **提示词模板切换器** | 工具栏显示当前模板；下拉菜单 3 组 6 项；选中后发送的 prompt 带对应前缀；切换 session 后重置默认 | [insight-analysis-mode.md](docs/specs/ui/insight-analysis-mode.md) |
 | `[M]` | infra | **MCP 主流程联调** | DevTools 出现 `[mcp] connected` + 2 个工具；hardcoded S3 URL 注入 context → LLM 调 analyze_interview → OutputCard 渲染；验证 search_reports 调用 | [mcp-contract.md](docs/specs/agents/mcp-contract.md) |
 | `[S]` | infra | **S3 文件直传（通用上传服务）** | InsightPage 上传文件到 UXR 接口成功；返回 S3 URL；URL 注入 context 后 MCP 流程正常；参数待 UXR 团队确认后更新 spec | [file-upload.md](docs/specs/infra/file-upload.md) |
-| `[M]` | ui+infra | **MCP 长任务交付链路客户端落地** | 业务工具提交（< 5s 拿 task_id，UI 显示 task_id chip + 友好提示）；`get_task_result` 五状态分支（pending/processing/completed/failed/stopped）UI 表达；`stop_task` 触发与终止确认；OutputCard / ResultTab 加 `source: "inline" \| "uri"` + `uri`/`mimeType`/`fileName` 字段；detectCard 优先识别 resource_link part 并按 mimeType 路由；4 个 renderer 支持 fetch URI 渲染；session 内缓存 + 加载失败占位 + 跨 session 重新 fetch；agent prompt 落"不自动轮询、用户显式触发查询"约束；关闭 app 重开后历史 task_id 仍可继续查 | [ADR-011](docs/adr/011-tool-result-resource-uri.md) · [mcp-contract.md §任务管理](docs/specs/agents/mcp-contract.md) · [output-renderers.md §2.5](docs/specs/ui/output-renderers.md) |
+| `[M]` | ui | **任务卡片(对话流内长任务呈现)** | 识别 part 中 `structuredContent.task_id`；5 状态机渲染（pending / processing / completed / failed / stopped）；刷新 / 终止 / "在对话里继续讨论" 按钮；3 分钟刷新防抖 + 倒计时反馈；`completed` 通过 OutputCard 注入 ResultViewer；同一 task_id 跨 turn 状态聚合（取最新）；关闭 app 重开后历史 task_id 卡片状态正确恢复 | [task-card.md](docs/specs/ui/task-card.md) |
+| `[M]` | ui | **OutputCard resource_link 路由扩展** | OutputCard / ResultTab 加 `source: "inline" \| "uri"` + `uri` / `mimeType` / `fileName` 字段；detectCard 检测 `resource_link` part 并按 mimeType 路由；4 个 renderer 支持 fetch URI 渲染；session 内缓存 + 加载失败占位 + 跨 session 重新 fetch | [output-renderers.md §2.5](docs/specs/ui/output-renderers.md#25-resource_link-来源的检测与分发) |
+| `[S]` | agents | **insight agent prompt 落"显式触发查询"约束** | 调业务工具拿到 task_id 后必须告知用户；不在 LLM 内部自动轮询 `get_task_result`；用户显式说"查 xxx"才调 `get_task_result`，"停 xxx"才调 `stop_task`；从对话历史找最近 task_id 兜底 | [mcp-contract.md §LLM 调用规范](docs/specs/agents/mcp-contract.md) |
 
 ---
 

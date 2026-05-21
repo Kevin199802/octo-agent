@@ -2,10 +2,13 @@ import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { useData } from "@opencode-ai/ui/context"
-import { createMemo, Show } from "solid-js"
+import { createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml } from "../icons"
 import { isMarkdownTable, isMindmapJSON, isHTML, isPlainJSON } from "../utils/detect"
+import { findResourceLink, mimeToOutputType } from "../utils/resource-link"
+import { type TaskCardEntry } from "../utils/task-detect"
+import { TaskCardView } from "./task-card"
 
 export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html"
 
@@ -13,7 +16,11 @@ export type OutputCard = {
   id: string
   title: string
   type: OutputCardType
-  content: string
+  source: "inline" | "uri"
+  content?: string          // inline 必填;uri 模式下可空(fetch 后填到 tab cache)
+  uri?: string              // uri 模式必填(MCP resource_link.uri)
+  mimeType?: string         // uri 模式必填(影响渲染路由)
+  fileName?: string         // uri 模式来自 resource_link.name
   createdAt: Date
 }
 
@@ -69,6 +76,13 @@ export function InsightTurn(props: {
   status: SessionStatus
   active: boolean
   onOpenResult: (card: OutputCard) => void
+  /** 锚点 = 本 turn 的 user message 下挂着的长任务卡片(每个 task_id 一张)。spec: task-card.md §3.3 */
+  taskCards: TaskCardEntry[]
+  /** 任务卡片操作(由 InsightPage 接线 LLM 触发) */
+  onTaskRefresh: (taskId: string) => void
+  onTaskStop: (taskId: string) => void
+  onTaskOpenResult: (taskId: string) => void
+  onTaskFollowup: (taskId: string) => void
 }): JSX.Element {
   const data = useData()
 
@@ -107,6 +121,28 @@ export function InsightTurn(props: {
   const outputCard = createMemo((): OutputCard | null => {
     const parts = assistantParts()
     if (showGenerating()) return null
+
+    // 同 turn 有任务卡片就抑制 OutputCard:completed 由 TaskCardView 内的"查看完整结果"按钮触发 openTab
+    // (spec: docs/specs/ui/task-card.md §3.4 优先级)
+    if (props.taskCards.length > 0) return null
+
+    // 路径 1：resource_link part(无 task_id 的场景,比如未来直接同步返回 resource_link 的工具)
+    const link = findResourceLink(parts)
+    if (link) {
+      console.log("[octo:card] resource_link (no task)", { mime: link.mimeType, name: link.name, uri: link.uri, msgID: props.messageID })
+      return {
+        id: `card-${props.messageID}`,
+        title: link.name || "分析结果",
+        type: mimeToOutputType(link.mimeType),
+        source: "uri",
+        uri: link.uri,
+        mimeType: link.mimeType,
+        fileName: link.name,
+        createdAt: new Date(),
+      }
+    }
+
+    // 路径 2：text-detect inline(原有路径,保持向后兼容)
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
@@ -114,11 +150,11 @@ export function InsightTurn(props: {
     const text = textPart.text.trim()
     if (text.length < 10) return null
     const info = detectCard(text)
-    console.log("[octo:card] detectCard", { type: info?.type ?? null, textLen: text.length, msgID: props.messageID })
     if (!info) return null
     return {
       id: `card-${props.messageID}`,
       ...info,
+      source: "inline",
       content: textPart.text,
       createdAt: new Date(),
     }
@@ -182,6 +218,22 @@ export function InsightTurn(props: {
             </div>
           </button>
         )}
+      </Show>
+
+      {/* 长任务卡片(spec: docs/specs/ui/task-card.md §5) */}
+      <Show when={props.taskCards.length > 0}>
+        <For each={props.taskCards}>
+          {(task) => (
+            <TaskCardView
+              card={task}
+              busy={props.active}
+              onRefresh={props.onTaskRefresh}
+              onStop={props.onTaskStop}
+              onOpenResult={props.onTaskOpenResult}
+              onFollowup={props.onTaskFollowup}
+            />
+          )}
+        </For>
       </Show>
     </div>
   )
