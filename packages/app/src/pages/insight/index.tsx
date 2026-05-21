@@ -31,6 +31,7 @@ import { uploadFile, validateFile, formatUploadsForPrompt, UploadError } from ".
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { mimeToOutputType } from "./utils/resource-link"
 import { clearRefreshState, markRefreshed, isInCooldown } from "./utils/task-refresh"
+import { Toast } from "@opencode-ai/ui/toast"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -236,8 +237,18 @@ export default function InsightPage() {
   const [sending, setSending] = createSignal(false)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
-  // 对话面板宽度，可拖拽，范围 200–520px
-  const [chatWidth, setChatWidth] = createSignal(320)
+
+  // 聊天区宽度：从 localStorage 恢复，无存储值时取约 50% 可用宽（扣除侧边栏约 240px）
+  const CHAT_WIDTH_KEY = "octo:insight:chat-width"
+  function getInitialChatWidth(): number {
+    const stored = localStorage.getItem(CHAT_WIDTH_KEY)
+    if (stored) {
+      const n = parseInt(stored, 10)
+      if (!isNaN(n) && n >= 240) return n
+    }
+    return Math.max(360, Math.floor((window.innerWidth - 240) / 2))
+  }
+  const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
 
   function handleDividerMouseDown(e: MouseEvent) {
     e.preventDefault()
@@ -247,12 +258,13 @@ export default function InsightPage() {
     document.body.style.userSelect = "none"
     document.body.style.overflow = "hidden"
     const onMove = (ev: MouseEvent) => {
-      setChatWidth(Math.max(240, Math.min(Math.floor(window.innerWidth * 0.45), startWidth + ev.clientX - startX)))
+      setChatWidth(Math.max(240, Math.min(Math.floor(window.innerWidth * 0.65), startWidth + ev.clientX - startX)))
     }
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
       document.body.style.overflow = ""
+      localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", onUp)
     }
@@ -619,6 +631,7 @@ export default function InsightPage() {
 
   return (
     <DataProvider data={dataStore} directory={homeDir() || ""}>
+      <Toast.Region />
       <div class="size-full flex overflow-hidden relative" data-page="insight">
 
         {/* ── 左栏：对话面板（固定宽度，始终可拖拽） ──── */}
@@ -737,10 +750,11 @@ export default function InsightPage() {
 
         </div>
 
-        {/* ── 聊天/结果 拖拽分隔线（半侧贴边胶囊） */}
+        {/* ── 聊天/结果 拖拽分隔线（半侧贴边胶囊）
+             top/bottom 缩进 20px：避免与 Windows classic 滚动条两端箭头（~17px）热区重合 */}
         <div
-          class="absolute top-0 bottom-0 flex items-center justify-center group"
-          style={{ left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
+          class="absolute flex items-center justify-center group"
+          style={{ top: "20px", bottom: "20px", left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
           onMouseDown={handleDividerMouseDown}
         >
           <div

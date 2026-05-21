@@ -3,11 +3,14 @@ import type { JSX } from "solid-js"
 import writeXlsxFile from "write-excel-file/browser"
 import type { ResultTab } from "./tab-store"
 import { IconActionCopy, IconActionDownload } from "../../icons"
-import { parseMarkdownTable, tableToCSV } from "../../utils/markdown-table"
+import { parseMarkdownTable, tableToCSV, extractTableMarkdown } from "../../utils/markdown-table"
 import { stripCodeFence } from "../../utils/detect"
+import { showToast } from "@opencode-ai/ui/toast"
 
 function copyToClipboard(text: string) {
-  navigator.clipboard.writeText(text).catch(console.error)
+  navigator.clipboard.writeText(text).then(() => {
+    showToast({ description: "已复制到剪贴板", variant: "success", duration: 2000 })
+  }).catch(console.error)
 }
 
 function downloadBlob(content: string, filename: string, mimeType: string) {
@@ -43,7 +46,7 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
       return [
         {
           label: "Markdown (.md)",
-          onClick: () => downloadBlob(content, `${base}.md`, "text/markdown;charset=utf-8"),
+          onClick: () => downloadBlob(extractTableMarkdown(content), `${base}.md`, "text/markdown;charset=utf-8"),
         },
         {
           label: "CSV (.csv)",
@@ -111,7 +114,13 @@ export function ActionBar(props: { tab: ResultTab }): JSX.Element {
           icon={<IconActionCopy size={14} />}
           label="复制"
           disabled={!ready()}
-          onClick={() => ready() && copyToClipboard(props.tab.content!)}
+          onClick={() => {
+            if (!ready()) return
+            const text = props.tab.type === "table"
+              ? extractTableMarkdown(props.tab.content!)
+              : props.tab.content!
+            copyToClipboard(text)
+          }}
         />
         <DownloadMenu tab={props.tab} disabled={!ready()} />
       </div>

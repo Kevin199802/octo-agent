@@ -1,3 +1,8 @@
+export function extractTableMarkdown(text: string): string {
+  const lines = text.split("\n").filter((l) => l.trim().startsWith("|"))
+  return lines.join("\n")
+}
+
 export function parseMarkdownTable(md: string): string[][] {
   const lines = md
     .split("\n")
