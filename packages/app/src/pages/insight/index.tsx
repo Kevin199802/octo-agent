@@ -190,7 +190,7 @@ export default function InsightPage() {
           message: info.message,
           toolName: info.toolName,
           resultText: info.resultText,
-          resourceLink: info.resourceLink,
+          resourceLinks: info.resourceLinks,
           userMsgID: lastUserMsgID,
           time: msgTime,
         })
@@ -487,32 +487,38 @@ export default function InsightPage() {
     // 滚动到输入框 / focus — 由用户自然交互完成,不强抢焦点
   }
 
-  function buildOutputCardFromTask(card: TaskCardEntry): OutputCard | null {
-    if (card.status !== "completed") return null
+  /**
+   * 把 completed task 转成 1~N 个 OutputCard,每个 resource_link 一张;
+   * 无 resource_link 但有 resultText 时,fallback 为单张 markdown inline 卡;
+   * 无任何产物时返回空数组(尚未 completed 或异常)。
+   */
+  function buildOutputCardsFromTask(card: TaskCardEntry): OutputCard[] {
+    if (card.status !== "completed") return []
     const baseTitle = `${toolDisplayName(card.toolName)} 结果`
-    if (card.resourceLink) {
-      return {
-        id: `task-${card.taskId}`,
-        title: card.resourceLink.name || baseTitle,
-        type: mimeToOutputType(card.resourceLink.mimeType),
-        source: "uri",
-        uri: card.resourceLink.uri,
-        mimeType: card.resourceLink.mimeType,
-        fileName: card.resourceLink.name,
+    if (card.resourceLinks.length > 0) {
+      return card.resourceLinks.map((link, idx) => ({
+        id: `task-${card.taskId}-${idx}`,
+        title: link.name || `${baseTitle} ${idx + 1}`,
+        type: mimeToOutputType(link.mimeType),
+        source: "uri" as const,
+        uri: link.uri,
+        mimeType: link.mimeType,
+        fileName: link.name,
+        description: link.description,
         createdAt: card.lastUpdatedAt,
-      }
+      }))
     }
     if (card.resultText && card.resultText.length > 0) {
-      return {
+      return [{
         id: `task-${card.taskId}`,
         title: baseTitle,
         type: "markdown",
         source: "inline",
         content: card.resultText,
         createdAt: card.lastUpdatedAt,
-      }
+      }]
     }
-    return null
+    return []
   }
 
   function handleTaskOpenResult(taskId: string) {
@@ -521,13 +527,20 @@ export default function InsightPage() {
       console.warn("[octo:task] openResult: card not found", { taskId })
       return
     }
-    const oc = buildOutputCardFromTask(card)
-    if (!oc) {
+    const ocs = buildOutputCardsFromTask(card)
+    if (ocs.length === 0) {
       console.warn("[octo:task] openResult: no result yet", { taskId, status: card.status })
       return
     }
-    console.log("[octo:task] openResult", { taskId, tabType: oc.type, source: oc.source })
-    tabStore.openTab(oc)
+    console.log("[octo:task] openResult", {
+      taskId,
+      count: ocs.length,
+      tabs: ocs.map((oc) => ({ type: oc.type, source: oc.source, file: oc.fileName })),
+    })
+    // 多文件:全部 openTab,激活 = 最后一个 openTab 内部已处理(activate first won't override later)
+    // 用户视觉上看到最后激活的是数组里最后一个 = 第一张?— 让我们激活第一张
+    for (const oc of ocs) tabStore.openTab(oc)
+    tabStore.activate(ocs[0].id)
   }
 
   // ── 自动 openTab(ResultViewer 当前为空时,首个 completed 任务自动开;spec §8.3)──
@@ -537,12 +550,17 @@ export default function InsightPage() {
     for (const card of taskCards().values()) {
       if (card.status !== "completed") continue
       if (autoOpenedTaskIds.has(card.taskId)) continue
-      const oc = buildOutputCardFromTask(card)
-      if (!oc) continue
+      const ocs = buildOutputCardsFromTask(card)
+      if (ocs.length === 0) continue
       autoOpenedTaskIds.add(card.taskId)
-      console.log("[octo:task] auto-openResult (viewer empty)", { taskId: card.taskId, tabType: oc.type })
-      tabStore.openTab(oc)
-      break  // 一次只自动开一个
+      console.log("[octo:task] auto-openResult (viewer empty)", {
+        taskId: card.taskId,
+        count: ocs.length,
+        tabs: ocs.map((oc) => ({ type: oc.type, file: oc.fileName })),
+      })
+      for (const oc of ocs) tabStore.openTab(oc)
+      tabStore.activate(ocs[0].id)
+      break  // 一次只自动开一个 task 的全部产物
     }
   })
 
@@ -574,7 +592,7 @@ export default function InsightPage() {
           status: c.status,
           message: c.message,
           anchor: c.anchorUserMessageID,
-          hasResourceLink: !!c.resourceLink,
+          resourceLinkCount: c.resourceLinks.length,
           hasResultText: !!c.resultText,
         })),
       })

@@ -1,4 +1,4 @@
-import { findResourceLink, type ResourceLink } from "./resource-link"
+import { findResourceLinks, type ResourceLink } from "./resource-link"
 
 /**
  * 长任务卡片状态。来源:mcp-contract.md §任务管理 status 枚举。
@@ -14,7 +14,7 @@ export type TaskInfo = {
   status: TaskStatus
   message?: string                  // structuredContent.message(可能为空)
   resultText?: string               // completed 时 content[].text 摘要
-  resourceLink?: ResourceLink       // completed 时 resource_link(若存在)
+  resourceLinks: ResourceLink[]     // completed 时 N 个 resource_link(0~N,见 mcp-contract.md §completed)
 }
 
 /**
@@ -51,7 +51,7 @@ export function readTaskInfo(part: unknown): TaskInfo | null {
 
   // resultText:completed 时 content[] 里第一条 text part
   let resultText: string | undefined
-  let resourceLink: ResourceLink | undefined
+  let resourceLinks: ResourceLink[] = []
   if (status === "completed") {
     const parsed = parseCallToolResult(state)
     if (parsed) {
@@ -59,20 +59,18 @@ export function readTaskInfo(part: unknown): TaskInfo | null {
         (c) => c && typeof c === "object" && (c as { type?: string }).type === "text",
       ) as { text?: string } | undefined
       if (textItem && typeof textItem.text === "string") resultText = textItem.text
-      // resource_link 复用 §2.5 的扫描(支持独立 part / metadata / output JSON)
-      const linkFromParsed = parsed.content
-        ? findResourceLink(parsed.content)
-        : null
-      if (linkFromParsed) resourceLink = linkFromParsed
+      // resource_link 复用 §2.5 的扫描(支持独立 part / metadata / output JSON);可能 N 个
+      if (parsed.content) {
+        resourceLinks = findResourceLinks(parsed.content)
+      }
     }
     // 兜底:从 part 本身扫 resource_link(部分形态下 link 已被 opencode 提到 part 旁)
-    if (!resourceLink) {
-      const linkFromPart = findResourceLink([part])
-      if (linkFromPart) resourceLink = linkFromPart
+    if (resourceLinks.length === 0) {
+      resourceLinks = findResourceLinks([part])
     }
   }
 
-  return { taskId: String(sc.task_id), toolName, status, message, resultText, resourceLink }
+  return { taskId: String(sc.task_id), toolName, status, message, resultText, resourceLinks }
 }
 
 /**
@@ -123,7 +121,7 @@ export type TaskCardEntry = {
   submittedAt: Date                 // 最早 part 时间
   lastUpdatedAt: Date               // 最新 part 时间
   resultText?: string               // completed 时的摘要
-  resourceLink?: ResourceLink       // completed 时的资源链接
+  resourceLinks: ResourceLink[]     // completed 时的 N 个资源链接(0~N)
 }
 
 // 业务工具白名单:用于识别"首次提交"(从而决定 anchor toolName)。
@@ -149,7 +147,7 @@ type AggregateInput = {
   message?: string
   toolName: string
   resultText?: string
-  resourceLink?: ResourceLink
+  resourceLinks: ResourceLink[]
   userMsgID: string
   time: number
 }
@@ -183,7 +181,7 @@ export function aggregateTaskCards(items: AggregateInput[]): Map<string, TaskCar
       submittedAt: new Date(first.time),
       lastUpdatedAt: new Date(latest.time),
       resultText: latest.resultText,
-      resourceLink: latest.resourceLink,
+      resourceLinks: latest.resourceLinks,
     })
   }
   return result

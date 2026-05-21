@@ -12,6 +12,7 @@ export type ResultTab = {
   uri?: string              // uri 模式必填
   mimeType?: string         // uri 模式必填(影响渲染路由)
   fileName?: string         // uri 模式来自 resource_link.name,供下载默认文件名
+  description?: string      // uri 模式来自 resource_link.description,可在 ActionBar 副标题展示
   createdAt: Date
 }
 
@@ -34,6 +35,7 @@ export function createTabStore() {
       uri: card.uri,
       mimeType: card.mimeType,
       fileName: card.fileName,
+      description: card.description,
       createdAt: card.createdAt,
     }
     setTabs((prev) => [...prev, tab])

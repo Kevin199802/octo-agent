@@ -178,6 +178,22 @@ function Body(props: {
               {truncate(props.card.resultText!, 200)}
             </div>
           </Show>
+          {/* 多文件时列出每个文件名,让用户一眼看到产出 */}
+          <Show when={props.card.resourceLinks.length > 1}>
+            <ul class="flex flex-col gap-0.5 mt-1 mb-0.5 pl-3">
+              {props.card.resourceLinks.map((link) => (
+                <li
+                  class="text-xs leading-tight"
+                  style={{ color: "var(--octo-text-secondary)" }}
+                >
+                  • {link.name || link.uri}
+                  <Show when={link.description}>
+                    <span style={{ color: "var(--octo-text-disabled)" }}> — {link.description}</span>
+                  </Show>
+                </li>
+              ))}
+            </ul>
+          </Show>
           <div class="flex items-center gap-2 mt-1">
             <button
               type="button"
@@ -189,7 +205,12 @@ function Body(props: {
                 background: "var(--octo-surface-page)",
               }}
             >
-              📄 查看完整结果 →
+              <Show
+                when={props.card.resourceLinks.length > 1}
+                fallback={<>📄 查看完整结果 →</>}
+              >
+                📄 查看完整结果({props.card.resourceLinks.length} 份)→
+              </Show>
             </button>
             <button
               type="button"

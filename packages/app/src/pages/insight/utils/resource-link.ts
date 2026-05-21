@@ -13,61 +13,64 @@ export type ResourceLink = {
 }
 
 /**
- * 在一组 part 中查找 resource_link。
+ * 在一组 part 中查找所有 resource_link(MCP completed 时可能返回 N 个文件,见 mcp-contract.md §completed)。
  * 优先级:
  *   A. 独立 part type === "resource_link"(MCP 协议标准形态)
- *   B. 任意 part 的 metadata.resource_link
- *   C. 任意 tool part 的 metadata.content[] 或 output(JSON string)中含 resource_link 项
+ *   B. 任意 part 的 metadata.resource_link(单个)
+ *   C. 任意 tool part 的 metadata.content[] 或 output(JSON string)中含 resource_link 项(可能多个)
  * 联调时打 log 确认实际形态后,可删多余分支。
+ *
+ * 返回顺序 = MCP content[] 声明顺序(承载"先摘要、后文件"的语义)。
  */
-export function findResourceLink(parts: unknown[]): ResourceLink | null {
+export function findResourceLinks(parts: unknown[]): ResourceLink[] {
+  const out: ResourceLink[] = []
   for (const part of parts) {
-    const link = readPart(part)
-    if (link) return link
+    out.push(...readPart(part))
   }
-  return null
+  return out
 }
 
-function readPart(part: unknown): ResourceLink | null {
-  if (!part || typeof part !== "object") return null
+function readPart(part: unknown): ResourceLink[] {
+  if (!part || typeof part !== "object") return []
   const p = part as Record<string, unknown>
+  const found: ResourceLink[] = []
 
   // A. 独立 resource_link part
   if (p.type === "resource_link" && typeof p.uri === "string" && typeof p.mimeType === "string") {
-    return {
+    found.push({
       uri: p.uri,
       name: typeof p.name === "string" ? p.name : "",
       mimeType: p.mimeType,
       description: typeof p.description === "string" ? p.description : undefined,
-    }
+    })
+    return found
   }
 
-  // B. metadata.resource_link
+  // B. metadata.resource_link(单个)
   const meta = p.metadata as Record<string, unknown> | undefined
   if (meta) {
     const direct = meta.resource_link
     if (direct && typeof direct === "object") {
       const d = direct as Record<string, unknown>
       if (typeof d.uri === "string" && typeof d.mimeType === "string") {
-        return {
+        found.push({
           uri: d.uri,
           name: typeof d.name === "string" ? d.name : "",
           mimeType: d.mimeType,
           description: typeof d.description === "string" ? d.description : undefined,
-        }
+        })
       }
     }
-    // C1. metadata.content[] 数组中找
+    // C1. metadata.content[] 数组中找(可能多个 resource_link 并列)
     const content = meta.content
     if (Array.isArray(content)) {
       for (const item of content) {
-        const link = readPart(item)
-        if (link) return link
+        found.push(...readPart(item))
       }
     }
   }
 
-  // C2. tool part state.output 是 JSON 字符串,parse 后扫 content[]
+  // C2. tool part state.output 是 JSON 字符串,parse 后扫 content[](可能多个)
   if (p.type === "tool") {
     const state = p.state as Record<string, unknown> | undefined
     if (state?.status === "completed" && typeof state.output === "string") {
@@ -77,8 +80,7 @@ function readPart(part: unknown): ResourceLink | null {
           const c = (parsed as Record<string, unknown>).content
           if (Array.isArray(c)) {
             for (const item of c) {
-              const link = readPart(item)
-              if (link) return link
+              found.push(...readPart(item))
             }
           }
         }
@@ -88,7 +90,7 @@ function readPart(part: unknown): ResourceLink | null {
     }
   }
 
-  return null
+  return found
 }
 
 /**
