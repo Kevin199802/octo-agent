@@ -20,6 +20,14 @@ export type UploadResult = {
   mime: string
 }
 
+// 服务端响应统一封装（内网约定，spec §接口合同）
+type ApiResponse<T> = {
+  content: T | null
+  success: boolean
+  errorCode: number
+  errorMessage: string | null
+}
+
 export type UploadErrorCode =
   | "FILE_TOO_LARGE"
   | "EXT_NOT_ALLOWED"
@@ -57,21 +65,24 @@ export function validateFile(file: File): UploadError | null {
   return null
 }
 
-async function mapHttpError(res: Response): Promise<UploadError> {
-  let serverCode = ""
-  let serverMessage = ""
-  try {
-    const data = (await res.json()) as { error?: { code?: string; message?: string } }
-    serverCode = data.error?.code ?? ""
-    serverMessage = data.error?.message ?? ""
-  } catch {
-    // 服务端可能没返回 JSON，按状态码兜底
-  }
-  if (res.status === 413) return new UploadError("FILE_TOO_LARGE", serverMessage || "超过服务端大小上限")
-  if (res.status === 415) return new UploadError("EXT_NOT_ALLOWED", serverMessage || "服务端不支持的格式")
-  if (res.status === 429) return new UploadError("RATE_LIMITED", serverMessage || "上传繁忙，请稍后重试")
-  if (res.status >= 500) return new UploadError("INTERNAL", serverMessage || `服务端错误 (${res.status})`)
-  return new UploadError("INTERNAL", serverMessage || serverCode || `上传失败 (${res.status})`)
+// 业务错误码 → 客户端语义。spec §业务错误码
+function mapErrorCode(code: number, message: string | null): UploadError {
+  const msg = message ?? ""
+  if (code === 305) return new UploadError("FILE_INVALID", msg || "文件无效")
+  if (code === 413) return new UploadError("FILE_TOO_LARGE", msg || "超过服务端大小上限")
+  if (code === 415) return new UploadError("EXT_NOT_ALLOWED", msg || "服务端不支持的格式")
+  if (code === 429) return new UploadError("RATE_LIMITED", msg || "上传繁忙，请稍后重试")
+  if (code >= 500) return new UploadError("INTERNAL", msg || `服务端错误 (errorCode=${code})`)
+  return new UploadError("INTERNAL", msg || `上传失败 (errorCode=${code})`)
+}
+
+// HTTP 层失败兜底（被代理直接拒、或服务端没按封装协议返回时走这里）
+function mapHttpStatus(status: number): UploadError {
+  if (status === 413) return new UploadError("FILE_TOO_LARGE", "超过服务端大小上限")
+  if (status === 415) return new UploadError("EXT_NOT_ALLOWED", "服务端不支持的格式")
+  if (status === 429) return new UploadError("RATE_LIMITED", "上传繁忙，请稍后重试")
+  if (status >= 500) return new UploadError("INTERNAL", `服务端错误 (HTTP ${status})`)
+  return new UploadError("INTERNAL", `上传失败 (HTTP ${status})`)
 }
 
 export async function uploadFile(file: File): Promise<UploadResult> {
@@ -94,10 +105,24 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   } catch (e) {
     throw new UploadError("NETWORK", e instanceof Error ? e.message : "网络异常")
   }
-  if (!res.ok) throw await mapHttpError(res)
 
-  const data = (await res.json()) as UploadResult
-  return data
+  // 优先按业务封装解析；HTTP 层异常作兜底
+  let body: ApiResponse<UploadResult> | null = null
+  try {
+    body = (await res.json()) as ApiResponse<UploadResult>
+  } catch {
+    // 服务端未返回 JSON
+  }
+
+  if (!body || typeof body !== "object" || typeof body.success !== "boolean") {
+    // 非约定格式：用 HTTP 状态码兜底
+    if (!res.ok) throw mapHttpStatus(res.status)
+    throw new UploadError("INTERNAL", "服务端响应格式不符合约定（缺少 success/errorCode）")
+  }
+
+  if (!body.success) throw mapErrorCode(body.errorCode, body.errorMessage)
+  if (!body.content) throw new UploadError("INTERNAL", "服务端返回 success=true 但 content 为空")
+  return body.content
 }
 
 // 按 spec §注入格式：拼成 [已上传文件] 段落，附加到 prompt 文本末尾

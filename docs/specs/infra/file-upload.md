@@ -192,41 +192,85 @@ Body:
   file: binary  (唯一字段)
 ```
 
-**响应 200：**
+响应统一封装（内网约定）：
 
-```json
-{
-  "url": "https://<obs-host>/files/insight/2026-05-20/a1b2c3_interview.docx",
-  "file_id": "file_a1b2c3d4e5f6",
-  "filename": "interview-zhang.docx",
-  "size": 1234567,
-  "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-}
-```
-
-`file_id` 为稳定标识，当前客户端只消费 `url`；未来 MCP 合同若改为传 `file_id` 引用，无需服务端改动。
-
-**响应错误：**
-
-```json
-{
-  "error": {
-    "code": "FILE_TOO_LARGE",
-    "message": "文件超过 500MB 上限"
-  }
-}
-```
-
-错误码列表：
-
-| code | HTTP | 含义 |
+| 字段 | 类型 | 说明 |
 |---|---|---|
-| `FILE_MISSING` | 400 | form 里无 file 字段 |
-| `FILE_INVALID` | 400 | 文件读取失败 / 0 字节 |
-| `FILE_TOO_LARGE` | 413 | 超过服务端硬上限 |
-| `EXT_NOT_ALLOWED` | 415 | 扩展名不在白名单 |
-| `RATE_LIMITED` | 429 | 限流 |
-| `INTERNAL` | 500 | 服务端 / S3 异常 |
+| `content` | object \| null | 业务数据；失败时为 null |
+| `success` | bool | 业务是否成功 |
+| `errorCode` | int | 业务错误码；成功为 200 |
+| `errorMessage` | string \| null | 错误信息；成功为 null |
+
+**成功响应：**
+
+```json
+{
+  "content": {
+    "url": "https://<obs-host>/files/insight/2026-05-20/a1b2c3_interview.docx",
+    "file_id": "file_a1b2c3d4e5f6",
+    "filename": "interview-zhang.docx",
+    "size": 1234567,
+    "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  },
+  "success": true,
+  "errorCode": 200,
+  "errorMessage": null
+}
+```
+
+`content` 内字段说明：
+
+| 字段 | 说明 |
+|---|---|
+| `url` | 完整 URL，客户端直接注入 LLM context |
+| `file_id` | 稳定标识（对应 DB 里 `file_key`，见下方 §数据持久层）；当前客户端只消费 `url`，预留给未来 MCP 合同切到 `file_id` 引用 |
+| `filename` / `size` / `mime` | 文件元信息回显 |
+
+**错误响应：**
+
+```json
+{
+  "content": null,
+  "success": false,
+  "errorCode": 413,
+  "errorMessage": "文件超过 500MB 上限"
+}
+```
+
+**业务错误码（`errorCode` 整数）：**
+
+客户端**优先以 `success` / `errorCode` 判断**，HTTP 状态码作兜底（HTTP 层被代理直接拒时才看 HTTP 状态码）。
+
+| errorCode | 客户端语义 | 含义 |
+|---|---|---|
+| `200` | 成功 | 业务成功 |
+| `305` | FILE_INVALID | 文件无效（form 缺 file / 读取失败 / 0 字节） |
+| `413` | FILE_TOO_LARGE | 超过服务端硬上限 |
+| `415` | EXT_NOT_ALLOWED | 扩展名不在白名单 |
+| `429` | RATE_LIMITED | 限流 |
+| `>= 500` | INTERNAL | 服务端 / S3 异常 |
+
+### 数据持久层（DB 表设计）
+
+上传操作配套的 DB 表，给内网开发参考（字段类型为建议，最终以内网 DBA 规范为准）：
+
+| 字段 | 类型建议 | 说明 |
+|---|---|---|
+| `id` | bigint PK auto | 主键（下标） |
+| `filename` | varchar(255) | 原始文件名 |
+| `size` | bigint | 字节数 |
+| `agent` | varchar(32) | agent 名称（如 `insight` / `make`）。路径策略里已分层，DB 冗余一份方便按 agent 检索/审计；服务端根据上传端点路径或 referrer 推断填入 |
+| `bucket` | varchar(64) | S3 桶名称 |
+| `file_key` | varchar(512) | S3 object key（API 响应里以 `file_id` 字段对外） |
+| `deleted` | tinyint | 逻辑删除符（0=正常 1=已删除） |
+| `created_at` | timestamp | 上传时间 |
+| `user_key` | varchar(64) | 上传人工号；MVP 客户端不传，先冗余空字段，后续接入工号体系再回填 |
+| `upload_status` | varchar(16) | 上传状态（如 `success` / `failed`） |
+
+注：
+
+- `file_key` 与 API 字段 `file_id` 物理上同源；DB 用 `file_key` 强调"S3 object key"含义，API 用 `file_id` 对齐业界 Files API 习惯
+- `agent` 字段标记为"看是否需要"——本 spec 建议保留（路径已分层，未来按 agent 审计/计费便利）；如内网开发评估冗余可去掉
 
 ### 未来扩展（不在 MVP 实现）
 
@@ -238,17 +282,81 @@ Body:
 
 ---
 
-## 调试阶段（服务端未就绪时）
+## 联调与验证
 
-两种调试入口：
+### 服务端未就绪时（临时调试）
 
-1. **改 `UPLOAD_ENDPOINT` 常量**指向 mock 服务（如 https://httpbin.org/post 等响应 JSON 的端点），走真实上传链路
-2. **完全跳过上传**：InsightPage 发送前 hardcoded URL 直接拼到 prompt 文本，验证 MCP 主流程
+两种入口：
+
+1. **改 `UPLOAD_ENDPOINT` 常量**指向 mock 服务（如 https://httpbin.org/post 这类响应 JSON 的端点），走真实上传链路
+2. **完全跳过上传**：InsightPage 发送前 hardcoded URL 直接拼到 prompt 文本，绕过上传验证 MCP 主流程
 
 ```ts
 // 临时调试，服务端就绪后删除
 const debugUrls = ["https://obs.example.com/asset/aiInterview/test.txt"]
 ```
+
+### 服务端就绪后（联调步骤）
+
+#### 1. 客户端对接
+
+只有一步：改 [`packages/app/src/pages/insight/lib/upload.ts`](../../../packages/app/src/pages/insight/lib/upload.ts) 顶部的 `UPLOAD_ENDPOINT` 常量为内网实际地址，重启 dev 即可。
+
+```ts
+const UPLOAD_ENDPOINT = "https://<内网开发给定的实际地址>"
+```
+
+不需要改其他文件——响应封装解析、errorCode 映射、UI 状态切换都已就绪。
+
+#### 2. 正常链路验证
+
+| # | 操作 | 期望结果 |
+|---|---|---|
+| 1 | Insight 页选一个 .docx / .pdf 文件（< 100MB） | chip 立即出现 ⏳ uploading 状态 |
+| 2 | 等待请求完成 | chip 变蓝色 done 状态 |
+| 3 | DevTools Network 看 POST 请求 | URL = `UPLOAD_ENDPOINT`；Content-Type 为 multipart/form-data；body 里**只有 file 一个字段** |
+| 4 | 响应体形态 | `{ content: { url, file_id, filename, size, mime }, success: true, errorCode: 200, errorMessage: null }` |
+| 5 | 输入文字 → 点发送 | DevTools Console 出 `[octo:prompt] send`，含 `uploads: [{ name, url }]` |
+| 6 | session 内 prompt 文本末尾 | 含 `[已上传文件]\n- <filename>: <url>` 段 |
+| 7 | LLM 调 `analyze_interview` 时 | `doc_urls` 参数能填入步骤 4 里的 `content.url` |
+
+#### 3. 边界 / 错误链路验证
+
+| 场景 | 操作 | 期望 chip 表现 |
+|---|---|---|
+| 客户端 size 拒绝 | 选 > 100MB 文件 | 直接 ⚠️ "超过 100MB 上限"，**不发请求**（Network 应无该 POST） |
+| 客户端扩展名拒绝 | 选 `.exe` 文件 | 直接 ⚠️ "不支持的格式 .exe" |
+| 网络异常 | 选文件时停掉服务端 | ⚠️ "网络异常"，可点 ↻ 重传 |
+| 服务端业务错（413） | 选 200MB 文件 触发服务端 size 兜底 | ⚠️ 显示 `errorMessage` 文本，可重传 |
+| 服务端业务错（415） | 客户端绕过校验上传 .xyz | ⚠️ 显示服务端 errorMessage |
+| 服务端业务错（305） | 上传空文件 | ⚠️ "文件无效" |
+| 服务端 5xx | 服务端进程崩溃 / S3 失败 | ⚠️ "服务端错误 (errorCode=500)" |
+| 重传 | 任一 error chip 点 ↻ | chip 重新进入 ⏳ uploading 状态 |
+| 等待中禁发 | uploading 状态时点发送按钮 | 按钮 disabled，hover 提示"等待附件上传完成" |
+
+#### 4. 服务端协议合规校验
+
+由内网开发同学自查（spec 已固化的约定）：
+
+- [ ] 响应体所有出口都符合 `{ content, success, errorCode, errorMessage }` 4 字段封装（成功/失败均如此）
+- [ ] `errorCode` 是**整数**不是字符串
+- [ ] 成功时 `content.url` 是**可直接访问的完整 URL**（注入 LLM 后能被 MCP 工具拿来发请求）
+- [ ] S3 路径符合 `<bucket>/files/<agent>/<yyyy-mm-dd>/<uuid>_<filename>` 形态
+- [ ] DB 表写入：每次成功上传应在表里出现一行新记录（`upload_status=success`）
+- [ ] 大文件（接近 500MB）能成功上传且 stream 不爆服务端内存
+- [ ] lifecycle rule 已配置（`files/` prefix，365 天 expire）
+
+#### 5. CORS / 部署注意
+
+如果服务端与客户端同源（内网相同 host），跳过 CORS 检查；如不同源，服务端需返回：
+
+```
+Access-Control-Allow-Origin: <octo desktop host>
+Access-Control-Allow-Methods: POST
+Access-Control-Allow-Headers: Content-Type
+```
+
+否则 fetch 会被浏览器拦截，客户端会落到 `NETWORK` 错误。
 
 ---
 
