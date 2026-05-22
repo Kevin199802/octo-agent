@@ -110,6 +110,8 @@
 >
 > 不要拆成 `{summary, files}` 这种扁平结构——会脱离 MCP 标准，opencode / Claude Desktop 等所有 MCP client 都按 `content[]` 解析，自定义形态等于 fork 协议，并丢失顺序语义和未来扩展能力（image / audio / 富 part 混排）。
 
+> **关于字段名 `uri` 而非 `url`**：MCP `ResourceLink` 协议规范字段名就是 `uri`（对应 RFC 3986 的 URI 概念，URL 是 URI 的子集）。协议允许 `https://` / `file:///` / `data:...` / 自定义 scheme 等多种形态——例如 Claude Desktop 的文件 MCP server 大量返回 `file://` URI。我们场景下值始终是 `https://`（内网 S3），但**字段名必须沿用 MCP 标准的 `uri`**，否则 opencode 等客户端无法识别。同理，LSP 协议的 `textDocument.uri`、Anthropic Citations 的 `source_uri` 也是这个约定。
+
 ```json
 {
   "content": [
