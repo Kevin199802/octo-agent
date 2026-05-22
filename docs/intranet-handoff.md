@@ -57,6 +57,42 @@ cp /path/to/octo-agent/packages/agent/insight/agents/insight.md \
 
 不再需要 enabled 字段——opencode 默认即启用，MCP 启动失败不会阻塞 server。
 
+### 1.5 文件上传服务
+
+Insight（以及未来其他 agent）的文件上传是 agent 项目自有的能力——客户端在我方实现，**服务端由内网开发团队对接 S3 落地**。完整 spec：[file-upload.md](specs/infra/file-upload.md)。
+
+**合入物**：
+
+| 路径（我方） | 路径（你方） | 内容 |
+|---|---|---|
+| `packages/app/.env.example` | `packages/app/.env.example` | 环境变量模板（含 `VITE_OCTO_UPLOAD_ENDPOINT` 注释） |
+| `packages/app/src/pages/insight/lib/upload.ts` | `packages/app/octoapp/pages/insight/lib/upload.ts` | 客户端上传实现（随 §1.1 rsync 自动同步） |
+
+**上游壳改动（手动 mirror 一行 diff）**：
+
+`packages/app/src/env.d.ts` 的 `ImportMetaEnv` 接口里追加了一行：
+
+```ts
+readonly VITE_OCTO_UPLOAD_ENDPOINT?: string
+```
+
+你方对应文件加同一行即可（与上游 `VITE_OPENCODE_SERVER_HOST` 等并列）。
+
+**首次集成（一次性）**：
+
+```bash
+# 在你方 packages/app/ 下
+cp .env.example .env.local
+# 编辑 .env.local，填入内网 S3 上传服务实际地址
+```
+
+**对接要点**（给内网开发服务端实现的同学）：
+
+- 接口形态、S3 路径策略（`<bucket>/files/<agent>/<yyyy-mm-dd>/<uuid>_<filename>`）、响应封装、错误码、DB 表设计、联调步骤全部见 [file-upload.md](specs/infra/file-upload.md)
+- 客户端走环境变量注入端点，对接后填 `VITE_OCTO_UPLOAD_ENDPOINT=...` 即可，无需改源码
+- 客户端有全链路 console 日志（前缀 `[octo:upload]`），隔空联调时让客户端同学截 Console 给你
+- ADR-006 已明确：本上传服务**与 UXR 团队的 MCP 工具产物上传互不相关**
+
 ---
 
 ## 2. 一次性配置（首次集成时做一次）

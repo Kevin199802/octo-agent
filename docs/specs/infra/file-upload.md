@@ -12,7 +12,7 @@
 ```
 用户选文件 → 页面 POST /api/files (multipart, binary)
   → 上传服务接收 → 校验 → 服务端组路径 → PUT S3
-  → 返回 { url, file_id, ... }
+  → 返回 { url, fileId, ... }
   → 注入 session.prompt() 文本
   → LLM 调 analyze_interview(doc_urls=[...])
 ```
@@ -25,11 +25,27 @@
 
 ### 端点
 
-上传端点写在源码里：[`packages/app/src/pages/insight/lib/upload.ts`](../../../packages/app/src/pages/insight/lib/upload.ts) 顶部的 `UPLOAD_ENDPOINT` 常量。
+上传端点由**环境变量 `VITE_OCTO_UPLOAD_ENDPOINT`** 注入，源码不持有地址。
 
-- **不进 `octo.json`**：是部署细节，不是用户偏好
-- **不引 `.env`**：项目暂无 .env 配置约定，沿用上游 `VITE_OPENCODE_SERVER_HOST` 等"硬编码 + 待覆盖" 的风格
-- **要换地址**直接改这个常量；待内网开发对接后由打包版本注入实际值
+**配置方式**：
+
+```bash
+cd packages/app
+cp .env.example .env.local
+# 编辑 .env.local，把 VITE_OCTO_UPLOAD_ENDPOINT 改成实际地址
+```
+
+[`packages/app/.env.example`](../../../packages/app/.env.example) 是 commit 进 repo 的模板（含字段注释）。`.env.local` 被 vite/git 默认忽略，不会进 commit。重启 dev 生效。
+
+**生产构建**：CI / 打包脚本通过环境变量注入相同 key 即可（无需 .env.local 文件）。
+
+**类型声明**：在 [`packages/app/src/env.d.ts`](../../../packages/app/src/env.d.ts) 的 `ImportMetaEnv` 接口里直接加一行 `readonly VITE_OCTO_UPLOAD_ENDPOINT?: string`，与上游 `VITE_OPENCODE_SERVER_*` 并列。这是个非业务包改动，已登记 [architecture.md §5.4](../../architecture.md#54-上游接线壳改动清单)。
+
+**dev/prod 是否分开**：当前不区分，所有 mode 都用 `.env.local`。未来若 prod 端点不同，可加 `.env.production.local` 或 CI 注入。
+
+- **不进 `octo.json`**：部署细节，不是用户偏好
+- **不在源码硬编码**：内网开发不需要改代码，复制模板填值即可
+- **与上游 `VITE_OPENCODE_*` 的区别**：上游字段有源码 fallback（`?? "localhost"` 等），可以不配；我们的端点没有合理默认值，必须配
 
 ### 调用代码
 
@@ -41,8 +57,8 @@ const ALLOWED_EXT = ["txt", "md", "docx", "xlsx", "pdf"]
 
 export type UploadResult = {
   url: string
-  file_id: string
-  filename: string
+  fileId: string
+  fileName: string
   size: number
   mime: string
 }
@@ -201,16 +217,16 @@ Body:
 | `errorCode` | int | 业务错误码；成功为 200 |
 | `errorMessage` | string \| null | 错误信息；成功为 null |
 
-**成功响应：**
+**成功响应**（字段名按内网约定走驼峰）：
 
 ```json
 {
   "content": {
-    "url": "https://<obs-host>/files/insight/2026-05-20/a1b2c3_interview.docx",
-    "file_id": "file_a1b2c3d4e5f6",
-    "filename": "interview-zhang.docx",
-    "size": 1234567,
-    "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    "url": "https://<obs-host>/<bucket>/files/insight/2026-05-21/<uuid>_iconGroup-1.txt",
+    "fileId": "files/insight/2026-05-21/<uuid>_iconGroup-1.txt",
+    "fileName": "iconGroup-1.txt",
+    "size": 1004138,
+    "mime": "text/plain"
   },
   "success": true,
   "errorCode": 200,
@@ -222,9 +238,11 @@ Body:
 
 | 字段 | 说明 |
 |---|---|
-| `url` | 完整 URL，客户端直接注入 LLM context |
-| `file_id` | 稳定标识（对应 DB 里 `file_key`，见下方 §数据持久层）；当前客户端只消费 `url`，预留给未来 MCP 合同切到 `file_id` 引用 |
-| `filename` / `size` / `mime` | 文件元信息回显 |
+| `url` | 完整可访问 URL，客户端直接注入 LLM context |
+| `fileId` | S3 object key（含 prefix 完整路径），对应 DB 里 `file_key`；当前客户端只消费 `url`，预留给未来 MCP 合同切到 `fileId` 引用 |
+| `fileName` | 原始文件名（不含 UUID 前缀） |
+| `size` | 字节数 |
+| `mime` | MIME 类型 |
 
 **错误响应：**
 
@@ -261,7 +279,7 @@ Body:
 | `size` | bigint | 字节数 |
 | `agent` | varchar(32) | agent 名称（如 `insight` / `make`）。路径策略里已分层，DB 冗余一份方便按 agent 检索/审计；服务端根据上传端点路径或 referrer 推断填入 |
 | `bucket` | varchar(64) | S3 桶名称 |
-| `file_key` | varchar(512) | S3 object key（API 响应里以 `file_id` 字段对外） |
+| `file_key` | varchar(512) | S3 object key（API 响应里以 `fileId` 字段对外） |
 | `deleted` | tinyint | 逻辑删除符（0=正常 1=已删除） |
 | `created_at` | timestamp | 上传时间 |
 | `user_key` | varchar(64) | 上传人工号；MVP 客户端不传，先冗余空字段，后续接入工号体系再回填 |
@@ -269,7 +287,7 @@ Body:
 
 注：
 
-- `file_key` 与 API 字段 `file_id` 物理上同源；DB 用 `file_key` 强调"S3 object key"含义，API 用 `file_id` 对齐业界 Files API 习惯
+- `file_key` 与 API 字段 `fileId` 物理上同源；DB 用 snake_case `file_key` 是 DB 命名习惯，API 用驼峰 `fileId` 对齐内网约定
 - `agent` 字段标记为"看是否需要"——本 spec 建议保留（路径已分层，未来按 agent 审计/计费便利）；如内网开发评估冗余可去掉
 
 ### 未来扩展（不在 MVP 实现）
@@ -288,7 +306,7 @@ Body:
 
 两种入口：
 
-1. **改 `UPLOAD_ENDPOINT` 常量**指向 mock 服务（如 https://httpbin.org/post 这类响应 JSON 的端点），走真实上传链路
+1. **设环境变量指向 mock 服务**（如 https://httpbin.org/post 这类响应 JSON 的端点），走真实上传链路
 2. **完全跳过上传**：InsightPage 发送前 hardcoded URL 直接拼到 prompt 文本，绕过上传验证 MCP 主流程
 
 ```ts
@@ -300,27 +318,58 @@ const debugUrls = ["https://obs.example.com/asset/aiInterview/test.txt"]
 
 #### 1. 客户端对接
 
-只有一步：改 [`packages/app/src/pages/insight/lib/upload.ts`](../../../packages/app/src/pages/insight/lib/upload.ts) 顶部的 `UPLOAD_ENDPOINT` 常量为内网实际地址，重启 dev 即可。
+只有一步：
 
-```ts
-const UPLOAD_ENDPOINT = "https://<内网开发给定的实际地址>"
+```bash
+cd packages/app
+cp .env.example .env.local
+# 把 .env.local 里 VITE_OCTO_UPLOAD_ENDPOINT 改为内网实际地址
+bun run dev
 ```
 
-不需要改其他文件——响应封装解析、errorCode 映射、UI 状态切换都已就绪。
+不需要改任何源码——响应封装解析、errorCode 映射、UI 状态切换、调试日志都已就绪。
 
-#### 2. 正常链路验证
+#### 2. 调试日志（隔空联调用）
+
+客户端在每个关键节点都输出统一前缀 `[octo:upload]` 的日志，便于内外网隔空对线——内网同学看不到客户端 DevTools 时可让对方截图 Console 给你。
+
+正常链路应依次看到 5 步：
+
+| 步骤 | 日志 | 关键字段 |
+|---|---|---|
+| 1/5 | `[octo:upload] 1/5 start` | filename, size, mime |
+| 2/5 | `[octo:upload] 2/5 request` | endpoint, filename, size, mime |
+| 3/5 | `[octo:upload] 3/5 response` | httpStatus, httpOk, body（完整响应包含 success/errorCode/errorMessage/content） |
+| (4/5 仅失败) | `[octo:upload] 4/5 business error` | errorCode, errorMessage, mappedCode |
+| 5/5 | `[octo:upload] 5/5 success` | url, fileId |
+
+异常分支（按发生先后）：
+
+| 日志 | 触发原因 | 内网同学应排查 |
+|---|---|---|
+| `validate failed (client-side)` | 客户端校验拒绝（size/扩展名） | 与你无关，客户端配置问题 |
+| `endpoint not configured` | env var 没生效 | 确认 .env.local 是否在 packages/app/ 下且 dev 已重启 |
+| `network failed` | fetch 报错（DNS / 连接拒绝 / CORS preflight 失败） | 确认服务端是否监听；CORS 头是否正确（见 §6）|
+| `http failed` | HTTP 4xx/5xx 但响应不是约定 JSON | 检查服务端是否被代理拦截，是否返回 HTML 错误页 |
+| `bad response format` | HTTP 200 但 body 不符合 `{success, errorCode, ...}` 形态 | rawText 字段会打印前 500 字节，对比 spec §接口合同 校正 |
+| `4/5 business error` | `success=false` | errorCode/errorMessage 都会打印；对照 §业务错误码 表 |
+| `empty content` | `success=true` 但 `content` 为 null | 服务端落 S3 后忘了填 content |
+
+每条日志都包含 `filename` / `size` / `mime` 三个文件元信息，便于多文件并发时区分。
+
+#### 3. 正常链路验证
 
 | # | 操作 | 期望结果 |
 |---|---|---|
-| 1 | Insight 页选一个 .docx / .pdf 文件（< 100MB） | chip 立即出现 ⏳ uploading 状态 |
-| 2 | 等待请求完成 | chip 变蓝色 done 状态 |
-| 3 | DevTools Network 看 POST 请求 | URL = `UPLOAD_ENDPOINT`；Content-Type 为 multipart/form-data；body 里**只有 file 一个字段** |
-| 4 | 响应体形态 | `{ content: { url, file_id, filename, size, mime }, success: true, errorCode: 200, errorMessage: null }` |
-| 5 | 输入文字 → 点发送 | DevTools Console 出 `[octo:prompt] send`，含 `uploads: [{ name, url }]` |
+| 1 | Insight 页选一个 .docx / .pdf 文件（< 100MB） | chip 立即出现 ⏳ uploading 状态；Console 出 `1/5 start` |
+| 2 | 等待请求完成 | chip 变蓝色 done 状态；Console 依次出现 `2/5 request` → `3/5 response` → `5/5 success` |
+| 3 | DevTools Network 看 POST 请求 | URL = env var 配置的地址；Content-Type 为 multipart/form-data；body 里**只有 file 一个字段** |
+| 4 | 响应体形态 | `{ content: { url, fileId, fileName, size, mime }, success: true, errorCode: 200, errorMessage: null }` |
+| 5 | 输入文字 → 点发送 | Console 出 `[octo:prompt] send`，含 `uploads: [{ name, url }]` |
 | 6 | session 内 prompt 文本末尾 | 含 `[已上传文件]\n- <filename>: <url>` 段 |
 | 7 | LLM 调 `analyze_interview` 时 | `doc_urls` 参数能填入步骤 4 里的 `content.url` |
 
-#### 3. 边界 / 错误链路验证
+#### 4. 边界 / 错误链路验证
 
 | 场景 | 操作 | 期望 chip 表现 |
 |---|---|---|
@@ -334,7 +383,7 @@ const UPLOAD_ENDPOINT = "https://<内网开发给定的实际地址>"
 | 重传 | 任一 error chip 点 ↻ | chip 重新进入 ⏳ uploading 状态 |
 | 等待中禁发 | uploading 状态时点发送按钮 | 按钮 disabled，hover 提示"等待附件上传完成" |
 
-#### 4. 服务端协议合规校验
+#### 5. 服务端协议合规校验
 
 由内网开发同学自查（spec 已固化的约定）：
 
@@ -346,7 +395,7 @@ const UPLOAD_ENDPOINT = "https://<内网开发给定的实际地址>"
 - [ ] 大文件（接近 500MB）能成功上传且 stream 不爆服务端内存
 - [ ] lifecycle rule 已配置（`files/` prefix，365 天 expire）
 
-#### 5. CORS / 部署注意
+#### 6. CORS / 部署注意
 
 如果服务端与客户端同源（内网相同 host），跳过 CORS 检查；如不同源，服务端需返回：
 
@@ -362,6 +411,6 @@ Access-Control-Allow-Headers: Content-Type
 
 ## 待补充
 
-- [ ] `UPLOAD_ENDPOINT` 实际地址（待内网开发给定）
+- [ ] `VITE_OCTO_UPLOAD_ENDPOINT` 实际地址（待内网开发给定后写入 `packages/app/.env.local`）
 - [ ] 内网 S3 是否要求工号字段（access control 粒度）—— 若必填则在 form 里加 `user` 字段
-- [ ] 服务端响应体字段名最终确认（`url` / `file_id` 这两个名字是否内网 S3 通用命名习惯）
+- [x] ~~服务端响应体字段名最终确认~~ 已确认走驼峰：`url` / `fileId` / `fileName` / `size` / `mime`

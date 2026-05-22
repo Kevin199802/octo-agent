@@ -2,20 +2,22 @@
 //
 // 设计要点：
 // - form 里只发 file 一个字段，不组 S3 路径（路径策略是服务端的事）
-// - 端点是部署期常量，不进 octo.json 用户配置
-// - 项目暂无 .env 配置约定，要换地址直接改这里（沿用上游 VITE_OPENCODE_SERVER_HOST 等
-//   "硬编码 + 待覆盖" 的风格，参考 packages/app/src/entry.tsx）
+// - 端点从环境变量 VITE_OCTO_UPLOAD_ENDPOINT 读取，内网同学改 .env.local 即可，
+//   不需要改源码（详见 spec §端点）
+// - 全链路 console 日志统一前缀 [octo:upload]，便于内外网隔空调试
 
-// 上传服务端地址。TODO: 内网开发对接后由打包版本注入实际值
-const UPLOAD_ENDPOINT = ""
+// 上传服务端地址。配置方式：packages/app/.env.local 里写 VITE_OCTO_UPLOAD_ENDPOINT=...
+const UPLOAD_ENDPOINT = import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT ?? ""
+
+const LOG = "[octo:upload]"
 
 export const MAX_UPLOAD_SIZE = 100 * 1024 * 1024 // Insight 当前 100MB；其他 agent 可自定
 export const ALLOWED_EXT = ["txt", "md", "docx", "xlsx", "pdf"] as const
 
 export type UploadResult = {
   url: string
-  file_id: string
-  filename: string
+  fileId: string
+  fileName: string
   size: number
   mime: string
 }
@@ -86,15 +88,29 @@ function mapHttpStatus(status: number): UploadError {
 }
 
 export async function uploadFile(file: File): Promise<UploadResult> {
-  const err = validateFile(file)
-  if (err) throw err
+  const meta = { filename: file.name, size: file.size, mime: file.type }
+  console.log(`${LOG} 1/5 start`, meta)
+
+  const validationErr = validateFile(file)
+  if (validationErr) {
+    console.warn(`${LOG} validate failed (client-side)`, {
+      ...meta,
+      code: validationErr.code,
+      message: validationErr.message,
+    })
+    throw validationErr
+  }
 
   if (!UPLOAD_ENDPOINT) {
-    throw new UploadError(
+    const err = new UploadError(
       "ENDPOINT_NOT_CONFIGURED",
-      "上传端点未配置：lib/upload.ts 顶部的 UPLOAD_ENDPOINT 还是空字符串",
+      "上传端点未配置：在 packages/app/.env.local 设置 VITE_OCTO_UPLOAD_ENDPOINT=<内网地址>，然后重启 dev",
     )
+    console.error(`${LOG} endpoint not configured`, { hint: err.message })
+    throw err
   }
+
+  console.log(`${LOG} 2/5 request`, { endpoint: UPLOAD_ENDPOINT, ...meta })
 
   const form = new FormData()
   form.append("file", file)
@@ -103,25 +119,64 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   try {
     res = await fetch(UPLOAD_ENDPOINT, { method: "POST", body: form })
   } catch (e) {
-    throw new UploadError("NETWORK", e instanceof Error ? e.message : "网络异常")
+    const err = new UploadError("NETWORK", e instanceof Error ? e.message : "网络异常")
+    console.error(`${LOG} network failed`, { ...meta, error: err.message })
+    throw err
   }
 
   // 优先按业务封装解析；HTTP 层异常作兜底
   let body: ApiResponse<UploadResult> | null = null
+  let rawText = ""
   try {
-    body = (await res.json()) as ApiResponse<UploadResult>
+    rawText = await res.text()
+    body = JSON.parse(rawText) as ApiResponse<UploadResult>
   } catch {
-    // 服务端未返回 JSON
+    // 服务端未返回 JSON 或解析失败，body 保持 null，rawText 留作排查用
   }
+
+  console.log(`${LOG} 3/5 response`, {
+    ...meta,
+    httpStatus: res.status,
+    httpOk: res.ok,
+    body: body ?? { rawText: rawText.slice(0, 500) },
+  })
 
   if (!body || typeof body !== "object" || typeof body.success !== "boolean") {
     // 非约定格式：用 HTTP 状态码兜底
-    if (!res.ok) throw mapHttpStatus(res.status)
-    throw new UploadError("INTERNAL", "服务端响应格式不符合约定（缺少 success/errorCode）")
+    if (!res.ok) {
+      const err = mapHttpStatus(res.status)
+      console.error(`${LOG} http failed`, { ...meta, httpStatus: res.status, mappedCode: err.code })
+      throw err
+    }
+    const err = new UploadError(
+      "INTERNAL",
+      "服务端响应格式不符合约定（缺少 success/errorCode 字段）",
+    )
+    console.error(`${LOG} bad response format`, { ...meta, body, rawText: rawText.slice(0, 500) })
+    throw err
   }
 
-  if (!body.success) throw mapErrorCode(body.errorCode, body.errorMessage)
-  if (!body.content) throw new UploadError("INTERNAL", "服务端返回 success=true 但 content 为空")
+  if (!body.success) {
+    const err = mapErrorCode(body.errorCode, body.errorMessage)
+    console.error(`${LOG} 4/5 business error`, {
+      ...meta,
+      errorCode: body.errorCode,
+      errorMessage: body.errorMessage,
+      mappedCode: err.code,
+    })
+    throw err
+  }
+  if (!body.content) {
+    const err = new UploadError("INTERNAL", "服务端返回 success=true 但 content 为空")
+    console.error(`${LOG} empty content`, { ...meta, body })
+    throw err
+  }
+
+  console.log(`${LOG} 5/5 success`, {
+    ...meta,
+    url: body.content.url,
+    fileId: body.content.fileId,
+  })
   return body.content
 }
 

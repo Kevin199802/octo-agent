@@ -312,6 +312,24 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 | 新增 `write-excel-file`（~30KB）依赖 | OutputCard Excel 导出（[spec](specs/ui/output-renderers.md) §3.3）；选 ESM/小体积库代替 SheetJS/exceljs |
 | 新增 `markmap-lib` + `markmap-view`（~300KB）依赖 | OutputCard 思维导图渲染器（[spec](specs/ui/output-renderers.md) §4.2）；视觉效果优于 jsmind/G6，bundle 桌面端可接受 |
 
+#### `packages/app/.env.example`（新增）
+
+| 改了什么 | 性质 |
+|---|---|
+| 新增环境变量模板，含 `VITE_OCTO_UPLOAD_ENDPOINT` 注释 | 文件上传服务端点配置入口（[spec](specs/infra/file-upload.md) §端点）。模板 commit 进 repo，内网集成时 `cp .env.example .env.local` 填实际地址；客户端 [`lib/upload.ts`](../packages/app/src/pages/insight/lib/upload.ts) 通过 `import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT` 读取 |
+
+#### `packages/app/src/env.d.ts`（补充）
+
+| 改了什么 | 性质 |
+|---|---|
+| `ImportMetaEnv` 接口加 `readonly VITE_OCTO_UPLOAD_ENDPOINT?: string` | 给上一条 `.env.example` 里新增的环境变量做 TypeScript 类型声明；与上游 `VITE_OPENCODE_SERVER_*` 并列追加，一行 diff，不破坏上游同步 |
+
+#### `.gitignore`（补充）
+
+| 改了什么 | 性质 |
+|---|---|
+| 在 `.env` 一行下追加 `.env.local` / `.env.*.local` 两行 | 配合 `.env.example` 模板使用；vite 官方标准忽略模式，让开发者复制出的本地配置（含真实端点）不会被误提交 |
+
 #### `bun.lock`
 
 随 `octo-app` workspace 条目删除自动更新；后续随 `packages/app/package.json` 新增 `write-excel-file` / `markmap-*` 自动更新。非手动修改。
