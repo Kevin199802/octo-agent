@@ -43,6 +43,11 @@ type DataStore = {
   part: { [messageID: string]: Part[] }
 }
 
+// 调试用全局计数器：listener 注册次数 & 事件序号
+// 跨 InsightPage 实例累加；> 1 即说明 listener 重复注册（页面被多次挂载/未正确卸载）。
+let __octoListenerSeq = 0
+let __octoEventSeq = 0
+
 export default function InsightPage() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
@@ -57,6 +62,14 @@ export default function InsightPage() {
     session_diff: {},
     message: {},
     part: {},
+  })
+
+  // 组件挂载/卸载日志：定位"是否同一时刻存在多个 InsightPage 实例"
+  const __instanceId = ++__octoListenerSeq
+  console.log("[octo:sse] InsightPage mounted", { instanceId: __instanceId, totalListeners: __octoListenerSeq })
+  onCleanup(() => {
+    __octoListenerSeq--
+    console.log("[octo:sse] InsightPage unmounted", { instanceId: __instanceId, remainingListeners: __octoListenerSeq })
   })
 
   createEffect(
@@ -74,6 +87,21 @@ export default function InsightPage() {
             const visible = parts.filter((p) => !SKIP_PART_TYPES.has(p.type))
             if (visible.length > 0) partMap[info.id] = visible
           }
+          // REST 加载日志：能看到加载时 part 文本长度，方便对比 SSE 时刻的 length
+          console.log("[octo:sse] REST messages loaded", {
+            instanceId: __instanceId,
+            sessionId: id,
+            messageCount: msgs.length,
+            textParts: Object.entries(partMap).flatMap(([msgId, ps]) =>
+              ps.filter((p) => p.type === "text" || p.type === "reasoning")
+                .map((p) => ({
+                  msgId,
+                  partId: p.id,
+                  type: p.type,
+                  textLen: ((p as { text?: string }).text ?? "").length,
+                })),
+            ),
+          })
           batch(() => {
             setDataStore("message", id, reconcile(msgs, { key: "id" }))
             for (const [msgId, ps] of Object.entries(partMap)) {
@@ -122,6 +150,21 @@ export default function InsightPage() {
           fullPart: part,  // 完整对象,联调时展开看 state.output / state.metadata 形态
         })
       }
+      // 文本/推理 part 的全量 updated：记录 reconcile 时的 text 长度
+      // 用于和 delta 的 lenBefore/lenAfter 拼时间线，定位"reconcile 后 delta 又追加"等异常
+      if (ptype === "text" || ptype === "reasoning") {
+        const tp = part as { type: string; text?: string }
+        const seq = ++__octoEventSeq
+        const text = tp.text ?? ""
+        console.log("[octo:sse] part.updated text", {
+          seq,
+          instanceId: __instanceId,
+          type: ptype,
+          partId: part.id,
+          textLen: text.length,
+          textTail: text.slice(-40),  // 末 40 字符，足够定位是否重复
+        })
+      }
       const parts = dataStore.part[part.messageID]
       if (!parts) { setDataStore("part", part.messageID, [part]); return }
       const result = Binary.search(parts, part.id, (p) => p.id)
@@ -129,7 +172,7 @@ export default function InsightPage() {
         setDataStore("part", part.messageID, result.index, reconcile(part))
       } else {
         // new part first arrival
-        console.log("[octo:sse] new part", { type: part.type, partID: part.id, msgID: part.messageID })
+        console.log("[octo:sse] new part", { type: part.type, partID: part.id, msgID: part.messageID, instanceId: __instanceId })
         setDataStore("part", part.messageID, produce((d) => { d.splice(result.index, 0, part) }))
       }
       return
@@ -149,13 +192,51 @@ export default function InsightPage() {
         messageID: string; partID: string; field: string; delta: string
       }
       const parts = dataStore.part[messageID]
-      if (!parts) return
+      if (!parts) {
+        // 关键调试：part 不在 store，delta 被丢弃。若频繁出现可能是 partID 不匹配/REST 加载滞后
+        console.log("[octo:sse] delta DROPPED (no parts for msg)", {
+          seq: ++__octoEventSeq,
+          instanceId: __instanceId,
+          messageID,
+          partID,
+          deltaLen: delta.length,
+        })
+        return
+      }
       const result = Binary.search(parts, partID, (p) => p.id)
-      if (!result.found) return
+      if (!result.found) {
+        console.log("[octo:sse] delta DROPPED (partID not found)", {
+          seq: ++__octoEventSeq,
+          instanceId: __instanceId,
+          messageID,
+          partID,
+          knownPartIds: parts.map((p) => p.id),
+          deltaLen: delta.length,
+        })
+        return
+      }
+      // 核心调试：每条 delta 的 seq + 实例号 + before/after 长度 + delta 内容
+      // 若同 partID 短时间内出现两条 seq 不同但 delta 内容相同 → 服务端/网络重发
+      // 若 instanceId 出现 > 1 个 → 页面挂载了多次（listener 重复）
+      const seq = ++__octoEventSeq
+      const beforeText = ((parts[result.index] as Record<string, unknown>)[field] as string) ?? ""
       setDataStore("part", messageID, produce((d) => {
         const p = d[result.index] as Record<string, unknown>
         p[field] = ((p[field] as string) ?? "") + delta
       }))
+      const afterText = ((dataStore.part[messageID]?.[result.index] as Record<string, unknown> | undefined)?.[field] as string) ?? ""
+      console.log("[octo:sse] part.delta", {
+        seq,
+        instanceId: __instanceId,
+        partId: partID,
+        field,
+        deltaLen: delta.length,
+        deltaPreview: delta.length > 30 ? `${delta.slice(0, 30)}…` : delta,
+        lenBefore: beforeText.length,
+        lenAfter: afterText.length,
+        tailBefore: beforeText.slice(-20),
+        tailAfter: afterText.slice(-20),
+      })
     }
   })
   onCleanup(unsub)
