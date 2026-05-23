@@ -1,24 +1,22 @@
 import "./octo-tokens.css"
-import type { Message, Part, Session, SessionStatus, SnapshotFileDiff } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
-import { Binary } from "@opencode-ai/shared/util/binary"
 import {
-  batch,
   createEffect,
   createMemo,
   createSignal,
   For,
   on,
-  onCleanup,
   Show,
   type JSX,
 } from "solid-js"
-import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { SDKProvider } from "@/context/sdk"
+import { SyncProvider, useSync } from "@/context/sync"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PromptTemplateSelector } from "./components/prompt-template-selector"
@@ -33,218 +31,61 @@ import { mimeToOutputType } from "./utils/resource-link"
 import { clearRefreshState, markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { Toast } from "@opencode-ai/ui/toast"
 
-const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
+/**
+ * InsightPage —— 用研 agent 页面
+ *
+ * 数据层完全复用 opencode 原生 globalSync / sync.session.sync / event-reducer，
+ * 不再自建本地 dataStore + SSE listener。详见 SPEC-INS-005
+ * (docs/specs/ui/insight-data-layer-reuse.md)。
+ *
+ * 外层 InsightPage：负责拼装 SDKProvider + SyncProvider（依赖 homeDir 就绪）。
+ * 内层 InsightContent：所有业务逻辑，可读写 useSync() / useSDK()。
+ */
+export default function InsightPage() {
+  const globalSync = useGlobalSync()
+  const homeDir = () => globalSync.data.path.home
 
-type DataStore = {
-  session: Session[]
-  session_status: { [sessionID: string]: SessionStatus }
-  session_diff: { [sessionID: string]: SnapshotFileDiff[] }
-  message: { [sessionID: string]: Message[] }
-  part: { [messageID: string]: Part[] }
+  // homeDir 异步就绪。等就绪再挂 SDK/Sync providers，否则 useSDK 拿到空字符串 directory 会异常。
+  // keyed: dir 变化时整体重挂，确保 SyncProvider 内部状态干净。
+  return (
+    <Show when={homeDir()} keyed>
+      {(dir) => (
+        <SDKProvider directory={() => dir}>
+          <SyncProvider>
+            <InsightContent />
+          </SyncProvider>
+        </SDKProvider>
+      )}
+    </Show>
+  )
 }
 
-// 调试用全局计数器：listener 注册次数 & 事件序号
-// 跨 InsightPage 实例累加；> 1 即说明 listener 重复注册（页面被多次挂载/未正确卸载）。
-let __octoListenerSeq = 0
-let __octoEventSeq = 0
-
-export default function InsightPage() {
+function InsightContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
+  const sync = useSync()
 
   const homeDir = () => globalSync.data.path.home
 
-  const [dataStore, setDataStore] = createStore<DataStore>({
-    session: [],
-    session_status: {},
-    session_diff: {},
-    message: {},
-    part: {},
-  })
-
-  // 组件挂载/卸载日志：定位"是否同一时刻存在多个 InsightPage 实例"
-  const __instanceId = ++__octoListenerSeq
-  console.log("[octo:sse] InsightPage mounted", { instanceId: __instanceId, totalListeners: __octoListenerSeq })
-  onCleanup(() => {
-    __octoListenerSeq--
-    console.log("[octo:sse] InsightPage unmounted", { instanceId: __instanceId, remainingListeners: __octoListenerSeq })
-  })
-
+  // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
+  // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
   createEffect(
     on(
       () => params.id,
-      async (id) => {
+      (id) => {
         if (!id) return
-        try {
-          const result = await globalSDK.client.session.messages({ sessionID: id })
-          const items = result.data ?? []
-          const msgs: Message[] = []
-          const partMap: { [msgId: string]: Part[] } = {}
-          for (const { info, parts } of items as { info: Message; parts: Part[] }[]) {
-            msgs.push(info)
-            const visible = parts.filter((p) => !SKIP_PART_TYPES.has(p.type))
-            if (visible.length > 0) partMap[info.id] = visible
-          }
-          // REST 加载日志：能看到加载时 part 文本长度，方便对比 SSE 时刻的 length
-          console.log("[octo:sse] REST messages loaded", {
-            instanceId: __instanceId,
-            sessionId: id,
-            messageCount: msgs.length,
-            textParts: Object.entries(partMap).flatMap(([msgId, ps]) =>
-              ps.filter((p) => p.type === "text" || p.type === "reasoning")
-                .map((p) => ({
-                  msgId,
-                  partId: p.id,
-                  type: p.type,
-                  textLen: ((p as { text?: string }).text ?? "").length,
-                })),
-            ),
-          })
-          batch(() => {
-            setDataStore("message", id, reconcile(msgs, { key: "id" }))
-            for (const [msgId, ps] of Object.entries(partMap)) {
-              setDataStore("part", msgId, reconcile(ps, { key: "id" }))
-            }
-          })
-        } catch (err) {
-          console.error("[InsightPage] messages load failed", err)
-        }
+        console.log("[octo:sync] session.sync", { sessionID: id })
+        void sync.session.sync(id)
       },
     ),
   )
 
-  const unsub = globalSDK.event.listen((e) => {
-    const sessionId = params.id
-    if (!sessionId) return
-    const event = e.details
-
-    if (event.type === "message.updated") {
-      const info = event.properties.info
-      if (info.sessionID !== sessionId) return
-      const messages = dataStore.message[sessionId]
-      if (!messages) { setDataStore("message", sessionId, [info]); return }
-      const result = Binary.search(messages, info.id, (m) => m.id)
-      if (result.found) {
-        setDataStore("message", sessionId, result.index, reconcile(info))
-      } else {
-        setDataStore("message", sessionId, produce((d) => { d.splice(result.index, 0, info) }))
-      }
-      return
-    }
-
-    if (event.type === "message.part.updated") {
-      const part = event.properties.part
-      if (part.sessionID !== sessionId) return
-      if (SKIP_PART_TYPES.has(part.type)) return
-      // 全量 tool part 形态(联调时定位 structuredContent / resource_link 字段路径关键)
-      const ptype = (part as { type: string }).type
-      const isTool = ptype === "tool" || ptype === "tool-invocation" || ptype === "tool_call"
-      if (isTool) {
-        const tp = part as { type: string; tool?: string; state?: { status?: string } }
-        console.log("[octo:sse] tool part", {
-          type: ptype,
-          tool: tp.tool,
-          status: tp.state?.status,
-          fullPart: part,  // 完整对象,联调时展开看 state.output / state.metadata 形态
-        })
-      }
-      // 文本/推理 part 的全量 updated：记录 reconcile 时的 text 长度
-      // 用于和 delta 的 lenBefore/lenAfter 拼时间线，定位"reconcile 后 delta 又追加"等异常
-      if (ptype === "text" || ptype === "reasoning") {
-        const tp = part as { type: string; text?: string }
-        const seq = ++__octoEventSeq
-        const text = tp.text ?? ""
-        console.log("[octo:sse] part.updated text", {
-          seq,
-          instanceId: __instanceId,
-          type: ptype,
-          partId: part.id,
-          textLen: text.length,
-          textTail: text.slice(-40),  // 末 40 字符，足够定位是否重复
-        })
-      }
-      const parts = dataStore.part[part.messageID]
-      if (!parts) { setDataStore("part", part.messageID, [part]); return }
-      const result = Binary.search(parts, part.id, (p) => p.id)
-      if (result.found) {
-        setDataStore("part", part.messageID, result.index, reconcile(part))
-      } else {
-        // new part first arrival
-        console.log("[octo:sse] new part", { type: part.type, partID: part.id, msgID: part.messageID, instanceId: __instanceId })
-        setDataStore("part", part.messageID, produce((d) => { d.splice(result.index, 0, part) }))
-      }
-      return
-    }
-
-    if (event.type === "session.status") {
-      const { sessionID, status } = event.properties
-      if (sessionID !== sessionId) return
-      console.log("[octo:sse] session.status", sessionID, status)
-      setDataStore("session_status", sessionID, reconcile(status))
-      return
-    }
-
-    const raw = event as unknown as { type: string; properties: Record<string, unknown> }
-    if (raw.type === "message.part.delta") {
-      const { messageID, partID, field, delta } = raw.properties as {
-        messageID: string; partID: string; field: string; delta: string
-      }
-      const parts = dataStore.part[messageID]
-      if (!parts) {
-        // 关键调试：part 不在 store，delta 被丢弃。若频繁出现可能是 partID 不匹配/REST 加载滞后
-        console.log("[octo:sse] delta DROPPED (no parts for msg)", {
-          seq: ++__octoEventSeq,
-          instanceId: __instanceId,
-          messageID,
-          partID,
-          deltaLen: delta.length,
-        })
-        return
-      }
-      const result = Binary.search(parts, partID, (p) => p.id)
-      if (!result.found) {
-        console.log("[octo:sse] delta DROPPED (partID not found)", {
-          seq: ++__octoEventSeq,
-          instanceId: __instanceId,
-          messageID,
-          partID,
-          knownPartIds: parts.map((p) => p.id),
-          deltaLen: delta.length,
-        })
-        return
-      }
-      // 核心调试：每条 delta 的 seq + 实例号 + before/after 长度 + delta 内容
-      // 若同 partID 短时间内出现两条 seq 不同但 delta 内容相同 → 服务端/网络重发
-      // 若 instanceId 出现 > 1 个 → 页面挂载了多次（listener 重复）
-      const seq = ++__octoEventSeq
-      const beforeText = ((parts[result.index] as Record<string, unknown>)[field] as string) ?? ""
-      setDataStore("part", messageID, produce((d) => {
-        const p = d[result.index] as Record<string, unknown>
-        p[field] = ((p[field] as string) ?? "") + delta
-      }))
-      const afterText = ((dataStore.part[messageID]?.[result.index] as Record<string, unknown> | undefined)?.[field] as string) ?? ""
-      console.log("[octo:sse] part.delta", {
-        seq,
-        instanceId: __instanceId,
-        partId: partID,
-        field,
-        deltaLen: delta.length,
-        deltaPreview: delta.length > 30 ? `${delta.slice(0, 30)}…` : delta,
-        lenBefore: beforeText.length,
-        lenAfter: afterText.length,
-        tailBefore: beforeText.slice(-20),
-        tailAfter: afterText.slice(-20),
-      })
-    }
-  })
-  onCleanup(unsub)
-
   const userMessages = createMemo((): Message[] => {
     const id = params.id
     if (!id) return []
-    return (dataStore.message[id] ?? []).filter((m) => m.role === "user")
+    return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
   })
 
   // ── 长任务卡片聚合(spec: docs/specs/ui/task-card.md §3.3)──
@@ -252,7 +93,7 @@ export default function InsightPage() {
   const taskCards = createMemo((): Map<string, TaskCardEntry> => {
     const id = params.id
     if (!id) return new Map()
-    const messages = dataStore.message[id] ?? []
+    const messages = (sync.data.message[id] ?? []) as Message[]
     const items: Parameters<typeof aggregateTaskCards>[0] = []
     let lastUserMsgID = ""
     for (const msg of messages) {
@@ -261,7 +102,7 @@ export default function InsightPage() {
         continue
       }
       if (msg.role !== "assistant" || !lastUserMsgID) continue
-      const parts = dataStore.part[msg.id] ?? []
+      const parts = sync.data.part[msg.id] ?? []
       const msgTime = (msg as { time?: { created?: number } }).time?.created ?? Date.now()
       for (const part of parts) {
         const info = readTaskInfo(part)
@@ -295,8 +136,19 @@ export default function InsightPage() {
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
-    return dataStore.session_status[id] ?? { type: "idle" }
+    return sync.data.session_status[id] ?? { type: "idle" }
   })
+
+  // 状态变化日志：busy ↔ idle 切换观测点
+  createEffect(
+    on(
+      sessionStatus,
+      (status) => {
+        console.log("[octo:sync] status", { sessionID: params.id, type: status.type })
+      },
+      { defer: true },
+    ),
+  )
 
   const isBusy = createMemo(() => sessionStatus().type === "busy")
 
@@ -698,7 +550,12 @@ export default function InsightPage() {
   const hasUploadingAttachments = () => attachments().some((a) => a.status === "uploading")
 
   return (
-    <DataProvider data={dataStore} directory={homeDir() || ""}>
+    <DataProvider
+      data={sync.data}
+      directory={homeDir() || ""}
+      onNavigateToSession={(sessionID: string) => navigate(`/insight/${sessionID}`)}
+      onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
+    >
       <Toast.Region />
       <div class="size-full flex overflow-hidden relative" data-page="insight">
 
