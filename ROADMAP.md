@@ -12,19 +12,35 @@
 
 ---
 
-## 当前 — 提示词模板切换器 + MCP 联调
+## 当前 — 修流式重复 bug（数据层重构）
 
-> Phase 1 UI 已落地，agent 已注册。下一步：实现提示词模板切换器，然后对接内网 MCP。
-> Spec 总览：[docs/specs/ui/insight-overview.md](docs/specs/ui/insight-overview.md)
+> 内网必现"任务仍在处理中仍在处理中"类 SSE 流式重复 bug（外网不复现）。根因：InsightPage 自建本地 dataStore + 自建 listener 与 globalSync 双写同一 part 对象。
+> 修复方向：删自建数据层，全部复用 opencode 原生 globalSync。
+> Spec：[insight-data-layer-reuse.md](docs/specs/ui/insight-data-layer-reuse.md)
+
+| 规模 | 领域 | 任务 | 完成标准 |
+|-----|------|------|------|
+| `[S]` | ui | **PR1：数据层切到 sync.data** | 删 dataStore + 自建 listener + REST 调用；用 sync.session.sync(id)；DataProvider 改传 sync.data + 加 onNavigateToSession/onSessionHref；§5.1 checklist 全过；内网验证 bug 不复现 |
+| `[M]` | ui | **PR2：promptAsync 链路改造** | session.prompt → session.promptAsync + sync.session.optimistic.add；sending() 信号改为监听 sessionStatus busy；§5.2 checklist 全过 |
+
+---
+
+## 内网联调中
+
+> Phase 1 UI 已落地，正在对接内网 MCP / 上传服务。
 
 | 规模 | 领域 | 任务 | 完成标准 | Spec |
 |-----|------|------|------|------|
-| `[M]` | ui | **提示词模板切换器** | 工具栏显示当前模板；下拉菜单 3 组 6 项；选中后发送的 prompt 带对应前缀；切换 session 后重置默认 | [insight-analysis-mode.md](docs/specs/ui/insight-analysis-mode.md) |
-| `[M]` | infra | **MCP 主流程联调** | DevTools 出现 `[mcp] connected` + 2 个工具；hardcoded S3 URL 注入 context → LLM 调 analyze_interview → OutputCard 渲染；验证 search_reports 调用 | [mcp-contract.md](docs/specs/agents/mcp-contract.md) |
-| `[S]` | infra | **S3 文件直传（通用上传服务）** | InsightPage 上传文件到 UXR 接口成功；返回 S3 URL；URL 注入 context 后 MCP 流程正常；参数待 UXR 团队确认后更新 spec | [file-upload.md](docs/specs/infra/file-upload.md) |
-| `[M]` | ui | **任务卡片(对话流内长任务呈现)** | 识别 part 中 `structuredContent.task_id`；5 状态机渲染（pending / processing / completed / failed / stopped）；刷新 / 终止 / "在对话里继续讨论" 按钮；3 分钟刷新防抖 + 倒计时反馈；`completed` 通过 OutputCard 注入 ResultViewer；同一 task_id 跨 turn 状态聚合（取最新）；关闭 app 重开后历史 task_id 卡片状态正确恢复 | [task-card.md](docs/specs/ui/task-card.md) |
-| `[M]` | ui | **OutputCard resource_link 路由扩展** | OutputCard / ResultTab 加 `source: "inline" \| "uri"` + `uri` / `mimeType` / `fileName` 字段；detectCard 检测 `resource_link` part 并按 mimeType 路由；4 个 renderer 支持 fetch URI 渲染；session 内缓存 + 加载失败占位 + 跨 session 重新 fetch | [output-renderers.md §2.5](docs/specs/ui/output-renderers.md#25-resource_link-来源的检测与分发) |
-| `[S]` | agents | **insight agent prompt 落"显式触发查询"约束** | 调业务工具拿到 task_id 后必须告知用户；不在 LLM 内部自动轮询 `get_task_result`；用户显式说"查 xxx"才调 `get_task_result`，"停 xxx"才调 `stop_task`；从对话历史找最近 task_id 兜底 | [mcp-contract.md §LLM 调用规范](docs/specs/agents/mcp-contract.md) |
+| `[M]` | infra | **MCP 主流程联调** | DevTools 出现 `[mcp] connected` + 工具；S3 URL 注入 context → LLM 调业务工具 → OutputCard 渲染 | [mcp-contract.md](docs/specs/agents/mcp-contract.md) |
+| `[S]` | infra | **S3 文件直传** | 上传端点已 env 化（[9b90e8b](.)）+ 响应包装对齐内网（[b87cc72](.)）；待内网首次联调通过 | [file-upload.md](docs/specs/infra/file-upload.md) |
+
+---
+
+## P0 — 待新对话执行
+
+| 任务 | 说明 |
+|------|------|
+| **insight 流程改版 + CLAUDE.md 过时约束清理** | 移除 PromptTemplateSelector，改输入框顶部预置提示词按钮；基于完整流程重评所有"自实现 vs 复用"边界；清理 CLAUDE.md 过时约束。详见 [insight-data-layer-reuse.md §7/§9](docs/specs/ui/insight-data-layer-reuse.md)。**待数据层修复完成后开新对话执行** |
 
 ---
 
@@ -83,3 +99,7 @@
 | `[S]` | agents | **insight.md — tool 声明 + 工作流 prompt** | 声明 MCP 工具（analyze_interview、search_reports）；含 analysis_type 选择指南和工作流约束；文件位于 `packages/agent/insight/agents/insight.md` | [mcp-contract.md](docs/specs/agents/mcp-contract.md) |
 | `[S]` | agents | **insight agent 注册到 octo.json** | `~/.config/octo/octo.json` 写入 insight agent 配置（prompt + tools）；`session.prompt()` 显式传 `agent: "insight"` |  |
 | `[M]` | ui | **OutputCard 渲染器扩展** | detectCard 改造（mindmap JSON + HTML 检测）；MindmapRenderer（markmap-view + UXR JSON 适配层）；HtmlRenderer（iframe sandbox allow-scripts）；TableRenderer Excel 导出（write-excel-file）；共享 parseMarkdownTable helper；debug 日志埋点 | [output-renderers.md](docs/specs/ui/output-renderers.md) |
+| `[M]` | ui | **提示词模板切换器** | 工具栏显示当前模板；下拉菜单 3 组 6 项；选中后发送的 prompt 带对应前缀；切换 session 后重置默认（[ce9611b](.)） | [insight-analysis-mode.md](docs/specs/ui/insight-analysis-mode.md) |
+| `[M]` | ui | **任务卡片(对话流内长任务呈现)** | 识别 part 中 `structuredContent.task_id`；5 状态机渲染；刷新/终止/follow-up 按钮；3 分钟刷新防抖；completed 注入 OutputCard；跨 turn 状态聚合（[8c7cc47](.)） | [task-card.md](docs/specs/ui/task-card.md) |
+| `[M]` | ui | **OutputCard resource_link 路由扩展** | source: inline\|uri；按 mimeType 路由到 4 renderer；session 内缓存；completed 支持 1~N 个 resource_link（[6c1603c](.)） | [output-renderers.md §2.5](docs/specs/ui/output-renderers.md) |
+| `[S]` | agents | **insight agent prompt 落"显式触发查询"约束** | insight.md 工作流明确长任务返回 task_id 后告知用户，不自动轮询；ADR-013 落地 | [ADR-013](docs/adr/013-long-task-progress-strategy.md) |
