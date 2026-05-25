@@ -330,6 +330,38 @@ PR1 / PR2 各自合入后，**必须人工跑一遍**：
 
 ---
 
-## 10. 历史包袱说明
+## 10. 后续发现（PR1 落地后追加）
+
+### 10.1 输入框 disabled 是 feat 级 bug（2026-05-25 发现）
+
+PR1 内网验证通过、流式重复 bug 修复。但发现**输入框在 session busy 时被 disable**这一行为**与原生 opencode / Claude Code 不一致**——原生都允许"边响应边输入"，甚至 queue 后续消息。
+
+**当前实现位置**：[index.tsx](../../../packages/app/src/pages/insight/index.tsx) `inputDisabled = () => sending() \|\| isBusy()`，以及 textarea 的 `disabled={inputDisabled()}`、send 按钮的 `disabled` 条件。
+
+**整改方向**：移除 `disabled={inputDisabled()}` 对输入的影响（光标/键入），保留对 send 按钮的影响（busy 时禁止发送），或参考 chat 实现"queue 待发消息"模式（点击 send 时如果 busy 则入队，busy 结束后自动发出）。
+
+**决策**：拆到新对话执行（见 §10.2）。
+
+### 10.2 PR2 + 输入区整改 + 自建组件全量审计 → 合并到新对话
+
+**触发**：本对话已超 100 轮，主题从"修 bug"扩展到"重构 + 评估 + 审计"。继续叠加风险大。
+
+**新对话任务清单**（按依赖排序）：
+
+1. **PR2：发送链路 promptAsync + optimistic**（spec §3.2）
+2. **输入框 disabled 整改**（本节 §10.1，feat 级 bug）
+3. **自建组件全量审计**（约 1-2h）：grep 每个 insight/_shell 自建组件 vs 上游对应能力，列对照表
+   - 已知高嫌疑：AttachmentBar、OctoShell sidebar、其他待发现
+4. **产品流程改版**（移除 PromptTemplateSelector、加预置提示词按钮、整体边界重评估）
+5. **CLAUDE.md 过时约束清理**（§7 提到的"深耦合 context"理由修订 + 审计中发现的其他过时约束）
+6. **focus bug 调查**：PR1 后偶现输入框不可 focus（无 JS 报错），可能与上面任一改动有关，归到同一对话排查
+
+**前置**：本 spec 不再扩展，新对话基于本 spec + 新发现执行。
+
+---
+
+## 11. 历史包袱说明
 
 自建数据层非有意设计：[commit d65c53f](../../../) "完整 InsightPage 骨架"实现时，作者（Claude）未评估复用 globalSync，从零写了一版。事后 CLAUDE.md §"规划 spec / 写代码前的强制检查" 才加入 "必须先排查上游能力" 规则。本 spec 即是该规则的兜底落实。
+
+**§10.1/§10.2 反映的更深层问题**：可能不止数据层。"自建组件全量审计" 任务存在，正是因为类似 d65c53f 的"未评估复用就自实现"模式可能在其他组件（AttachmentBar、OctoShell sidebar 等）上重复发生。审计 = 兜底排查这类系统性偏差。
