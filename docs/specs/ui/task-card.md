@@ -158,7 +158,7 @@ turn 3: 用户再次刷新
 
 同 turn 内既有 task_id 又有 text 的情况:走 task_id 路径,文字内容由 `SessionTurn` 自身渲染(任务卡片下方),不再额外开 OutputCard。
 
-### 3.5 故意保留的冗余:刷新 turn 的 OutputCard
+### 3.5 故意保留的冗余:刷新 turn 的 OutputCard(入口冗余,非 tab 重复)
 
 刷新场景下,turn N(用户点 ↻ 触发的 `get_task_result` turn)的 part 里**也含有** N 个 resource_link(completed 返回)。当前实现没有抑制这些 part 进 `outputCards` memo,因此 turn N 会和 turn 1 的 TaskCard 同时呈现同一批文件入口("一式两份")。
 
@@ -169,13 +169,33 @@ turn 3: 用户再次刷新
 - 长对话(十几轮以上)场景下,用户在 turn N 看到 LLM 转述"任务完成了"时,**滚回 turn 1 找 TaskCard 按钮的成本高**
 - turn N 直接 surface OutputCard 是这种约束下的**导航兜底** — 用户在当前位置就能点开结果
 
-**未来若引入下列任一能力,可考虑去掉冗余**(改动只需 `outputCards` memo 加一行 filter):
+#### ⚠️ 入口冗余 ≠ tab 重复(重要边界澄清)
+
+**入口冗余**(保留):turn 1 任务卡片的"查看完整结果"按钮 + turn N 的 SSE inline 卡片,**两个入口**指向同一份产物 — 保留,服务于上述导航兜底。
+
+**tab 重复**(禁止):点击两个入口后,ResultViewer 里**同一 URI 被开成两个独立 tab** — 这是 bug,必须避免。
+
+业界对照(VS Code / Cursor / Notion 等):同一文件路径 / document ID 在多个入口被打开时,**激活已有 tab,不新建**。我们的 tab 去重 key 应该是 `uri`,而不是 OutputCard.id(因为任务卡和 SSE 卡的 id 不同,但 uri 相同)。
+
+**实现要求**([tab-store.ts](../../../packages/app/src/pages/insight/components/result-viewer/tab-store.ts) 的 `openTab`):
+
+```
+1. 优先按 uri 匹配现有 tab → 命中即 activate,不新建
+2. URI 不存在(inline 模式卡)→ 按 id 匹配
+3. 都不命中 → 新建 tab
+```
+
+去重命中时打 `[octo:tab] dedupe-by-uri` console,便于联调。详见 [output-renderers.md §9.0 V0-F](output-renderers.md#v0-f-tab-去重同一-uri-多入口不重复开-tab) 验证步骤。
+
+#### 未来去掉入口冗余的可能(目前不做)
+
+**未来若引入下列任一能力,可考虑去掉入口冗余**(改动只需 `outputCards` memo 加一行 filter):
 
 - "活跃任务"chip 条(输入框上方),点击滚回锚点
 - ResultViewer Tab 顶部加"返回任务卡片"链接(从 tab.id 推回 task_id → 滚到锚点 user message)
 - 任务列表 / 任务托盘(ADR-013 排除,需重新评估)
 
-未实现上述任一前,**不要**为了"看起来清爽"去抑制 turn N 的 OutputCard。
+未实现上述任一前,**不要**为了"看起来清爽"去抑制 turn N 的 OutputCard。但 **tab 去重必须做**,这与入口冗余正交。
 
 ---
 

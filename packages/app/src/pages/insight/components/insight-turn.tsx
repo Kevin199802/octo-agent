@@ -5,7 +5,7 @@ import { useData } from "@opencode-ai/ui/context"
 import { createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml } from "../icons"
-import { isMarkdownTable, isMindmapJSON, isHTML, isPlainJSON } from "../utils/detect"
+import { isMarkdownTable, isMindmapJSON, isPlainJSON, scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { findResourceLinks, mimeToOutputType } from "../utils/resource-link"
 import { type TaskCardEntry } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
@@ -25,28 +25,25 @@ export type OutputCard = {
   createdAt: Date
 }
 
-function detectCard(text: string): { type: OutputCardType; title: string } | null {
-  const heading = (t: string) => t.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim()
+type NonHtmlCard = { type: Exclude<OutputCardType, "html" | "file">; title: string; content: string }
 
-  // 1. Markdown 表格
+/**
+ * 路径 B 嗅探(自由文本)的非 HTML 规则。HTML 走 scanFencedHtml(多卡 + 多 part),不在此处。
+ * 规则与优先级见 docs/specs/ui/output-renderers.md §2。
+ *   - 删除旧的 length>200 → markdown 兜底(误判长解释性回复)
+ *   - 删除其他语言 fence 升级(复用上游 Markdown shiki 高亮)
+ *   - plainJSON 收紧到 ≥80 字符 + (fence 或 ≥3 keys)
+ */
+function detectNonHtmlCard(text: string): NonHtmlCard | null {
+  const heading = (t: string) => t.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim()
   if (isMarkdownTable(text)) {
-    return { type: "table", title: heading(text) ?? "分析结果" }
+    return { type: "table", title: heading(text) ?? "分析结果", content: text }
   }
-  // 2. 思维导图 JSON（在 HTML 之前，避免 HTML 内嵌 JSON-like 字符串误判）
   if (isMindmapJSON(text)) {
-    return { type: "mindmap", title: heading(text) ?? "思维导图" }
+    return { type: "mindmap", title: heading(text) ?? "思维导图", content: text }
   }
-  // 3. HTML（在 plain JSON 之前，因为 HTML 内可能含 <script>{…}</script> 文本）
-  if (isHTML(text)) {
-    return { type: "html", title: heading(text) ?? "可视化页面" }
-  }
-  // 4. 通用 JSON
   if (isPlainJSON(text)) {
-    return { type: "json", title: heading(text) ?? "JSON 数据" }
-  }
-  // 5. 长文本 Markdown（>200 字）
-  if (text.trim().length > 200) {
-    return { type: "markdown", title: heading(text) ?? "分析报告" }
+    return { type: "json", title: heading(text) ?? "JSON 数据", content: text }
   }
   return null
 }
@@ -119,16 +116,20 @@ export function InsightTurn(props: {
   // 同 turn 的 OutputCard 列表(支持 0~N 张,对应 MCP completed 返回的 1~N 个 resource_link)
   // 注意:parts 必须在 showGenerating 判断之前读,确保 SolidJS 始终追踪该依赖;
   // 若先 return [] 则 assistantParts() 从未被追踪,session idle 后 memo 不会因 parts 变化重新触发。
+  //
+  // 两类路径(spec: output-renderers.md §0):
+  //   A. MCP 强契约 — resource_link part → 必出卡 / 多卡(spec: §2.5)
+  //   B. 自由文本嗅探 — text part → fence/shape 兜底(spec: §2)
+  // 同 turn A 命中则 B 不执行(避免重复)。
   const outputCards = createMemo((): OutputCard[] => {
-    const parts = assistantParts()
+    const parts = assistantParts() as Array<{ type: string; text?: string }>
     if (showGenerating()) return []
 
     // 同 turn 有任务卡片就抑制 OutputCard:completed 由 TaskCardView 内的"查看完整结果"按钮触发 openTab
     // (spec: docs/specs/ui/task-card.md §3.4 优先级)
     if (props.taskCards.length > 0) return []
 
-    // 路径 1:resource_link part(无 task_id 的场景,比如未来直接同步返回 resource_link 的工具)
-    //         N 个 resource_link → N 张 OutputCard(spec: output-renderers.md §2.5.1)
+    // ── 路径 A:MCP resource_link part(强契约,零嗅探)──
     const links = findResourceLinks(parts)
     if (links.length > 0) {
       console.log("[octo:card] resource_links (no task)", {
@@ -149,22 +150,77 @@ export function InsightTurn(props: {
       }))
     }
 
-    // 路径 2:text-detect inline(原有路径,保持向后兼容)
-    const textPart = [...parts]
-      .reverse()
-      .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
-    if (!textPart || typeof textPart.text !== "string") return []
-    const text = textPart.text.trim()
-    if (text.length < 10) return []
-    const info = detectCard(text)
-    if (!info) return []
-    return [{
-      id: `card-${props.messageID}`,
-      ...info,
-      source: "inline" as const,
-      content: textPart.text,
-      createdAt: new Date(),
-    }]
+    // ── 路径 B:自由文本嗅探(规则收紧版,spec §2.1)──
+    const textParts = parts.filter((p) => p.type === "text" && typeof p.text === "string")
+    const summary = textParts.length === 0
+      ? ""
+      : ((textParts[textParts.length - 1]?.text ?? "").slice(0, 80))
+    console.log("[octo:detect] start", {
+      msgID: props.messageID,
+      partsCount: parts.length,
+      textPartsCount: textParts.length,
+      summary,
+    })
+
+    if (textParts.length === 0) {
+      console.log("[octo:detect] reject", { msgID: props.messageID, reason: "no text part" })
+      return []
+    }
+
+    const cards: OutputCard[] = []
+
+    // B-1. HTML fence 多卡(扫所有 part,支持未闭合 fence)
+    const htmlBlocks: HtmlFenceBlock[] = scanFencedHtml(textParts)
+    if (htmlBlocks.length > 0) {
+      console.log("[octo:detect] html-fence-found", {
+        msgID: props.messageID,
+        count: htmlBlocks.length,
+        blocks: htmlBlocks.map((b) => ({ closed: b.closed, len: b.html.length, partIndex: b.partIndex })),
+      })
+      htmlBlocks.forEach((block, idx) => {
+        const heading = block.html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim()
+        cards.push({
+          id: `card-${props.messageID}-html-${idx}`,
+          title: heading || (htmlBlocks.length > 1 ? `可视化页面 ${idx + 1}` : "可视化页面"),
+          type: "html",
+          source: "inline",
+          content: block.html,
+          createdAt: new Date(),
+        })
+      })
+    }
+
+    // B-2. 非 HTML 规则:取最后一条 text part 跑一次(table / mindmap / json)
+    //       与 HTML 多卡互相不冲突(HTML 走 fence,table/mindmap 走整段)
+    const lastText = (textParts[textParts.length - 1]?.text ?? "").trim()
+    if (lastText.length >= 10) {
+      const info = detectNonHtmlCard(lastText)
+      if (info) {
+        console.log("[octo:detect] match", {
+          msgID: props.messageID,
+          rule: info.type,
+          title: info.title,
+          textLen: lastText.length,
+        })
+        cards.push({
+          id: `card-${props.messageID}`,
+          title: info.title,
+          type: info.type,
+          source: "inline",
+          content: info.content,
+          createdAt: new Date(),
+        })
+      }
+    }
+
+    if (cards.length === 0) {
+      console.log("[octo:detect] reject", {
+        msgID: props.messageID,
+        reason: "no rule matched (length-tail-only fallback removed per spec §2.1)",
+        lastTextPreview: lastText.slice(0, 200),
+      })
+    }
+    return cards
   })
 
   // mindmap / html / json 的原始文字对用户无价值,任一卡片是机器可读类型则隐藏 assistant 文字区

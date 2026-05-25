@@ -24,19 +24,36 @@ export type ResourceLink = {
  */
 export function findResourceLinks(parts: unknown[]): ResourceLink[] {
   const out: ResourceLink[] = []
+  const branchHits = { A: 0, B: 0, C1: 0, C2: 0 }
   for (const part of parts) {
-    out.push(...readPart(part))
+    out.push(...readPart(part, branchHits))
+  }
+  if (out.length > 0) {
+    console.log("[octo:resource-link] found", {
+      count: out.length,
+      branches: branchHits,
+      mimes: out.map((r) => r.mimeType),
+      names: out.map((r) => r.name),
+    })
+  } else if (parts.some((p) => (p as { type?: string } | null)?.type === "resource_link" || (p as { type?: string } | null)?.type === "tool")) {
+    // 有 tool/resource_link 类型 part 但没解析出来 — 形态可能跟 spec 假设不一致,打详情供外网定位
+    console.log("[octo:resource-link] none-found-but-candidates-present", {
+      partsCount: parts.length,
+      types: parts.map((p) => (p as { type?: string } | null)?.type),
+      sample: parts.find((p) => (p as { type?: string } | null)?.type === "tool"),
+    })
   }
   return out
 }
 
-function readPart(part: unknown): ResourceLink[] {
+function readPart(part: unknown, branchHits?: { A: number; B: number; C1: number; C2: number }): ResourceLink[] {
   if (!part || typeof part !== "object") return []
   const p = part as Record<string, unknown>
   const found: ResourceLink[] = []
 
   // A. 独立 resource_link part
   if (p.type === "resource_link" && typeof p.uri === "string" && typeof p.mimeType === "string") {
+    if (branchHits) branchHits.A++
     found.push({
       uri: p.uri,
       name: typeof p.name === "string" ? p.name : "",
@@ -53,6 +70,7 @@ function readPart(part: unknown): ResourceLink[] {
     if (direct && typeof direct === "object") {
       const d = direct as Record<string, unknown>
       if (typeof d.uri === "string" && typeof d.mimeType === "string") {
+        if (branchHits) branchHits.B++
         found.push({
           uri: d.uri,
           name: typeof d.name === "string" ? d.name : "",
@@ -65,7 +83,12 @@ function readPart(part: unknown): ResourceLink[] {
     const content = meta.content
     if (Array.isArray(content)) {
       for (const item of content) {
-        found.push(...readPart(item))
+        const sub = readPart(item, branchHits)
+        if (sub.length > 0 && branchHits) {
+          // sub 已经在 A 分支里 ++ 过,但是来源是 C1 路径;这里追加 C1 标记
+          branchHits.C1 += sub.length
+        }
+        found.push(...sub)
       }
     }
   }
@@ -80,7 +103,11 @@ function readPart(part: unknown): ResourceLink[] {
           const c = (parsed as Record<string, unknown>).content
           if (Array.isArray(c)) {
             for (const item of c) {
-              found.push(...readPart(item))
+              const sub = readPart(item, branchHits)
+              if (sub.length > 0 && branchHits) {
+                branchHits.C2 += sub.length
+              }
+              found.push(...sub)
             }
           }
         }

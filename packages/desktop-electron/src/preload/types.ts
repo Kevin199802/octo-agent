@@ -56,6 +56,19 @@ export type ElectronAPI = {
   saveFilePicker: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   openLink: (url: string) => void
   openPath: (path: string, app?: string) => Promise<void>
+  /**
+   * 下载远程 URL 到本地指定路径。主进程实现:node fetch → fs.writeFile,自动 mkdir -p。
+   * 用途:配合 saveFilePicker 的「下载到本地」按钮(用户已选具体路径)。
+   * 详见 docs/specs/ui/output-renderers.md §6.A + ADR-009。
+   */
+  downloadResource: (url: string, destPath: string) => Promise<void>
+  /**
+   * 下载远程 URL 到 OS 临时目录(`<temp>/octo/<namespace>/<filename>`),返回最终本地路径。
+   * 用途:「用本地应用打开」前置(先 download 再 openPath),OS 定期清 temp 自动 GC。
+   * namespace 通常传 sessionId 或 tabId,避免不同任务冲突。
+   * 详见 docs/specs/ui/output-renderers.md §6.A。
+   */
+  downloadResourceToTemp: (url: string, namespace: string, filename: string) => Promise<string>
   readClipboardImage: () => Promise<{ buffer: ArrayBuffer; width: number; height: number } | null>
   showNotification: (title: string, body?: string) => void
   getWindowFocused: () => Promise<boolean>

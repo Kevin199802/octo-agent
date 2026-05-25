@@ -70,6 +70,17 @@ export function readTaskInfo(part: unknown): TaskInfo | null {
     }
   }
 
+  console.log("[octo:task-detect] readTaskInfo", {
+    taskId: String(sc.task_id),
+    toolName,
+    status,
+    rawStatus,
+    hasMessage: !!message,
+    hasResultText: !!resultText,
+    resourceLinkCount: resourceLinks.length,
+    scKeys: Object.keys(sc),
+  })
+
   return { taskId: String(sc.task_id), toolName, status, message, resultText, resourceLinks }
 }
 

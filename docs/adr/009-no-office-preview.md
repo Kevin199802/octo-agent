@@ -33,9 +33,34 @@ LLM 对话场景的业界共识：**不做 Office 文件应用内预览**。理�
 
 ## 决策
 
-**不做 Office 文件应用内预览，`FileRenderer` 组件取消。**
+**不做 Office 文件应用内预览**。但**唤起本地应用是默认行为**——MCP `resource_link` 返回 office mimeType 时，`FileFallback` 渲染器提供**双按钮**：
 
-如果未来真的出现"用户需要在 app 内快速看一眼附件原文"的场景：
+```
+[ 用本地应用打开 ]    [ 下载到本地 ]
+```
+
+| 按钮 | 实现 |
+|---|---|
+| **用本地应用打开** | `window.api.downloadResource(uri, tempPath)` 落地临时文件 → `window.api.openPath(tempPath)` 由 OS 关联应用打开（Excel/WPS/Numbers/Keynote） |
+| **下载到本地** | `window.api.saveFilePicker({ defaultPath: filename })` 用户选目录 → `downloadResource(uri, chosenPath)` |
+
+旧实现（`<a target="_blank" href={uri}>`）在 Electron 渲染进程会触发 chromium 默认 window.open + 内置下载弹窗，结果是**两个窗口**（空白 Octo 页 + 另存为对话框），既没"打开"也没真"下载到指定位置"。**新方案完全走 IPC，不依赖浏览器默认行为**。
+
+详见 [output-renderers.md §6.A FileFallback](../specs/ui/output-renderers.md#6a-filefallbackoffice--pdf--二进制)。
+
+### 唤起优先级 / 跨平台兼容
+
+`shell.openPath` 走 **OS 默认关联应用**，不由我们指定 app。"优先 Office 次选 WPS" 由用户机器的文件关联决定。
+
+| 平台 | 行为 |
+|---|---|
+| macOS | LaunchServices 路由（Excel for Mac / Numbers / WPS / Keynote / Preview 等系统兜底） |
+| Windows | ShellExecute 路由（Excel / WPS / LibreOffice 等）。内网无 OneDrive，不担心 OneDrive 抢关联到浏览器版 Office |
+
+失败处理：toast「未找到关联应用，请安装 Excel / WPS 或在系统设置中关联打开方式」。
+
+### 如果未来真要做应用内预览
+
 - 先评估需求是否真实（很可能用户其实是想"打开文件"而不是"在 app 内看"）
 - 即便要做，优先 `openPath` 唤起系统应用，不在 app 内嵌入 Office 渲染器
 
@@ -50,6 +75,7 @@ LLM 对话场景的业界共识：**不做 Office 文件应用内预览**。理�
 | 分析结果导出 Excel | ActionBar Excel 导出（write-excel-file）| ✅ 已规划 |
 | 分析结果导出 CSV / Markdown | ActionBar 已支持 | ✅ 已实现 |
 | Office 文件 app 内预览 | ❌ 不做 | ✅ 业界一致 |
+| Office 文件唤起本地应用 | ✅ FileFallback 双按钮（打开 / 下载） | ✅ 业界一致（Slack / Teams "Open in app" 走 OS 关联）|
 
 所有真实场景已覆盖，不存在 FileRenderer 的合理用例。
 
@@ -57,4 +83,9 @@ LLM 对话场景的业界共识：**不做 Office 文件应用内预览**。理�
 
 - ROADMAP 删除 P1 `FileRenderer + openPath` 任务
 - [insight-result-viewer.md](../specs/ui/insight-result-viewer.md) §5.4 删除；§5 整体瘦身（具体 renderer 实现细节以 [output-renderers.md](../specs/ui/output-renderers.md) 为真相来源）
-- 渲染器范围由 [output-renderers.md](../specs/ui/output-renderers.md) §1 taxonomy 唯一界定（4 种：table / mindmap / html / markdown），不存在 file 类型
+- 渲染器范围由 [output-renderers.md](../specs/ui/output-renderers.md) §1 taxonomy 界定。最终落地为 6 种：`table` / `mindmap` / `html` / `markdown` / `json` / `file` —— 其中 `file` 是 office/pdf/二进制的轻量入口卡（不预览，只提供"用本地应用打开 + 下载"双按钮），符合本 ADR 的"不做应用内预览"原则
+
+## 修订历史
+
+- 2026-05-15 — 初版，决定不做应用内预览
+- 2026-05-25 — 补充"唤起本地应用是默认行为 + 双按钮拆分"，修复旧 `<a target="_blank">` 弹两窗口 bug，明确 macOS/Win 的 OS 关联兜底行为

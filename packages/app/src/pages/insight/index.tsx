@@ -153,6 +153,66 @@ function InsightContent() {
 
   const isBusy = createMemo(() => sessionStatus().type === "busy")
 
+  // busy → idle 时:把刚结束的最新 assistant 消息原始内容完整 dump 到 console。
+  // 内网无法抓 SSE network 时,把这条 console 粘到外网即可定位"LLM 究竟返回了什么"。
+  createEffect(on(isBusy, (busy, prev) => {
+    if (busy || !prev) return  // 只在 idle 切换那一刻打,不在初始 idle 打
+    const sid = params.id
+    if (!sid) return
+    const messages = (sync.data.message[sid] ?? []) as Message[]
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
+    if (!lastAssistant) return
+    const parts = (sync.data.part[lastAssistant.id] ?? []) as Part[]
+
+    const textParts = parts.filter((p) => p.type === "text") as Array<Part & { text?: string }>
+    const toolParts = parts.filter((p) => p.type === "tool") as Array<
+      Part & { tool?: string; state?: { status?: string; output?: string; metadata?: unknown } }
+    >
+
+    console.log("[octo:assistant] turn-complete", {
+      sessionID: sid,
+      msgID: lastAssistant.id,
+      partsCount: parts.length,
+      textPartsCount: textParts.length,
+      toolPartsCount: toolParts.length,
+      toolNames: toolParts.map((p) => p.tool),
+    })
+
+    // 每个 text part 单独打,完整内容(不截断)
+    for (let i = 0; i < textParts.length; i++) {
+      const p = textParts[i]
+      console.log("[octo:assistant] text-part-detail", {
+        msgID: lastAssistant.id,
+        partIdx: i,
+        partID: p.id,
+        textLen: typeof p.text === "string" ? p.text.length : 0,
+        text: p.text,
+      })
+    }
+
+    // 每个 tool part 单独打,含完整 state(output JSON + metadata + status)
+    for (let i = 0; i < toolParts.length; i++) {
+      const p = toolParts[i]
+      const state = p.state ?? {}
+      let parsedOutput: unknown
+      try {
+        parsedOutput = typeof state.output === "string" ? JSON.parse(state.output) : state.output
+      } catch {
+        parsedOutput = state.output  // 非 JSON,保持原样
+      }
+      console.log("[octo:assistant] tool-part-detail", {
+        msgID: lastAssistant.id,
+        partIdx: i,
+        partID: p.id,
+        toolName: p.tool,
+        status: state.status,
+        metadata: state.metadata,
+        outputRaw: state.output,
+        outputParsed: parsedOutput,
+      })
+    }
+  }, { defer: true }))
+
   const [prompt, setPrompt] = createSignal("")
   // queue:busy 期间用户继续发送,先入队,idle 后自动 flush(SPEC-INS-007 §3.3.3)
   // 单容量:第二次入队会覆盖上一次;切 session 时清空
@@ -298,6 +358,12 @@ function InsightContent() {
       textLen: text.length,
       attachmentsCount: doneAttachments.length,
       uploads: doneAttachments.map((a) => ({ name: a.filename, url: a.url })),
+    })
+    // 完整 text 单独 dump(不截断),便于内网把怪 case 粘到外网定位
+    console.log("[octo:prompt] send-full", {
+      source: opts.source,
+      messageID,
+      fullText,   // 含 attachments 拼接后的最终文本
     })
 
     sync.session.optimistic.add({

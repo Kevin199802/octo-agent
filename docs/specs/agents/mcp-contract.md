@@ -21,13 +21,18 @@
 
 ### 业务能力（按 [ADR-012](../../adr/012-mcp-tools-by-capability.md) 铺开）
 
-| 工具 | 业务含义 | 输入材料 | 备注 |
-|---|---|---|---|
-| `run_usability_analysis` | 可用性测试分析 | 上传的访谈 / 测试材料 | 长任务，调用即提交，返回 task_id |
-| `run_guide_analysis` | 大纲聚类分析（按提纲整理） | 上传的访谈材料 + 提纲 | 长任务，调用即提交，返回 task_id |
-| `key_findings` | 自由解析 — 提取用户观点、场景主体、痛点需求等 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id |
-| `mindmap` | 思维导图生成 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id；完成时结果为结构化 JSON |
-| `search_reports` | 基于内网用研知识库的 RAG 检索 | 自然语言 query | 同步返回 |
+业务工具分为两类(详见 [insight-references.md](../ui/insight-references.md))：
+
+- **产物型(artifact)**：返回**自包含产物文件**（HTML 报告 / 结构化 JSON / Excel / PDF 等）；客户端按 [output-renderers.md](../ui/output-renderers.md) 渲染为 **OutputCard 大卡**；通常是长任务（异步 task_id）。
+- **引用型(reference)**：返回**回答正文 + 引用链接**（知识库 RAG）；客户端渲染为对话流末尾的 **ReferenceList chip 清单**，不开大卡；同步返回。
+
+| 工具 | 类型 | 业务含义 | 输入材料 | 备注 |
+|---|---|---|---|---|
+| `run_usability_analysis` | 产物型 | 可用性测试分析 | 上传的访谈 / 测试材料 | 长任务，调用即提交，返回 task_id |
+| `run_guide_analysis` | 产物型 | 大纲聚类分析（按提纲整理） | 上传的访谈材料 + 提纲 | 长任务，调用即提交，返回 task_id |
+| `key_findings` | 产物型 | 自由解析 — 提取用户观点、场景主体、痛点需求等 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id |
+| `mindmap` | 产物型 | 思维导图生成 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id；完成时结果为结构化 JSON |
+| `search_reports` | **引用型** | 基于内网用研知识库的 RAG 检索 | 自然语言 query | **同步返回 + `_octoDisplay: "reference"`**（见下文） |
 
 **业务工具通用出参（长任务提交即返回）：**
 
@@ -300,9 +305,69 @@
 
 ### 通用出参骨架
 
-- **长任务工具**：同步返回 task_id（< 5s），实际结果通过后续 `get_task_result` 查询获取，详见 [§任务管理](#任务管理长任务通用)
-- **search_reports**：同步返回检索结果列表（标题 / 摘要 / 来源 URL）
-- 客户端 `detectCard` 自动识别 Markdown / JSON 内容形态做渲染路由，无需 Octo 侧约束具体返回格式
+- **产物型工具**（长任务）：同步返回 task_id（< 5s），实际结果通过后续 `get_task_result` 查询获取，详见 [§任务管理](#任务管理长任务通用)；`get_task_result` completed 时返回的 `resource_link` MUST 标注 `_octoDisplay: "artifact"` 或缺省字段（缺省视为 artifact）
+- **引用型工具**（`search_reports`）：同步返回回答正文 + 引用 resource_link，详见 [§引用型工具契约](#引用型工具契约)
+
+---
+
+## 引用型工具契约
+
+> 完整设计与渲染规则见 [insight-references.md](../ui/insight-references.md)。本节只列 MCP 服务端必须遵守的契约。
+
+### 出参结构
+
+引用型工具（当前仅 `search_reports`，未来扩展）返回值 MUST 满足：
+
+```jsonc
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "<完整回答正文,可含 [1][2] 角标引用 resource_link 数组(1-indexed,可选)>"
+    },
+    {
+      "type": "resource_link",
+      "uri": "<引用文档 url>",
+      "name": "<引用文档标题>",
+      "mimeType": "text/html",
+      "description": "参考文档",
+      "_octoDisplay": "reference"        // ← 必填,枚举值固定为 "reference"
+    }
+    // ... 可有 N 个 reference 类型 resource_link
+  ],
+  "structuredContent": {
+    "query": "<原始检索 query>",
+    "status": "completed",
+    "source_count": 5
+    // MUST NOT 含 task_id —— 引用型不走任务卡片体系
+  }
+}
+```
+
+### `_octoDisplay` 字段(关键)
+
+| 字段 | 类型 | 必填 | 值 |
+|---|---|---|---|
+| `_octoDisplay` | string enum | **引用型 MUST 填** | `"reference"`(引用清单) / `"artifact"`(产物大卡，缺省) |
+
+- 产物型工具的 resource_link 可以**不填**该字段(客户端缺省按 `"artifact"` 处理,向后兼容)
+- 引用型工具 MUST 显式填 `"reference"`,否则客户端会把它当产物开 N 张大卡(就是 [insight-references.md](../ui/insight-references.md) 解决的 bug)
+
+### text 角标约束(LLM 行为,可选)
+
+agent prompt 引导 LLM 在 `text` 中用 `[n]` 角标引用 resource_link 数组(1-indexed):
+
+```
+根据知识库,调试工具的主要痛点是调用栈分析复杂[1]和多线程断点失效[2]。
+```
+
+客户端按 [insight-references.md §3.3](../ui/insight-references.md) 兼容:有角标解析为 inline citation,没有也能正常渲染段末 ReferenceList。本期 LLM 可不写角标。
+
+### 异常处理
+
+- 缺 `_octoDisplay` 字段 → 客户端按 `"artifact"` 渲染(向后兼容,会出大卡;由开发者通过 spec 督促 UXR 加字段)
+- `_octoDisplay` 值非 `"artifact"` / `"reference"` → 客户端按 `"artifact"` 兜底
+- 同一 content[] 内混合 artifact + reference → 客户端 partition 分流,各自渲染
 
 ---
 
@@ -322,11 +387,11 @@
 
 | 预置按钮 | MCP 工具 | 客户端状态 |
 |---|---|---|
-| 观点解析 | `key_findings` | ✓ 本期已上 |
-| 按提纲聚类 | `run_guide_analysis` | ✓ 本期已上 |
-| 思维导图 | `mindmap` | ✓ 本期已上 |
-| 可用性测试分析 | `run_usability_analysis` | △ 工具已实现,客户端**本期未上**(待产品 / 设计确认 UI 模板) |
-| 用研知识问答(同步检索) | `search_reports` | △ 工具已实现,**非任务触发类**(同步返回),不在本期"预置按钮"范围;留作未来"问答类预置"独立批次 |
+| 观点解析 | `key_findings` | ✓ 已上 |
+| 按提纲聚类 | `run_guide_analysis` | ✓ 已上 |
+| 思维导图 | `mindmap` | ✓ 已上 |
+| 可用性分析 | `run_usability_analysis` | ✓ 已上 |
+| 用研知识问答(引用型) | `search_reports` | △ 工具已实现且契约已定(见 §引用型工具契约);**本期不做预置入口**——引用型 UX(ReferenceList chip)与产物型(OutputCard 大卡)交互模型差异大,需作为独立"问答类预置"专题设计;当前用户可通过自由对话触发 |
 
 > 历史草案中的 `generate_persona` / `evaluation_summary` 在本轮内网定稿中未实现,待 UXR 团队后续支持。
 

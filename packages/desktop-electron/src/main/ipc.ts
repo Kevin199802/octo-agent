@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process"
+import { mkdir, writeFile } from "node:fs/promises"
+import { dirname, join } from "node:path"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
@@ -136,6 +138,33 @@ export function registerIpcHandlers(deps: Deps) {
       execFile(cmd, args, (err) => (err ? reject(err) : resolve()))
     })
   })
+
+  // Octo Insight FileFallback: 下载远程 resource_link 到本地落地点。通用底层能力(任意 URL → 任意路径)。
+  // mkdir -p 兼容多级目录。详见 docs/specs/ui/output-renderers.md §6.A、ADR-009、architecture.md §5.4。
+  ipcMain.handle("download-resource", async (_event: IpcMainInvokeEvent, url: string, destPath: string) => {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+    const buf = Buffer.from(await res.arrayBuffer())
+    await mkdir(dirname(destPath), { recursive: true })
+    await writeFile(destPath, buf)
+  })
+
+  // 下载到 OS temp 目录,返回最终本地路径。renderer 不用拼跨平台路径。
+  // 文件名 sanitize 防路径穿越:替换 / \ : ? * " < > | 等非法字符。
+  ipcMain.handle(
+    "download-resource-to-temp",
+    async (_event: IpcMainInvokeEvent, url: string, namespace: string, filename: string) => {
+      const safeNs = namespace.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "default"
+      const safeName = filename.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 200) || "untitled"
+      const destPath = join(app.getPath("temp"), "octo", safeNs, safeName)
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+      const buf = Buffer.from(await res.arrayBuffer())
+      await mkdir(dirname(destPath), { recursive: true })
+      await writeFile(destPath, buf)
+      return destPath
+    },
+  )
 
   ipcMain.handle("read-clipboard-image", () => {
     const image = clipboard.readImage()

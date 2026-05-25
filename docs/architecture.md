@@ -330,6 +330,24 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 |---|---|
 | 在 `.env` 一行下追加 `.env.local` / `.env.*.local` 两行 | 配合 `.env.example` 模板使用；vite 官方标准忽略模式，让开发者复制出的本地配置（含真实端点）不会被误提交 |
 
+#### `packages/desktop-electron/src/preload/index.ts`（补充）
+
+| 改了什么 | 性质 |
+|---|---|
+| 新增 `downloadResource(url, destPath)` → IPC `download-resource` | 接线 — 给 InsightPage FileFallback 把远程 resource_link 落地本地文件（[ADR-009](adr/009-no-office-preview.md) 双按钮：「用本地应用打开」需要先 download 再 `openPath`）|
+
+#### `packages/desktop-electron/src/preload/types.ts`（补充）
+
+| 改了什么 | 性质 |
+|---|---|
+| `ElectronAPI` 接口加 `downloadResource(url: string, destPath: string): Promise<void>` | 接线 — 给 `window.api.downloadResource` 提供 TS 类型 |
+
+#### `packages/desktop-electron/src/main/ipc.ts`（补充）
+
+| 改了什么 | 性质 |
+|---|---|
+| 新增 `ipcMain.handle("download-resource", ...)`：node fetch 下载远程 URL，落地到指定本地路径（mkdir -p + fs.writeFile） | 接线 — 配合 FileFallback「用本地应用打开」前置步骤；通用底层能力（不仅限 office），未来视频 / 图片 / 任意二进制都可复用 |
+
 #### `bun.lock`
 
 随 `octo-app` workspace 条目删除自动更新；后续随 `packages/app/package.json` 新增 `write-excel-file` / `markmap-*` 自动更新。非手动修改。
