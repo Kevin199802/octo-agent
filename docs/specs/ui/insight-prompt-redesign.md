@@ -106,7 +106,7 @@ export const PRESET_PROMPTS: PresetPrompt[] = [/* 见 §3.1.2 */]
 
 #### 3.1.2 预置内容(初版,可微调)
 
-label 沿用现有 [store/prompt-template.ts](../../../packages/app/src/pages/insight/store/prompt-template.ts) 已确认的中文标题;text 由原 `systemHint` 改写为"用户消息"语气(保持原输出格式定义不自创):
+label 沿用原 [store/prompt-template.ts](../../../packages/app/src/pages/insight/store/prompt-template.ts) 已确认的中文标题(已被本 PR 删除,git history 可查);text 由原 `systemHint` 改写为"用户消息"语气(保持原输出格式定义不自创):
 
 ```typescript
 export const PRESET_PROMPTS: PresetPrompt[] = [
@@ -131,12 +131,18 @@ export const PRESET_PROMPTS: PresetPrompt[] = [
     categories: ["interview"],
     text: "请使用 mindmap 工具生成思维导图,返回 JSON 我这边会自动渲染。",
   },
+  {
+    id: "run_usability_analysis",
+    label: "可用性分析",
+    expectedTool: "run_usability_analysis",
+    categories: ["usability"],
+    text: "请使用 run_usability_analysis 工具对附件中的可用性测试材料做分析。",
+  },
 ]
 ```
 
-**不本期上的两个**:
-- `run_usability_analysis`:[mcp-contract.md L29](../agents/mcp-contract.md) 标"UI 模板待产品 / 设计确认是否加入下拉",待该确认后再加(follow-up)
-- `search_reports` / 知识问答:**非任务触发类**(同步检索,不返回 task_id),不符合本期"任务触发预置"的范围,留作未来"问答类预置"独立批次
+**不本期上的一个**:
+- `search_reports` / 知识问答:**引用型工具,UX 与产物型差异大,本期不开预置入口**。该工具契约已在 [mcp-contract.md §引用型工具契约](../agents/mcp-contract.md#引用型工具契约) 定义(`_octoDisplay: "reference"` + ReferenceList chip 清单),与产物型(OutputCard 大卡)的渲染模型完全不同。要做胶囊需要先理顺"问答类预置"的整体交互方向(单 turn 触发 / 上下文连续追问 / 角标定位 / chip 收起等),作为独立专题做,**不在本 PR 范围**。当前用户仍可通过自由对话触发(LLM 自然语言识别)。
 
 **初版**:本 PR 落地后跟内网联调时可再微调文案。
 
@@ -372,7 +378,7 @@ createEffect(on(() => params.id, () => {
 | 风险 | 等级 | 应对 |
 |---|---|---|
 | 预置文本对 LLM 调用准确性不足(LLM 没调对 tool) | 中 | §3.1.2 已强制文本提名 tool 名;内网联调时观察 `[octo:preset]` 日志 + tool call 实际值,不一致就改文案 |
-| `run_usability_analysis` 待 mcp-contract 确认前不上,后续用户问"为啥没这个" | 低 | §3.1.2 已注明边界;follow-up 已登记 |
+| `search_reports` 用户不知道有这个能力(没胶囊) | 低 | 自由对话可触发;"问答类预置"作为独立专题排期 |
 | queue 容量=1 用户认知:第二次 submit 会覆盖第一次 | 中 | 提示条显示当前排队内容,用户可感知;若被反馈"丢消息"再升级 |
 | busy→idle flush 时机:如果用户已经手动清了 `queuedText` 但 effect 还没跑 | 低 | `setQueuedText(null)` 后 effect 读到 `null` 自然 noop |
 | 切 session 时 queue 没清干净导致错发 | 中 | §3.3.5 effect 已处理,checklist 必测 |
@@ -386,7 +392,7 @@ createEffect(on(() => params.id, () => {
 
 ### 7.1 功能
 
-- [ ] 输入框顶部出现 3 个圆角按钮("观点解析 / 按提纲聚类 / 思维导图")
+- [ ] 输入框顶部出现 4 个圆角按钮("观点解析 / 按提纲聚类 / 思维导图 / 可用性分析")
 - [ ] 容器变窄时,按钮溢出区域可横向滚动;右侧出现"→"快速右滚按钮,滚到底时箭头消失
 - [ ] 点击按钮 → 输入框被填入对应文本 → textarea 自动 focus → 用户可编辑后 enter 发送
 - [ ] 发送后立即在消息列表看到自己说的话(optimistic)
@@ -450,8 +456,7 @@ createEffect(on(() => params.id, () => {
 
 - 预置按钮 icon / tooltip 富文本(等设计师切图,登记 [design-assets-needed.md](design-assets-needed.md))
 - 预置按钮上标"会调用 X tool"提示(`expectedTool` 字段已留)
-- 加入 `run_usability_analysis` 预置(条件:mcp-contract 确认其 UI 模板上线)
-- 加入"知识问答"类预置(条件:产品决定把 `search_reports` 等同步检索类也做成按钮)
+- 加入"问答类预置"专题(覆盖 `search_reports` 等引用型工具,见 [insight-references.md](insight-references.md));需独立设计 UX(单 turn 触发 / 连续追问 / 角标 / chip 收起等),与产物型胶囊**不混排**
 - queue 升级:多容量 / dock / 持久化(条件:用户反馈"经常排 3+ 条"或"reload 丢消息")
 - Tool 激活 toggle(条件:用户反馈"重复点烦"或 LLM 选错 tool)
 - 外网分类筛选页(`categories` schema 已留,本期不写 UI)

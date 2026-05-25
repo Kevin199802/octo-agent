@@ -36,4 +36,11 @@ export const PRESET_PROMPTS: PresetPrompt[] = [
     categories: ["interview"],
     text: "请使用 mindmap 工具生成思维导图,返回 JSON 我这边会自动渲染。",
   },
+  {
+    id: "run_usability_analysis",
+    label: "可用性分析",
+    expectedTool: "run_usability_analysis",
+    categories: ["usability"],
+    text: "请使用 run_usability_analysis 工具对附件中的可用性测试材料做分析。",
+  },
 ]
