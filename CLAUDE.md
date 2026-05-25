@@ -99,7 +99,8 @@
 - **页面自包含**：`insight/` 目录内的样式、组件、工具函数全部放在目录内，不往外散
 - **可视化各自引库**：ECharts / mermaid 等在用到的页面目录内引入，不抽共享组件
 - **Office 预览**：`window.api.openPath(filePath)` 唤起本地应用，不做浏览器内渲染
-- **PromptInput 自己写**：上游 PromptInput 深耦合 packages/app context，在 `insight/` 内写简化版
+- **PromptInput 自己写**：上游 PromptInput 设计为 chat 工作流(@-mention 代码库 / 斜杠命令 / 历史回溯 / 代码粘贴)，1500+ 行，深度耦合 `useSessionLayout / useFile / useCommand / useComments` 等 chat 专属 context；insight 工作流(文档上传 + 预置提示词按钮 + MCP 任务卡片)功能集重叠度 < 20%，复用成本远高于自实现。详见 [SPEC-INS-005 §7](docs/specs/ui/insight-data-layer-reuse.md#7-输入区评估保留自实现--理由更新)
+- **提示词走单 turn 而非 session 级**：预置提示词按钮点击 = 把文本填入输入框作为本 turn 的用户消息，不再走 `system` 字段(原 [ADR-007](docs/adr/007-prompt-template-via-system-field.md) 已部分作废)。理由:session 级 system 会污染整段对话上下文。详见 [SPEC-INS-007](docs/specs/ui/insight-prompt-redesign.md)
 
 ---
 
@@ -111,7 +112,7 @@
 - ADR-004 — 切回 SolidJS → [docs/adr/004-solidjs-ui-reuse.md](docs/adr/004-solidjs-ui-reuse.md)
 - ADR-005 — 提示词模板 vs Subagent → [docs/adr/005-prompt-template-vs-subagent.md](docs/adr/005-prompt-template-vs-subagent.md)
 - ADR-006 — 文件上传走 InsightPage 直传，不经过 MCP → [docs/adr/006-upload-architecture.md](docs/adr/006-upload-architecture.md)
-- ADR-007 — 提示词模板通过 session.prompt() 的 system 字段传递 → [docs/adr/007-prompt-template-via-system-field.md](docs/adr/007-prompt-template-via-system-field.md)
+- ADR-007 — 提示词模板通过 session.prompt() 的 system 字段传递 → [docs/adr/007-prompt-template-via-system-field.md](docs/adr/007-prompt-template-via-system-field.md) **(部分作废,被 SPEC-INS-007 覆盖)**
 - ADR-008 — Agent 配置走 cascading 模式（A 类 bundle 内写死，B/C 类用户文件）→ [docs/adr/008-cascading-config.md](docs/adr/008-cascading-config.md)
 - ADR-009 — 不在客户端预览 Office 文件（docx/pptx/xlsx）→ [docs/adr/009-no-office-preview.md](docs/adr/009-no-office-preview.md)
 - ADR-010 — 机器可读卡片原始输出隐藏策略（路线 B：tool_call 检测）→ [docs/adr/010-suppress-raw-output.md](docs/adr/010-suppress-raw-output.md)

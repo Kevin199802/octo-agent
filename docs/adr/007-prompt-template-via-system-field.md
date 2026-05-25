@@ -1,7 +1,32 @@
 # ADR-007: 提示词模板通过 session.prompt() 的 system 字段传递
 
 ## 状态
-已采纳（2026-05-14）
+~~已采纳(2026-05-14)~~ → **部分作废(2026-05-25),被 [SPEC-INS-007](../specs/ui/insight-prompt-redesign.md) 覆盖**
+
+### 作废范围
+
+新方案改成"单 turn 预置提示词按钮":点击按钮 = 把模板文本填入输入框作为**用户消息正文** (parts[0].text),**不再走 system 字段**。理由:session 级 system 会污染整段对话上下文,用户切换话题时旧 system 仍在影响 LLM 行为。
+
+### 仍然适用范围
+
+本 ADR 的方案分析仍可作为历史参考:
+- 方案 C(走 system 字段)在"想做 session 级元提示词"的场景仍然成立
+- 仅在 insight 当前产品方向下,session 级元提示词本身**不是想要的语义**,所以方案 C 也不再适用
+
+未来如有"插件需要长期影响对话风格"等场景,可重新引入 system 字段或新建独立 ADR。
+
+### 回归路径(给未来的设计师 / AI)
+
+如果产品方向变成"一个 session 只输出一种格式"或类似 session 级约束:
+
+1. **本 ADR 方案 C 的实现路径仍然成立**——`session.prompt({ system: "..." })` per-call 但内容固定
+2. 原 `prompt-template.ts`(6 个模板的 `systemHint` 文案)在 git history 里:
+   ```bash
+   git log --diff-filter=D --follow packages/app/src/pages/insight/store/prompt-template.ts
+   git show <delete-commit-sha>:packages/app/src/pages/insight/store/prompt-template.ts
+   ```
+3. 原 `PromptTemplateSelector` UI(下拉 + 两级面板)同样在 git history,可直接 cherry-pick 或参考
+4. 注意需要同步评估:回归 session 级后 [SPEC-INS-007 §1.1](../specs/ui/insight-prompt-redesign.md#11-触发动机) 提到的"切话题污染"痛点如何缓解(可能用 session 维度切分,或加"重置 session 上下文"按钮)
 
 ## 背景
 

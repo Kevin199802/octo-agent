@@ -133,68 +133,118 @@ createEffect(() => {
 
 ### 3.2 PR2：发消息链路改 promptAsync + optimistic
 
-**改动**：`doSendPrompt`（[index.tsx:298-342](../../../packages/app/src/pages/insight/index.tsx)）
+> **修订（2026-05-25）**：原伪代码中三处与现状不符已修正,详见 §12.1。
 
-**当前**：
+**改动范围**：`doSendPrompt` / `handleSubmit` / `handleTaskRefresh` / `handleTaskStop` / `inputDisabled` / `createAndNavigate`(均在 [index.tsx](../../../packages/app/src/pages/insight/index.tsx))。
+
+**当前**(PR1 后):
 
 ```typescript
-setSending(true)
-try {
-  // ... 构造 promptPayload
-  await globalSDK.client.session.prompt(promptPayload)
-  // ...
-} catch (err) {
-  console.error("[InsightPage] prompt failed", ...)
-} finally {
-  setSending(false)
+async function doSendPrompt(sessionId, text, opts) {
+  setSending(true)
+  try {
+    // ... 构造 promptPayload
+    await globalSDK.client.session.prompt(promptPayload)   // 同步阻塞到 LLM 完成
+    if (opts.consumeAttachments) { filesById.clear(); setAttachments([]) }
+  } catch (err) {
+    console.error("[InsightPage] prompt failed", { source: opts.source, err })
+  } finally {
+    setSending(false)
+  }
 }
 ```
 
-**改为**（参考 [submit.ts:106-170](../../../packages/app/src/components/prompt-input/submit.ts)）：
+**改为**(参考 [submit.ts:53-171 `sendFollowupDraft`](../../../packages/app/src/components/prompt-input/submit.ts)):
 
 ```typescript
-// 1. 生成 messageID（客户端预生成，optimistic add 用）
-import { Identifier } from "@opencode-ai/shared/util/identifier"
-const messageID = Identifier.ascending("message")
+import { Identifier } from "@/utils/id"
+import { showToast } from "@opencode-ai/ui/toast"
+// ...
 
-// 2. 构造 optimistic user message
-const optimisticMessage: Message = {
-  id: messageID,
-  sessionID: sessionId,
-  role: "user",
-  time: { created: Date.now() },
-  agent: "octo_insight",
-  model: { providerID: ..., modelID: ..., variant: undefined },  // 从 globalSync 取默认
-}
+async function doSendPrompt(sessionId, text, opts) {
+  const template = PROMPT_TEMPLATES.find((t) => t.id === templateId())!
+  const doneAttachments = opts.consumeAttachments
+    ? attachments().filter((a) => a.status === "done" && a.url)
+    : []
+  const fullText = text + formatUploadsForPrompt(
+    doneAttachments.map((a) => ({ filename: a.filename, url: a.url! })),
+  )
+  const textPart: TextPartInput = { type: "text", text: fullText }
+  const messageID = Identifier.ascending("message")
+  const agent = "insight"
 
-// 3. 立即显示
-sync.session.optimistic.add({
-  sessionID: sessionId,
-  message: optimisticMessage,
-  parts: [textPart],  // 用户输入的 parts
-})
+  // optimistic user message —— 立即显示在消息列表
+  // directory 不传,走 SDKProvider 注入的当前 dir(InsightContent 已在 SDKProvider 内)
+  // model 不传,后端按 agent 默认配置(消息体模型标签会缺,可后续补)
+  const optimisticMessage: Message = {
+    id: messageID,
+    sessionID: sessionId,
+    role: "user",
+    time: { created: Date.now() },
+    agent,
+  }
+  const optimisticPart: Part = {
+    id: Identifier.ascending("part"),
+    sessionID: sessionId,
+    messageID,
+    type: "text",
+    text: fullText,
+  }
 
-// 4. 异步发送（立即返回 204，不阻塞）
-try {
-  await globalSDK.client.session.promptAsync({ ...promptPayload, messageID })
-} catch (err) {
-  // promptAsync 失败时需要 remove optimistic
-  sync.session.optimistic.remove({ sessionID: sessionId, messageID })
-  throw err
+  console.log("[octo:prompt] send", { source: opts.source, sessionID: sessionId, messageID, ... })
+  sync.session.optimistic.add({ sessionID: sessionId, message: optimisticMessage, parts: [optimisticPart] })
+  console.log("[octo:prompt] optimistic added", { messageID, partsCount: 1 })
+
+  if (opts.consumeAttachments) {
+    filesById.clear()
+    setAttachments([])
+  }
+
+  try {
+    await globalSDK.client.session.promptAsync({
+      sessionID: sessionId,
+      agent,
+      system: template.systemHint,
+      parts: [textPart],
+      messageID,                  // 与 optimistic 对齐,服务端首次回 message.updated 时合并
+    })
+    console.log("[octo:prompt] sent (async)", { messageID, sessionID: sessionId })
+  } catch (err) {
+    console.error("[octo:prompt] failed", { source: opts.source, messageID, err })
+    sync.session.optimistic.remove({ sessionID: sessionId, messageID })
+    showToast({
+      title: "发送失败",
+      description: errorDescription(err),    // 提取 err.data.message / err.message / fallback
+    })
+  }
 }
 ```
 
-**`sending()` 信号去除**：
-- 删 `const [sending, setSending] = createSignal(false)`（L233）
-- 所有 `sending()` 的使用点：
-  - `inputDisabled() = sending() || isBusy()` → `inputDisabled() = isBusy()`（`isBusy` 已经反映 sessionStatus）
-  - `if (sending()) return`（handleSubmit L355）→ 改为 `if (isBusy()) return`
-  - `if (isBusy() || sending())`（任务卡片操作 L458/473）→ `if (isBusy())`
+**注意点**:
+- **附件状态在 try 外**清(进 try 后异步发出失败 toast,附件应已经清空—对齐 chat 的语义);失败时附件不复原(用户重新选)。如要求复原可放 try/catch 内,但 chat 不复原。
+- **optimistic.remove 在 catch 内**调一次即可,promptAsync 失败本身已说明消息没送出。
+- `errorDescription` 实现参考 [submit.ts:216-223](../../../packages/app/src/components/prompt-input/submit.ts) `errorMessage` 函数。
 
-**错误处理**：
-- 当前 try/catch 已无用（promptAsync 立即返回不报后端错误）
-- 后端错误走 SSE `session.error` 事件 → 由 globalSync 派发到 `notification` 通道 → toast 自动显示
-- 验证：confirm `notification.tsx` 已订阅 session.error 并触发 toast（**待 PR1 之后实测**）
+**`sending()` 信号去除**:
+- 删 `const [sending, setSending] = createSignal(false)` ([index.tsx:157](../../../packages/app/src/pages/insight/index.tsx))
+- 所有 `sending()` 使用点改成 `isBusy()`(`isBusy` 已经反映 `sessionStatus.type === "busy"`,promptAsync 立即返回后 SSE `session.idle/busy` 事件接管):
+  - `inputDisabled() = sending() || isBusy()` → `inputDisabled() = isBusy()` ([L548](../../../packages/app/src/pages/insight/index.tsx))
+  - `if (!text || sending()) return` ([L288](../../../packages/app/src/pages/insight/index.tsx) handleSubmit) → `if (!text || isBusy()) return`
+  - `if (isBusy() || sending())` ([L403/418](../../../packages/app/src/pages/insight/index.tsx) 任务卡片操作) → `if (isBusy())`
+  - send 按钮 `disabled={!prompt().trim() || inputDisabled() || hasUploadingAttachments()}`([L666](../../../packages/app/src/pages/insight/index.tsx)) 不改
+  - send 按钮 loading 文案 `{sending() ? "…" : <IconSend size={14} />}` ([L670](../../../packages/app/src/pages/insight/index.tsx)) → `{isBusy() ? "…" : <IconSend size={14} />}`
+- `createAndNavigate` ([L212-229](../../../packages/app/src/pages/insight/index.tsx)) 当前用 setSending(true/false) 包 session.create:
+  - 删 setSending,因 create 调用极快(< 100ms),即使瞬时未禁也基本无副作用;
+  - 失败的 toast 替换原 console.error。
+
+> ⚠️ **§10.1 输入框 disabled 是 feat 级 bug**,本 PR 只处理 sending() → isBusy() 的机械替换,**保留** `disabled={inputDisabled()}` 在 textarea 上的现状。disabled 整改是任务 2,独立 PR。
+
+**错误处理(修订)**:
+- promptAsync 失败(网络断 / 4xx / 5xx)→ `await` reject → 调用方 catch → `optimistic.remove` + `showToast`。**这是 toast 唯一来源**。
+- SSE 中途 LLM 错误(如 model 401)→ `session.error` 事件被 [NotificationProvider](../../../packages/app/src/context/notification.tsx) 捕获 → append 到 `notification.list`(右上角铃铛红点)+ 系统级 `platform.notify`,**但不弹页面 toast**。
+- InsightPage **已经挂了** `<Toast.Region />`([L559](../../../packages/app/src/pages/insight/index.tsx)),`showToast` 可直接用。
+- InsightPage **没有自挂 NotificationProvider**,但全 app 共用一个挂在 [app.tsx:97](../../../packages/app/src/app.tsx),铃铛红点在 OctoShell topbar 暂未对接;**本 PR 不处理铃铛 UI**,只确认数据流不丢。
+- **不引入对 SSE session.error 的额外 toast 监听**:与 chat 行为对齐(chat 也不在前台 toast 中途错误,理由是会刷屏并跟 NotificationProvider 重复)。如内网调试发现"用户根本不知道出错了",再单独评估。
 
 ### 3.3 任务卡片操作链路
 
@@ -211,7 +261,8 @@ try {
 | sync.data 读取路径与本地 dataStore 字段形状不一致 | 低 | 类型相同（同 SDK 来源），TS 编译期可捕获 |
 | `sync.session.sync(id)` 行为差异导致初始加载时序变化 | 中 | chat 实战验证过；先 PR1 单独打包试跑一次，确认消息列表展示正常 |
 | optimistic message 字段不全（agent/model 拿不到默认值） | 中 | 参考 submit.ts 取值方式；若运行时 model 拿不到，从 `globalSync.data.config` 或 `globalSync.data.provider` 默认 |
-| promptAsync 失败走 SSE error 通道，notification toast 未生效 | 中 | PR2 实施后必须实测一次 401/网络断 等错误，确认 toast 出现 |
+| promptAsync 失败时 optimistic 残留 | 中 | catch 内统一 `optimistic.remove(messageID)` + `showToast`,§5.2 检查项必跑 |
+| SSE 中途错误(model 401 / mid-stream)用户感知不到 | 低 | 上游 chat 行为对齐(不前台 toast,走 NotificationProvider 列表);如内网反馈强烈,任务 3 审计时复评 |
 | 任务卡片"refresh inflight"语义改变（之前依赖 await prompt 完成） | 低 | refresh 本质只关心 SSE 后续事件，promptAsync 不阻塞反而更符合预期 |
 | DataProvider props 不传 onNavigateToSession 是否影响 SessionTurn | 低 | 已对照 chat 实现，不传只丢"子 session 跳转"功能，不会报错 |
 | 失去自建 `[octo:sse]` 调试日志 | 低 | 接受；下次出问题再临时加 |
@@ -234,13 +285,15 @@ PR1 / PR2 各自合入后，**必须人工跑一遍**：
 
 ### 5.2 PR2 合入后
 
-- [ ] 发消息后**立即看到自己说的话**（optimistic）
+- [ ] 发消息后**立即看到自己说的话**(optimistic)
+- [ ] 服务端首次回 message.updated 后 optimistic 平滑合并(不闪烁、ID 不变)
 - [ ] LLM 流式响应正常显示
-- [ ] 发消息期间输入框被 disabled（`isBusy` 信号生效）
+- [ ] 发消息期间输入框被 disabled(`isBusy` 信号生效,**任务 2 会整改本条**)
 - [ ] LLM 完成后输入框恢复
 - [ ] 任务卡片"刷新 / 终止 / follow-up"按钮链路正常
-- [ ] 模拟网络错误（断网发消息）→ toast 提示 + optimistic message 被清除
-- [ ] 模拟服务端错误（如 model 401）→ toast 提示
+- [ ] 断网 / promptAsync 直接 reject → toast "发送失败" + optimistic message 自动清除
+- [ ] LLM 中途错误(model 401 / OpenAI 流断)→ NotificationProvider 列表追加(暂时通过 `console` / devtools 观察,UI 铃铛非本 PR 范围)
+- [ ] 无 `console.error("[InsightPage] prompt failed", ...)` silent 输出(已全部走 toast)
 
 ---
 
@@ -365,3 +418,23 @@ PR1 内网验证通过、流式重复 bug 修复。但发现**输入框在 sessi
 自建数据层非有意设计：[commit d65c53f](../../../) "完整 InsightPage 骨架"实现时，作者（Claude）未评估复用 globalSync，从零写了一版。事后 CLAUDE.md §"规划 spec / 写代码前的强制检查" 才加入 "必须先排查上游能力" 规则。本 spec 即是该规则的兜底落实。
 
 **§10.1/§10.2 反映的更深层问题**：可能不止数据层。"自建组件全量审计" 任务存在，正是因为类似 d65c53f 的"未评估复用就自实现"模式可能在其他组件（AttachmentBar、OctoShell sidebar 等）上重复发生。审计 = 兜底排查这类系统性偏差。
+
+---
+
+## 12. PR2 修订记录(2026-05-25)
+
+### 12.1 PR1 后再读源码,发现 §3.2 原稿三处与实际不符,已修订:
+
+1. **Identifier 路径错误**:原稿 `import { Identifier } from "@opencode-ai/shared/util/identifier"`,实际 octo 用 [packages/app/src/utils/id.ts](../../../packages/app/src/utils/id.ts) 本地 wrapper,统一 `import { Identifier } from "@/utils/id"`(参考 [submit.ts:16](../../../packages/app/src/components/prompt-input/submit.ts) / [session.tsx:61](../../../packages/app/src/pages/session.tsx))。
+2. **optimistic.add 的 directory 参数可省略**:`directory?` 不传时 [sync.tsx:394](../../../packages/app/src/context/sync.tsx) 默认 `sdk.directory`,而 InsightContent 在 `<SDKProvider directory={() => dir}>` 内,sdk.directory 已是 homeDir,**不需要手动传**。原稿没说明,实施时容易误传。
+3. **"toast 自动显示"假设错误**:原稿"后端错误走 SSE session.error → globalSync notification 通道 → toast 自动显示",实际 [NotificationProvider](../../../packages/app/src/context/notification.tsx) **只 append 到列表 + 系统 platform.notify,不弹页面 toast**。upstream [submit.ts:565-577](../../../packages/app/src/components/prompt-input/submit.ts) 的 toast 来自调用方 `.catch(...)` 后自行 `showToast`,与 SSE 通道无关。修订后改成"promptAsync reject → catch → optimistic.remove + showToast"显式处理。
+
+### 12.2 model 字段策略
+
+`promptAsync` 的 `model` 字段可省,后端按 agent 默认配置选 model([packages/opencode/src/server/instance/session.ts:931](../../../packages/opencode/src/server/instance/session.ts) 链路)。我们当前不传(与 [index.tsx:248-253](../../../packages/app/src/pages/insight/index.tsx) 现行 prompt 调用一致)。**代价**:optimistic message 上没 model 字段,消息体的"模型 / provider"标签不显示;服务端首次回 message.updated 后填补,标签出现。可接受。
+
+如需 optimistic 阶段也显示标签:从 `globalSync.data.config` 取 agent.insight 的默认 model,但需先确认配置加载时机,**不在 PR2 范围**。
+
+### 12.3 任务卡片操作链路
+
+`handleTaskRefresh` / `handleTaskStop` 内 `if (isBusy() || sending())` 简化为 `if (isBusy())`。`handleTaskFollowup` 不发 prompt 只 setPrompt,无影响。

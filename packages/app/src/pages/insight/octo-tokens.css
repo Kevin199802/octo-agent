@@ -155,97 +155,118 @@
   background: rgba(0,0,0,0.05);
 }
 
-/* ── 提示词模板选择器 ──────────────────────── */
+/* ── 预置提示词按钮组(spec: insight-prompt-redesign §3.1.3) ────── */
 
-.template-trigger {
-  display: inline-flex;
+.octo-preset-bar {
+  position: relative;
+  display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: var(--octo-radius-sm);
-  border: 1px solid var(--octo-border-divider);
-  background: rgba(0, 0, 0, 0.04);
-  color: var(--octo-text-secondary);
+  padding: 0 2px 8px 2px;       /* 输入框外:不要左右内缩 + 给输入框留间距 */
+}
+
+.octo-preset-scroll {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;            /* Firefox */
+  -ms-overflow-style: none;         /* IE / Edge legacy */
+  flex: 1;
+  scroll-behavior: smooth;
+}
+.octo-preset-scroll::-webkit-scrollbar {
+  display: none;                    /* Chromium */
+}
+
+.octo-preset-chip {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--octo-border-default);
+  background: var(--octo-surface-page);
+  color: var(--octo-text-primary);
   font-size: 12px;
   font-family: var(--octo-font);
-  cursor: pointer;
-  max-width: 200px;
   white-space: nowrap;
-  overflow: hidden;
+  cursor: pointer;
+  transition: background-color var(--octo-dur-fast) var(--octo-ease),
+              color var(--octo-dur-fast) var(--octo-ease),
+              border-color var(--octo-dur-fast) var(--octo-ease);
+}
+.octo-preset-chip:hover:not(:disabled) {
+  background: var(--octo-brand-a8);
+  color: var(--octo-brand);
+  border-color: var(--octo-brand-a25);
+}
+.octo-preset-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-.template-trigger:hover {
-  background: rgba(0, 0, 0, 0.08);
+.octo-preset-scroll-right {
+  flex-shrink: 0;
+  margin-left: 4px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--octo-border-divider);
+  background: var(--octo-surface-page);
+  color: var(--octo-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  /* 左侧渐变遮罩,暗示更多内容 */
+  box-shadow: -6px 0 8px -4px rgba(255, 255, 255, 0.9);
+}
+.octo-preset-scroll-right:hover {
+  color: var(--octo-brand);
+  border-color: var(--octo-brand-a25);
+}
+
+/* ── 队列提示条(spec §3.3.4) ──────────────────────────────── */
+
+.octo-queue-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 6px 12px;
+  padding: 6px 10px;
+  border-radius: var(--octo-radius-md);
+  background: var(--octo-brand-a8);
+  border: 1px solid var(--octo-brand-a25);
   color: var(--octo-text-primary);
+  font-size: 12px;
 }
-
-.template-label {
+.octo-queue-banner-label {
+  color: var(--octo-brand);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.octo-queue-banner-text {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--octo-text-secondary);
 }
-
-.template-chevron {
+.octo-queue-banner-cancel {
   flex-shrink: 0;
-  font-size: 10px;
-  opacity: 0.6;
-}
-
-.template-dropdown {
-  min-width: 160px;
-  max-width: 240px;
-  background: var(--octo-surface-page);
-  border: 1px solid var(--octo-border-default);
-  border-radius: var(--octo-radius-lg);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
-  z-index: 200;
-  padding: 4px 0;
-  overflow: hidden;
-}
-
-.template-option {
+  width: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
-  width: 100%;
-  padding: 6px 12px 6px 28px;
-  font-size: 13px;
-  color: var(--octo-text-primary);
+  justify-content: center;
+  border-radius: 999px;
   background: transparent;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  font-family: var(--octo-font);
-  white-space: nowrap;
-}
-
-.template-option:hover {
-  background: var(--octo-surface-hover);
-}
-
-.template-option.selected {
-  padding-left: 12px;
-  color: var(--octo-brand);
-  font-weight: 500;
-}
-
-/* 一级面板中，二级面板已展开的分组项高亮 */
-.template-option.active {
-  background: var(--octo-brand-a8);
-}
-
-.template-check {
-  font-size: 12px;
-  margin-right: 6px;
-  color: var(--octo-brand);
-}
-
-/* 有子项的分组显示的右箭头 */
-.template-sub-arrow {
-  margin-left: auto;
-  padding-left: 16px;
-  font-size: 14px;
   color: var(--octo-text-secondary);
+  cursor: pointer;
+  font-size: 14px;
   line-height: 1;
+}
+.octo-queue-banner-cancel:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--octo-text-primary);
 }
 
 

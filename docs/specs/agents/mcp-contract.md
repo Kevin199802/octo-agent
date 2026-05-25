@@ -315,20 +315,20 @@
 
 ---
 
-## 提示词模板 → MCP 工具映射
+## 预置提示词 → MCP 工具映射
 
-> 提示词模板是客户端行为，完整定义见 [insight-analysis-mode.md](../ui/insight-analysis-mode.md)。  
-> 此处仅列出 MCP 侧对应关系。
+> 客户端从 [SPEC-INS-007](../ui/insight-prompt-redesign.md) 起改为**预置提示词按钮(单 turn)**,不再走 session 级模板下拉。完整定义见 spec。  
+> 此处仅列出 MCP 侧对应关系。客户端配置见 [packages/app/src/pages/insight/store/preset-prompts.ts](../../../packages/app/src/pages/insight/store/preset-prompts.ts)。
 
-| 提示词模板 | MCP 工具 | 状态 |
+| 预置按钮 | MCP 工具 | 客户端状态 |
 |---|---|---|
-| 观点解析 | `key_findings` | 已实现 |
-| 按提纲聚类 | `run_guide_analysis` | 已实现 |
-| 思维导图 | `mindmap` | 已实现 |
-| 可用性测试分析 | `run_usability_analysis` | 已实现，UI 模板待产品 / 设计确认是否加入下拉 |
-| 用研知识问答 | `search_reports` | 已实现 |
+| 观点解析 | `key_findings` | ✓ 本期已上 |
+| 按提纲聚类 | `run_guide_analysis` | ✓ 本期已上 |
+| 思维导图 | `mindmap` | ✓ 本期已上 |
+| 可用性测试分析 | `run_usability_analysis` | △ 工具已实现,客户端**本期未上**(待产品 / 设计确认 UI 模板) |
+| 用研知识问答(同步检索) | `search_reports` | △ 工具已实现,**非任务触发类**(同步返回),不在本期"预置按钮"范围;留作未来"问答类预置"独立批次 |
 
-> 历史草案中的 `generate_persona` / `evaluation_summary` 在本轮内网定稿中未实现，待 UXR 团队后续支持。
+> 历史草案中的 `generate_persona` / `evaluation_summary` 在本轮内网定稿中未实现,待 UXR 团队后续支持。
 
 ---
 
