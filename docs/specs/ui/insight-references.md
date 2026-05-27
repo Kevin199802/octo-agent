@@ -57,9 +57,13 @@ for source in result["sources"]:
 
 ## 2. 协议层设计
 
-### 2.1 自定义扩展字段 `_octoDisplay`
+### 2.1 复用 mcp-contract `business_type` 字段
 
-复用 MCP `resource_link` 结构,加 octo 私有扩展字段:
+字段定义、enum 取值、客户端兜底规则**统一在** [mcp-contract.md §resource_link 业务类型声明字段 `business_type`](../agents/mcp-contract.md#resource_link-业务类型声明字段-business_type重要) **主表**。本 spec 是该字段 enum `"search_reports"` 取值的业务专题约定,不重复定义字段本身。
+
+**本 spec 涉及的 enum 值**:`"search_reports"`(引用链接 / RAG)。其他取值(缺省 / `"mindmap"`)分别由通用产物路径与 mindmap 工具承担,各自渲染逻辑见 [output-renderers.md](output-renderers.md)。
+
+引用型 resource_link 示例(复用 mcp-contract 字段约定):
 
 ```jsonc
 {
@@ -68,24 +72,12 @@ for source in result["sources"]:
   "name": "调试工具用户研究报告 2024",
   "mimeType": "text/html",
   "description": "参考文档",
-  "_octoDisplay": "reference",   // ← 新增:"artifact" | "reference",缺省 = "artifact"
+  "business_type": "search_reports",   // ← 必填,触发本 spec 的 ReferenceList chip 渲染
   "annotations": {                // MCP 标准字段,保留(audience 用于过滤"是否给用户看")
     "audience": ["user"]
   }
 }
 ```
-
-**字段 enum**:
-| 值 | 语义 | 服务端选哪个 | 客户端渲染 |
-|---|---|---|---|
-| `"artifact"`(缺省)| 自包含产物 | 任务型 tool 的 resource_link(分析报告、可视化、表格)| 现有 OutputCard 大卡(§output-renderers §1) |
-| `"reference"` | 引用链接 | 引用型 tool 的 resource_link(知识库链接、外部参考)| 对话流末尾的 ReferenceList chip 清单(§4) |
-
-**为什么不用 MCP `annotations.priority` 数字**:
-- MCP 协议的 `priority` 是 0~1 通用排序值,没有"产物 vs 引用"专属语义
-- 服务端开发者无法直观判断"我这个工具应该填 0.3 还是 0.5";enum 字符串自描述
-- 我们的 MCP 是 octo + UXR 私有契约,**只有一个客户端**,自定义扩展零兼容性负担
-- `_octo` 前缀表明私有扩展,未来若 MCP 协议出标准语义字段(如 `displayMode`),迁移成本低
 
 **为什么不删 resource_link 改 markdown 链接**:
 - 失去结构化信息(title / mimeType / description)
@@ -109,7 +101,7 @@ for source in result["sources"]:
       "name": "调试工具用户研究报告 2024",
       "mimeType": "text/html",
       "description": "参考文档",
-      "_octoDisplay": "reference"
+      "business_type": "search_reports"
     },
     {
       "type": "resource_link",
@@ -117,7 +109,7 @@ for source in result["sources"]:
       "name": "多线程调试痛点分析",
       "mimeType": "text/html",
       "description": "参考文档",
-      "_octoDisplay": "reference"
+      "business_type": "search_reports"
     }
     // ... 可有 N 个 reference
   ],
@@ -138,9 +130,9 @@ for source in result["sources"]:
 | 项 | 产物型(analyze_interview)| 引用型(search_reports)|
 |---|---|---|
 | text part 内容 | 简短摘要(< 500 字 / < 200 tokens,见 [mcp-contract §completed](../agents/mcp-contract.md))| 完整回答正文(可长) |
-| resource_link `_octoDisplay` | `"artifact"` 或缺省 | `"reference"` |
+| resource_link `business_type` | 任意非引用型工具名（如 `"key_findings"`） | `"search_reports"` |
 | resource_link 文件性质 | 实际产物(html 报告 / json 数据 / xlsx 表格 / pdf) | 知识库引用源(网页 / 文档链接) |
-| 客户端渲染 | OutputCard 大卡(每个 resource_link 1 张)| ReferenceList chip(N 个 resource_link 一组紧凑显示)|
+| 客户端渲染 | 对话气泡下方紧凑入口条 + ResultViewer 大卡渲染(见 [output-renderers.md §6.B](output-renderers.md#6b-紧凑预览入口条outputcard-视觉本期新设计))| ReferenceList chip(N 个 resource_link 一组紧凑显示) |
 | 任务态 | 通常配 `task_id` 走异步任务卡片([task-card.md](task-card.md))| 同步返回,不走任务卡片 |
 
 ---
@@ -149,14 +141,14 @@ for source in result["sources"]:
 
 ### 3.1 路由分流
 
-`findResourceLinks` 返回 `links[]` 后,按 `_octoDisplay` 分组:
+`findResourceLinks` 返回 `links[]` 后,按 `business_type` 分组:
 
 ```ts
 function partitionLinks(links: ResourceLink[]): { artifacts: ResourceLink[]; references: ResourceLink[] } {
   const artifacts: ResourceLink[] = []
   const references: ResourceLink[] = []
   for (const link of links) {
-    if (link._octoDisplay === "reference") references.push(link)
+    if (link.business_type === "search_reports") references.push(link)
     else artifacts.push(link)  // 缺省 / "artifact" 都走大卡(向后兼容)
   }
   return { artifacts, references }
@@ -210,8 +202,8 @@ LLM 文本里若包含 `[n]` 标记且 1 ≤ n ≤ references.length,渲染为�
 ```
 content: [
   { type: "text", ... },
-  { type: "resource_link", _octoDisplay: "artifact", ... },   // 产物
-  { type: "resource_link", _octoDisplay: "reference", ... },  // 引用
+  { type: "resource_link", business_type: "key_findings", ... },     // 产物(任意非 reference 工具名都按通用产物渲染)
+  { type: "resource_link", business_type: "search_reports", ... },   // 引用
 ]
 ```
 
@@ -231,11 +223,11 @@ export type ResourceLink = {
   name: string
   mimeType: string
   description?: string
-  _octoDisplay?: "artifact" | "reference"   // 新增,缺省 "artifact"
+  business_type?: "search_reports" | "mindmap"   // 新增,缺省 = 通用产物;enum 见 mcp-contract.md
 }
 ```
 
-`findResourceLinks` 解析时读取 `p._octoDisplay`(若存在);各 defensive 分支(A/B/C)统一携带该字段。
+`findResourceLinks` 解析时读取 `p.business_type`(若存在);各 defensive 分支(A/B/C)统一携带该字段。
 
 ### 4.2 `OutputCard` / `ResultTab` 不变
 
@@ -249,11 +241,11 @@ export type ResourceLink = {
 
 ### Phase 1(本轮 spec 落地)
 - ✅ 本 spec 写完
-- ✅ [mcp-contract.md](../agents/mcp-contract.md) 加引用型 tool 章节 + `_octoDisplay` 约束
+- ✅ [mcp-contract.md](../agents/mcp-contract.md) 加引用型 tool 章节 + `business_type` 约束
 - ✅ [output-renderers.md](output-renderers.md) cross-ref 本 spec
 - ⏳ insight agent.md systemHint 加角标约束(L2,等内网 agent 文件可改时同步)
 
-### Phase 2(UXR 服务端改完 `_octoDisplay` 后)
+### Phase 2(UXR 服务端改完 `business_type` 后)
 - 客户端 `ResourceLink` 类型加字段 + `findResourceLinks` 解析 + `partitionLinks` 路由
 - 新组件 `ReferenceList`(`packages/app/src/pages/insight/components/reference-list/`)
 - `insight-turn.tsx` 在 OutputCard 大卡渲染之后插入 ReferenceList(只渲染 reference 链接)
@@ -271,9 +263,9 @@ export type ResourceLink = {
 ## 6. 验证
 
 ### 6.1 Phase 1 验证(本轮 spec 完成后)
-- [ ] UXR 团队和 octo 团队对照本 spec 对齐 `_octoDisplay` 字段语义
+- [ ] UXR 团队和 octo 团队对照本 spec 对齐 `business_type` 字段语义
 - [ ] mcp-contract.md 引用型 tool 章节读完无歧义
-- [ ] 内网 `search_reports` 改完 `_octoDisplay: "reference"` 后,客户端继续按"产物大卡"渲染 5 张(向后兼容,不报错;只是没有引用 chip 体验)
+- [ ] 内网 `search_reports` 改完 `business_type: "search_reports"` 后,客户端继续按"产物大卡"渲染 5 张(向后兼容,不报错;只是没有引用 chip 体验)
 
 ### 6.2 Phase 2 验证(客户端 ReferenceList 落地后)
 - [ ] `search_reports` 跑通,5 张大卡消失,改为段末 1 条 ReferenceList(5 条 chip)
@@ -290,9 +282,9 @@ export type ResourceLink = {
 
 ## 7. 边界 / 决策记录
 
-### 7.1 为什么不延用 OutputCard 类型增加 `"reference"` enum 值
+### 7.1 为什么不延用 OutputCard 类型增加 `"search_reports"` enum 值
 
-考虑过 `OutputCardType` 加 `"reference"` 走现有 ResultViewer tab 系统。**否决理由**:
+考虑过 `OutputCardType` 加 `"search_reports"` 走现有 ResultViewer tab 系统。**否决理由**:
 - OutputCard 是右侧 tab 化的"可打开内容",引用链接没有"打开 tab 看内容"的需求(就是个外链)
 - ResultTab 数据模型 `content / mimeType / fetch` 跟引用语义不匹配
 - 强行复用会让 OutputCard 类型职责膨胀;独立组件清晰
@@ -310,7 +302,7 @@ export type ResourceLink = {
 - 失去结构化(title / description / mimeType)
 - 服务端难保 LLM 100% 写规范 markdown 链接
 - 客户端无法做 chip 列表的"可扫读"视觉优化
-- resource_link + `_octoDisplay` 兼顾结构化和语义,业界(Perplexity / Bing)同款思路
+- resource_link + `business_type` 兼顾结构化和语义,业界(Perplexity / Bing)同款思路
 
 ### 7.4 关于 task_id 字段
 
@@ -331,7 +323,7 @@ pages/insight/
 │   ├── insight-turn.tsx              # 改:在大卡之后插入 ReferenceList
 │   └── ...
 ├── utils/
-│   └── resource-link.ts              # 改:ResourceLink 加 _octoDisplay 字段 + partitionLinks helper
+│   └── resource-link.ts              # 改:ResourceLink 加 business_type 字段 + partitionLinks helper
 └── ...
 ```
 
@@ -343,7 +335,7 @@ Phase 3 的 InlineCitation 在 `components/reference-list/inline-citation.tsx`�
 
 | 引用方 | 引用项 | 说明 |
 |---|---|---|
-| 本 spec → [mcp-contract.md](../agents/mcp-contract.md) | 引用型 tool 契约 + `_octoDisplay` 字段定义 | 业务工具分类约束 |
+| 本 spec → [mcp-contract.md](../agents/mcp-contract.md) | 引用型 tool 契约 + `business_type` 字段定义 | 业务工具分类约束 |
 | 本 spec → [output-renderers.md §0](output-renderers.md#0-两类卡片来源--职责边界重要) | 路径 A 强契约边界 | 引用型不走 OutputCard 大卡 |
 | 本 spec → [task-card.md §3.5](task-card.md#35-故意保留的冗余刷新-turn-的-outputcard入口冗余非-tab-重复) | 入口冗余规则 | 引用型不参与冗余(无 task_id) |
 | 本 spec → [insight agent.md](../../../packages/agent/insight/agents/insight.md) | LLM 角标约束(Phase 3) | systemHint 引导 LLM 写 `[n]` |

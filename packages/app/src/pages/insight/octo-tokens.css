@@ -305,10 +305,57 @@
   --icon-invert-base:             #ffffff;
 }
 
-/* ── OutputCard: 有机器可读卡片时隐藏 assistant 原始文字 ────────
-   仅对 mindmap / html / json 类型生效；
-   markdown / table 保留原始显示（内容对用户有可读价值）。
-   data-suppress-raw 属性由 InsightTurn 在卡片 ready 后挂上。     */
-[data-suppress-raw] [data-slot="session-turn-assistant-content"] {
-  display: none;
+/* ── 入口卡片(预览入口):紧凑条,不抢主对话区视觉 ─────────────
+   设计依据:docs/specs/ui/output-renderers.md §6.B。
+   高度 ~40px,挂在对话气泡下方,作为"附加预览"入口,不替代对话内容。 */
+.octo-preview-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 6px 12px 0;
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: var(--octo-radius-md);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+  width: calc(100% - 24px);
+  text-align: left;
+}
+.octo-preview-entry:hover {
+  border-color: var(--octo-brand-a25);
+  background: var(--octo-brand-a3);
+}
+.octo-preview-entry__icon {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  color: var(--octo-text-secondary);
+}
+.octo-preview-entry__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.octo-preview-entry__title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--octo-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.octo-preview-entry__desc {
+  font-size: 11px;
+  color: var(--octo-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.octo-preview-entry__action {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--octo-brand);
 }

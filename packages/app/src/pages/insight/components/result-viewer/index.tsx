@@ -2,35 +2,35 @@ import { createMemo, createResource, createSignal, Show, Switch, Match } from "s
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { showToast } from "@opencode-ai/ui/toast"
-import type { ResultTab, ResultTabType } from "./tab-store"
+import type { ResultTab } from "./tab-store"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
 import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
-import { isMindmapJSON, stripCodeFence } from "../../utils/detect"
+import { stripCodeFence } from "../../utils/detect"
 import { fetchResourceText } from "../../utils/resource-link"
 import { getDesktopApi } from "../../lib/electron-api"
 
 // ── JSON 渲染器 ────────────────────────────────────────────────
+// 复用上游 <Markdown> 的 shiki 高亮:把 JSON 包成 ```json fence 喂给它,
+// 自动获得 syntax highlight + 复制按钮(跟对话区的代码段视觉完全一致)。
+// 避免之前 <pre> 纯文本无高亮的体验断层。
 function JsonRenderer(props: { content: string }): JSX.Element {
-  const code = createMemo(() => {
+  const fenced = createMemo(() => {
     const raw = stripCodeFence(props.content)
+    let pretty = raw
     try {
-      return JSON.stringify(JSON.parse(raw), null, 2)
+      pretty = JSON.stringify(JSON.parse(raw), null, 2)
     } catch {
-      return raw
+      // 解析失败保持原样,markdown 仍按 json 语法高亮(shiki 容错)
     }
+    return "```json\n" + pretty + "\n```"
   })
   return (
     <div class="p-4 h-full overflow-auto">
-      <pre
-        class="text-sm text-[var(--octo-text-primary)] p-4 rounded-lg overflow-auto"
-        style={{ background: "rgba(243,244,246,1)", "font-family": "monospace" }}
-      >
-        {code()}
-      </pre>
+      <Markdown text={fenced()} />
     </div>
   )
 }
@@ -50,8 +50,8 @@ export function ResultViewer(props: {
   activeId: string | null
   onActivate: (id: string) => void
   onClose: (id: string) => void
-  /** URI 模式 fetch 完成后回写缓存(含可选的 type 修正,如 json → mindmap shape 二次判断) */
-  onCacheContent?: (id: string, content: string, retypeAs?: ResultTabType) => void
+  /** URI 模式 fetch 完成后回写缓存 */
+  onCacheContent?: (id: string, content: string) => void
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
 
@@ -85,7 +85,7 @@ export function ResultViewer(props: {
 // ── Tab 内容容器:按 source 分流(inline 直渲染 / uri 走 fetch + Suspense) ──
 function TabBody(props: {
   tab: ResultTab
-  onCacheContent?: (id: string, content: string, retypeAs?: ResultTabType) => void
+  onCacheContent?: (id: string, content: string) => void
 }): JSX.Element {
   return (
     <Show
@@ -97,19 +97,18 @@ function TabBody(props: {
   )
 }
 
-// URI 模式 + 未缓存:fetch → 回写 cache → 由父层 Show 自动切到 inline 分支渲染
+// URI 模式 + 未缓存:fetch → 回写 cache → 由父层 Show 自动切到 inline 分支渲染。
+// tab.type 在对话流出卡阶段已由 business_type(优先) / mimeType(兜底)确定(spec: output-renderers.md §2.5.2);
+// 此处不再做"application/json 二次判断 retype"——服务端 business_type 显式声明即真理,客户端零嗅探。
 function UriTabBody(props: {
   tab: ResultTab
-  onCacheContent?: (id: string, content: string, retypeAs?: ResultTabType) => void
+  onCacheContent?: (id: string, content: string) => void
 }): JSX.Element {
   const [resource, { refetch }] = createResource(
     () => (props.tab.uri ? { id: props.tab.id, uri: props.tab.uri } : null),
     async (src) => {
       const text = await fetchResourceText(src.uri)
-      // application/json 二次判断:命中 mindmap shape 则修正 type
-      let retypeAs: ResultTabType | undefined
-      if (props.tab.type === "json" && isMindmapJSON(text)) retypeAs = "mindmap"
-      props.onCacheContent?.(src.id, text, retypeAs)
+      props.onCacheContent?.(src.id, text)
       return text
     },
   )

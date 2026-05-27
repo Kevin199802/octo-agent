@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { isMarkdownTable, isMindmapJSON, isHTML, isPlainJSON, stripCodeFence, scanFencedHtml } from "./detect"
+import { isMarkdownTable, isMindmapJSON, isHTML, stripCodeFence, scanFencedHtml } from "./detect"
 import { uxrJsonToMarkdown } from "./mindmap-adapter"
 import { parseMarkdownTable, tableToCSV } from "./markdown-table"
 
@@ -37,6 +37,32 @@ describe("isMindmapJSON", () => {
   test("非 JSON 不命中", () => {
     expect(isMindmapJSON("hello world")).toBe(false)
   })
+  test("识别内网 MCP shape:[{file, mindmaps:[{name, children}]}]", () => {
+    const text = JSON.stringify([
+      {
+        file: "downloads/mindmap_xxx/访谈纲要.docx",
+        mindmaps: [
+          {
+            name: "用户访谈评估法提纲",
+            children: [
+              { name: "基本信息", children: [{ name: "部门" }] },
+            ],
+          },
+        ],
+      },
+    ])
+    expect(isMindmapJSON(text)).toBe(true)
+  })
+  test("识别多文件 shape", () => {
+    const text = JSON.stringify([
+      { file: "a.docx", mindmaps: [{ name: "A", children: [] }] },
+      { file: "b.docx", mindmaps: [{ name: "B", children: [] }] },
+    ])
+    expect(isMindmapJSON(text)).toBe(true)
+  })
+  test("{file, mindmaps:[]} 空 mindmaps 不命中", () => {
+    expect(isMindmapJSON(JSON.stringify([{ file: "a.docx", mindmaps: [] }]))).toBe(false)
+  })
 })
 
 describe("isHTML", () => {
@@ -57,35 +83,6 @@ describe("isHTML", () => {
   })
   test("不识别 markdown 表格", () => {
     expect(isHTML("| A | B |\n|---|---|\n| 1 | 2 |")).toBe(false)
-  })
-})
-
-describe("isPlainJSON (收紧后)", () => {
-  test("短 JSON 片段不命中(< 80 字符)", () => {
-    // 这是嗅探收紧的核心目标:`{"foo":"bar"}` 这种短碎片不再升级为卡片
-    expect(isPlainJSON('{"foo":"bar"}')).toBe(false)
-  })
-  test("短 JSON 带 fence 也不命中(长度门槛在前)", () => {
-    expect(isPlainJSON('```json\n{"foo":"bar"}\n```')).toBe(false)
-  })
-  test("长 JSON 带 fence 命中", () => {
-    const longJson = JSON.stringify({ a: "x".repeat(80), b: 1 })
-    expect(isPlainJSON(`\`\`\`json\n${longJson}\n\`\`\``)).toBe(true)
-  })
-  test("≥ 80 字符 + ≥ 3 个 key 命中", () => {
-    const obj = { name: "用户调研报告", findings: "x".repeat(40), summary: "y", details: [1, 2, 3] }
-    expect(isPlainJSON(JSON.stringify(obj))).toBe(true)
-  })
-  test("≥ 80 字符但只有 2 个 key、无 fence 不命中", () => {
-    const obj = { name: "abc", description: "x".repeat(80) }
-    expect(isPlainJSON(JSON.stringify(obj))).toBe(false)
-  })
-  test("长数组 ≥ 3 个元素命中", () => {
-    const arr = ["aaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbb", "cccccccccccccccccccccccccccccc"]
-    expect(isPlainJSON(JSON.stringify(arr))).toBe(true)
-  })
-  test("非法 JSON 返回 false", () => {
-    expect(isPlainJSON("hello world")).toBe(false)
   })
 })
 

@@ -101,6 +101,7 @@
 - **Office 预览**：`window.api.openPath(filePath)` 唤起本地应用，不做浏览器内渲染
 - **PromptInput 自己写**：上游 PromptInput 设计为 chat 工作流(@-mention 代码库 / 斜杠命令 / 历史回溯 / 代码粘贴)，1500+ 行，深度耦合 `useSessionLayout / useFile / useCommand / useComments` 等 chat 专属 context；insight 工作流(文档上传 + 预置提示词按钮 + MCP 任务卡片)功能集重叠度 < 20%，复用成本远高于自实现。详见 [SPEC-INS-005 §7](docs/specs/ui/insight-data-layer-reuse.md#7-输入区评估保留自实现--理由更新)
 - **提示词走单 turn 而非 session 级**：预置提示词按钮点击 = 把文本填入输入框作为本 turn 的用户消息，不再走 `system` 字段(原 [ADR-007](docs/adr/007-prompt-template-via-system-field.md) 已部分作废)。理由:session 级 system 会污染整段对话上下文。详见 [SPEC-INS-007](docs/specs/ui/insight-prompt-redesign.md)
+- **对话内容永不替代,卡片是附加预览入口**：业界(Claude Artifacts / ChatGPT Canvas / Cursor)共识——对话区由上游 `<Markdown>` 原样渲染(含代码段 shiki 高亮 / 表格 / 复制按钮),OutputCard 是对话气泡下方的紧凑入口条(~40px),不替代对话内容。原 [ADR-010](docs/adr/010-suppress-raw-output.md) 路线 A(CSS suppress)**已作废**。详见 [output-renderers.md §0](docs/specs/ui/output-renderers.md#0-核心原则对话内容永不替代卡片是附加预览入口)
 
 ---
 
@@ -115,7 +116,7 @@
 - ADR-007 — 提示词模板通过 session.prompt() 的 system 字段传递 → [docs/adr/007-prompt-template-via-system-field.md](docs/adr/007-prompt-template-via-system-field.md) **(部分作废,被 SPEC-INS-007 覆盖)**
 - ADR-008 — Agent 配置走 cascading 模式（A 类 bundle 内写死，B/C 类用户文件）→ [docs/adr/008-cascading-config.md](docs/adr/008-cascading-config.md)
 - ADR-009 — 不在客户端预览 Office 文件（docx/pptx/xlsx）→ [docs/adr/009-no-office-preview.md](docs/adr/009-no-office-preview.md)
-- ADR-010 — 机器可读卡片原始输出隐藏策略（路线 B：tool_call 检测）→ [docs/adr/010-suppress-raw-output.md](docs/adr/010-suppress-raw-output.md)
+- ADR-010 — 机器可读卡片原始输出隐藏策略 → [docs/adr/010-suppress-raw-output.md](docs/adr/010-suppress-raw-output.md) **(已作废,2026-05-26;新方案见 [output-renderers.md §0](docs/specs/ui/output-renderers.md))**
 - ADR-011 — MCP 工具结果走"摘要 + Resource URI"，大内容不内联 → [docs/adr/011-tool-result-resource-uri.md](docs/adr/011-tool-result-resource-uri.md)
 - ADR-012 — MCP 工具按业务能力铺开（N tools），而非单 tool + enum 参数 → [docs/adr/012-mcp-tools-by-capability.md](docs/adr/012-mcp-tools-by-capability.md)
 - ADR-013 — 长任务进度查询策略：卡片刷新按钮 + LLM 触发（业界没有 30min + agent 对话的标配，2.3 是当前阶段务实选择）→ [docs/adr/013-long-task-progress-strategy.md](docs/adr/013-long-task-progress-strategy.md)

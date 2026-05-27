@@ -31,8 +31,8 @@
 | `run_usability_analysis` | 产物型 | 可用性测试分析 | 上传的访谈 / 测试材料 | 长任务，调用即提交，返回 task_id |
 | `run_guide_analysis` | 产物型 | 大纲聚类分析（按提纲整理） | 上传的访谈材料 + 提纲 | 长任务，调用即提交，返回 task_id |
 | `key_findings` | 产物型 | 自由解析 — 提取用户观点、场景主体、痛点需求等 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id |
-| `mindmap` | 产物型 | 思维导图生成 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id；完成时结果为结构化 JSON |
-| `search_reports` | **引用型** | 基于内网用研知识库的 RAG 检索 | 自然语言 query | **同步返回 + `_octoDisplay: "reference"`**（见下文） |
+| `mindmap` | 产物型 | 思维导图生成 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id；完成时 resource_link **必须**标 `business_type: "mindmap"` 触发双卡(原始 JSON + 思维导图可视化) |
+| `search_reports` | 同步检索 | 基于内网用研知识库的 RAG 检索 | 自然语言 query | 同步返回（< 5s）;**第一版按通用产物渲染**（resource_link 不填 business_type）;未来如需"引用 chip"形态再走 [insight-references.md](../ui/insight-references.md) 的 business_type 扩展 |
 
 **业务工具通用出参（长任务提交即返回）：**
 
@@ -107,6 +107,58 @@
 - `message` 可选；缺失时客户端不显示阶段描述，仅显示"进行中"
 - pending 与 processing 形态一致，只差 status 取值
 
+### resource_link 业务类型声明字段 `business_type`(必填)
+
+> mimeType 只声明**文件格式**(如 `application/json`),无法表达**业务语义**(同一 mimeType 下可能是思维导图数据,也可能是结构化业务数据)。客户端拿到 resource_link 时**取不到产生它的 tool 名**,因此服务端必须在 resource_link 上**显式声明**这份资源的业务类型。
+
+**字段定义**(MUST 填,所有 tool 的 resource_link 都必须包含):
+
+```jsonc
+{
+  "type": "resource_link",
+  "uri": "...",
+  "name": "...",
+  "mimeType": "...",
+  "business_type": "mindmap"   // ← 必填;第一版取值 = 产生该资源的 MCP tool 名
+}
+```
+
+**enum 取值**(第一版,与当前 MCP tool 1:1 对齐):
+
+| 值 | 产生 tool | 业务语义 | 客户端渲染 |
+|---|---|---|---|
+| `"run_usability_analysis"` | `run_usability_analysis` | 可用性测试分析产物 | 单卡,按 mimeType 路由 |
+| `"run_guide_analysis"` | `run_guide_analysis` | 大纲聚类分析产物 | 单卡,按 mimeType 路由 |
+| `"key_findings"` | `key_findings` | 用户观点/场景/痛点解析产物 | 单卡,按 mimeType 路由 |
+| `"mindmap"` | `mindmap` | 思维导图数据 | **双卡**(原始 JSON + 思维导图可视化),两卡共享 URI,在 ResultViewer 各开独立 tab |
+| `"search_reports"` | `search_reports` | 知识库 RAG 引用源 | 单卡,按 mimeType 路由 |
+
+**设计原则**:
+
+- **取值 = tool 名**:服务端零思考(自己叫啥就填啥);客户端按业务语义路由(目前只有 mindmap 需要特殊渲染,其他统一按 mime 走通用产物路径)
+- **未来扩展**:新增 tool 时本表追加一行;现有 tool 输出形态有重大变化时(例如 search_reports 想出"引用 chip"而不是文件卡)再加新的 enum 值并改客户端路由 — 字段是**标准必填**,扩展靠加值不靠加字段
+
+**为什么用 octo 私有扩展字段而不是 MCP 协议自带的 `annotations`**:
+
+- MCP `annotations` 是通用 metadata(`audience` / `priority` / `lastModified`),没有"业务类型"语义
+- octo + UXR 是私有契约,只有 octo 客户端消费,自定义扩展零兼容性负担
+- MCP `resource_link` schema 不限制额外字段(JSON Schema 默认 `additionalProperties: true`);主流 MCP 客户端对未知字段是**忽略**而非拒绝,**不会影响 MCP 标准对接行为**
+
+**关于字段命名**:
+
+- 选用 `business_type` 是因为命名直观,且跟现有 `task_id` 等 snake_case 字段风格一致
+- 不加 `_octo` 前缀,通过本 spec 约定明确"私有扩展"即可
+
+**客户端兜底**(防御性):
+
+| 场景 | 行为 |
+|---|---|
+| `business_type` 字段缺失(服务端 bug / 旧版兼容) | 视作通用产物按 mimeType 路由;console warn `[octo:resource-link] missing-business-type` |
+| `business_type` 值非已知 enum(未来加了新 tool 但客户端没跟进) | 视作通用产物兜底;console warn `[octo:resource-link] unknown-business-type` |
+| `business_type: "mindmap"` 但实际内容不是 mindmap shape(服务端违反契约) | mindmap tab 渲染时检测失败,显示"该文件不是思维导图格式"占位;json tab 正常 |
+
+---
+
 **② completed（完成，摘要 text + N 个 resource_link 形态，决策见 [ADR-011](../../adr/011-tool-result-resource-uri.md)）：**
 
 任务可能产出**多份产物文件**（如同时给出 HTML 报告 + 结构化 JSON + Excel 汇总）。MCP `content` 数组天然支持多个 `resource_link` part 并列，每份文件一个独立 part。
@@ -116,6 +168,8 @@
 > 不要拆成 `{summary, files}` 这种扁平结构——会脱离 MCP 标准，opencode / Claude Desktop 等所有 MCP client 都按 `content[]` 解析，自定义形态等于 fork 协议，并丢失顺序语义和未来扩展能力（image / audio / 富 part 混排）。
 
 > **关于字段名 `uri` 而非 `url`**：MCP `ResourceLink` 协议规范字段名就是 `uri`（对应 RFC 3986 的 URI 概念，URL 是 URI 的子集）。协议允许 `https://` / `file:///` / `data:...` / 自定义 scheme 等多种形态——例如 Claude Desktop 的文件 MCP server 大量返回 `file://` URI。我们场景下值始终是 `https://`（内网 S3），但**字段名必须沿用 MCP 标准的 `uri`**，否则 opencode 等客户端无法识别。同理，LSP 协议的 `textDocument.uri`、Anthropic Citations 的 `source_uri` 也是这个约定。
+
+**示例 1:`key_findings` 工具产物**(单卡按 mime 路由)
 
 ```json
 {
@@ -129,21 +183,24 @@
       "uri": "https://uxr.intranet/output/a8f3c2d1/report.html",
       "name": "interview-analysis-report.html",
       "mimeType": "text/html",
-      "description": "完整分析报告（可视化版本）"
+      "description": "完整分析报告（可视化版本）",
+      "business_type": "key_findings"
     },
     {
       "type": "resource_link",
       "uri": "https://uxr.intranet/output/a8f3c2d1/findings.json",
       "name": "key-findings.json",
       "mimeType": "application/json",
-      "description": "结构化洞察数据"
+      "description": "结构化洞察数据",
+      "business_type": "key_findings"
     },
     {
       "type": "resource_link",
       "uri": "https://uxr.intranet/output/a8f3c2d1/quotes.xlsx",
       "name": "user-quotes.xlsx",
       "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "description": "用户原话引用汇总"
+      "description": "用户原话引用汇总",
+      "business_type": "key_findings"
     }
   ],
   "structuredContent": {
@@ -153,10 +210,36 @@
 }
 ```
 
+**示例 2:`mindmap` 工具产物**(`business_type: "mindmap"` 触发客户端双卡)
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "思维导图分析完成。基于上传文档生成了 1 份思维导图(根节点'用户访谈提纲',含 4 大主题、12 个二级节点)。"
+    },
+    {
+      "type": "resource_link",
+      "uri": "https://uxr.intranet/output/m_xxx/mindmap.json",
+      "name": "interview-mindmap.json",
+      "mimeType": "application/json",
+      "description": "思维导图结构化数据",
+      "business_type": "mindmap"
+    }
+  ],
+  "structuredContent": {
+    "task_id": "m_xxx",
+    "status": "completed"
+  }
+}
+```
+
 约束：
 
 - `text` 摘要 part **只有一个**，位于 `content[0]`，统一概括所有产物
-- `resource_link` part 可有 **1 至 N 个**，每个对应一份独立可下载的文件；客户端按 `mimeType` 各自路由到对应渲染器（见 [output-renderers.md §2.5](../ui/output-renderers.md)）
+- `resource_link` part 可有 **1 至 N 个**，每个对应一份独立可下载的文件；客户端按 `business_type` + `mimeType` 路由到对应渲染器(见 [§resource_link 业务类型声明字段 `business_type`](#resource_link-业务类型声明字段-business_type必填) + [output-renderers.md §2.5](../ui/output-renderers.md))
+- `business_type` 字段 **MUST 填**(标准字段,非可选);取值 = 产生该资源的 MCP tool 名(见上节 enum 表)
 - 单文件产出仍合法（N=1，最常见情形）
 - 不要把多文件合并成 zip——客户端按 mimeType 分发的能力会失效，业界标准是 N 个独立 resource_link
 - 所有 `uri` 都必须长期可用（≥ 7 天，最好持久），见 ADR-011 §URL 鉴权 / 生命周期
@@ -305,69 +388,44 @@
 
 ### 通用出参骨架
 
-- **产物型工具**（长任务）：同步返回 task_id（< 5s），实际结果通过后续 `get_task_result` 查询获取，详见 [§任务管理](#任务管理长任务通用)；`get_task_result` completed 时返回的 `resource_link` MUST 标注 `_octoDisplay: "artifact"` 或缺省字段（缺省视为 artifact）
-- **引用型工具**（`search_reports`）：同步返回回答正文 + 引用 resource_link，详见 [§引用型工具契约](#引用型工具契约)
+- **所有 tool 的 resource_link MUST 填 `business_type` 字段**(标准字段,见 [§resource_link 业务类型声明字段 `business_type`](#resource_link-业务类型声明字段-business_type必填));第一版取值 = tool 名
+- **长任务工具**（`run_usability_analysis` / `run_guide_analysis` / `key_findings` / `mindmap`）：同步返回 task_id（< 5s）,实际结果通过后续 `get_task_result` 查询获取,详见 [§任务管理](#任务管理长任务通用)
+- **`mindmap` 工具**:completed 时 resource_link 的 `business_type: "mindmap"` 触发客户端双卡(原始 JSON + 思维导图可视化)
+- **`search_reports` 同步检索工具**:同步返回回答正文 + N 个 resource_link(`business_type: "search_reports"`),当前按通用产物渲染;未来需要"引用 chip"形态见 [insight-references.md](../ui/insight-references.md) 草案
 
 ---
 
-## 引用型工具契约
-
-> 完整设计与渲染规则见 [insight-references.md](../ui/insight-references.md)。本节只列 MCP 服务端必须遵守的契约。
-
-### 出参结构
-
-引用型工具（当前仅 `search_reports`，未来扩展）返回值 MUST 满足：
+## search_reports 出参结构(第一版)
 
 ```jsonc
 {
   "content": [
-    {
-      "type": "text",
-      "text": "<完整回答正文,可含 [1][2] 角标引用 resource_link 数组(1-indexed,可选)>"
-    },
+    { "type": "text", "text": "<完整回答正文>" },
     {
       "type": "resource_link",
       "uri": "<引用文档 url>",
       "name": "<引用文档标题>",
       "mimeType": "text/html",
       "description": "参考文档",
-      "_octoDisplay": "reference"        // ← 必填,枚举值固定为 "reference"
+      "business_type": "search_reports"
     }
-    // ... 可有 N 个 reference 类型 resource_link
+    // ... N 个 resource_link
   ],
   "structuredContent": {
     "query": "<原始检索 query>",
     "status": "completed",
     "source_count": 5
-    // MUST NOT 含 task_id —— 引用型不走任务卡片体系
+    // MUST NOT 含 task_id(同步返回,不走任务卡片体系)
   }
 }
 ```
 
-### `_octoDisplay` 字段(关键)
+**当前渲染**:客户端按通用产物路径渲染(对话流末尾出 N 张 OutputCard 入口条)。
 
-| 字段 | 类型 | 必填 | 值 |
-|---|---|---|---|
-| `_octoDisplay` | string enum | **引用型 MUST 填** | `"reference"`(引用清单) / `"artifact"`(产物大卡，缺省) |
-
-- 产物型工具的 resource_link 可以**不填**该字段(客户端缺省按 `"artifact"` 处理,向后兼容)
-- 引用型工具 MUST 显式填 `"reference"`,否则客户端会把它当产物开 N 张大卡(就是 [insight-references.md](../ui/insight-references.md) 解决的 bug)
-
-### text 角标约束(LLM 行为,可选)
-
-agent prompt 引导 LLM 在 `text` 中用 `[n]` 角标引用 resource_link 数组(1-indexed):
-
-```
-根据知识库,调试工具的主要痛点是调用栈分析复杂[1]和多线程断点失效[2]。
-```
-
-客户端按 [insight-references.md §3.3](../ui/insight-references.md) 兼容:有角标解析为 inline citation,没有也能正常渲染段末 ReferenceList。本期 LLM 可不写角标。
-
-### 异常处理
-
-- 缺 `_octoDisplay` 字段 → 客户端按 `"artifact"` 渲染(向后兼容,会出大卡;由开发者通过 spec 督促 UXR 加字段)
-- `_octoDisplay` 值非 `"artifact"` / `"reference"` → 客户端按 `"artifact"` 兜底
-- 同一 content[] 内混合 artifact + reference → 客户端 partition 分流,各自渲染
+**未来"引用 chip"形态**:见 [insight-references.md](../ui/insight-references.md) 草案。届时:
+- 可新增 `business_type` enum 取值(如 `"reference"`),客户端按该值走 ReferenceList chip 渲染
+- 或保留 `"search_reports"` 取值,客户端把该 tool 名加入"reference style"工具集
+- 具体方式 spec 落地时再定
 
 ---
 

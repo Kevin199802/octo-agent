@@ -5,9 +5,30 @@
 
 ---
 
-## 0. 两类卡片来源 — 职责边界（重要）
+## 0. 核心原则:对话内容永不替代,卡片是"附加预览入口"
 
-OutputCard 有两条**完全独立**的生成路径，机制 / 可靠性 / 收敛策略都不同。改 detect / 渲染逻辑前必须先认清属于哪条路径：
+> 2026-05-26 重大调整(撤销 ADR-010 路线 A)
+>
+> 旧设计:机器可读类型(mindmap/html/json)出大卡时,CSS `[data-suppress-raw]` 把对话区 assistant 文字**整段隐藏**。
+>
+> 新设计:对话区始终由 opencode 上游 `<Markdown>` **原样渲染**(含 shiki 代码高亮 / markdown 表格 / 复制按钮);卡片改为**对话气泡下方的紧凑预览入口条**(~40px 高),作为"附加预览能力",绝不替代对话内容。
+
+**业界对照(全行业共识:不抹对话)**:
+
+| 产品 | 形态 |
+|---|---|
+| Claude.ai Artifacts | 对话保留 LLM 完整解释 + 独立 Artifact 入口卡 |
+| ChatGPT Canvas | 对话保留 + 顶部小 banner「在 Canvas 中打开」 |
+| Cursor | 对话保留 + 代码块右上「Apply」按钮 |
+| Octo Insight(本期起) | 对话保留 + 气泡下方紧凑入口条「[icon] 标题 / 描述 [预览 →]」|
+
+旧的 `[data-suppress-raw]` CSS 规则已删除;`octo-tokens.css` 新增 `.octo-preview-entry` 紧凑条样式(§6.B)。
+
+---
+
+## 0.1 两类卡片来源 — 职责边界(原 §0)
+
+OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 / 收敛策略都不同。改 detect / 渲染逻辑前必须先认清属于哪条路径:
 
 | 路径 | 来源 | 触发机制 | 可靠性 | 收敛方向 |
 |---|---|---|---|---|
@@ -43,14 +64,16 @@ OutputCard 有两条**完全独立**的生成路径，机制 / 可靠性 / 收�
 
 当前支持 6 种 OutputCard 类型（与 6 个提示词模板的对应见 [insight-analysis-mode.md §2](insight-analysis-mode.md)）：
 
-| 类型 | 触发模板 / 来源 | 服务端返回形态 | 渲染器 | 状态 |
-|---|---|---|---|---|
-| `table` | 观点解析 / 按提纲聚类 / AI用户画像 / 评估问题整理 | Markdown 表格字符串 | TableRenderer | ✅ 已实现 |
-| `mindmap` | 思维导图 | JSON 结构（UXR 现有接口） | MindmapRenderer（markmap-view）| ✅ 已实现 |
-| `html` | 未来富展示类 MCP tool（如独立的用户画像/可视化 tool）| HTML 字符串（建议 ```html``` fence 包裹） | HtmlRenderer（iframe sandbox）| ✅ 已实现 |
-| `markdown` | 用研知识问答 + 走 MCP `text/markdown` resource_link | Markdown 纯文本 | MarkdownRenderer（复用上游 `<Markdown>`）| ✅ 已实现 |
-| `json` | 路径 A `application/json` resource_link（非 mindmap shape）/ 路径 B 嗅探到独立 JSON fence | JSON 字符串 | JsonRenderer（pre + JSON.stringify pretty） | ✅ 已实现 |
-| `file` | 路径 A Office / PDF / 图片 / 二进制 resource_link | 二进制 URI | FileFallback（"用本地应用打开"+"下载"双按钮）| ✅ 已实现 |
+| 类型 | 触发模板 / 来源 | 服务端返回形态 | 入口卡文案 | 渲染器（ResultViewer 内） | 状态 |
+|---|---|---|---|---|---|
+| `table` | 观点解析 / 按提纲聚类 / AI用户画像 / 评估问题整理 | Markdown 表格字符串 | 分析表格 | TableRenderer | ✅ 已实现 |
+| `mindmap` | 思维导图 | JSON 结构（UXR 现有接口） | 思维导图 | MindmapRenderer（markmap-view）| ✅ 已实现 |
+| `html` | 未来富展示类 MCP tool（如独立的用户画像/可视化 tool）| HTML 字符串（建议 ```html``` fence 包裹） | 可视化页面 | HtmlRenderer（iframe sandbox）| ✅ 已实现 |
+| `markdown` | 用研知识问答 + 走 MCP `text/markdown` resource_link | Markdown 纯文本 | Markdown 文档 | MarkdownRenderer（复用上游 `<Markdown>`）| ✅ 已实现 |
+| `json` | 路径 A `application/json` resource_link（非 mindmap shape）/ 路径 B 嗅探到独立 JSON | JSON 字符串 | JSON 数据 | JsonRenderer（**上游 `<Markdown>` ```json fence 获 shiki 高亮**） | ✅ 已实现 |
+| `file` | 路径 A Office / PDF / 图片 / 二进制 resource_link | 二进制 URI | 文件名 | FileFallback（"用本地应用打开"+"下载"双按钮）| ✅ 已实现 |
+
+**多卡并列规则**：同一段内容可能同时命中多条规则（典型场景：内网 mindmap MCP 返回的 JSON 既符合 plainJSON 又符合 mindmap shape），此时**两张入口卡并列**（json + mindmap），用户按需点。tab-store 按 `(uri, type)` 复合去重——同 URI 不同 type 各开一个 ResultViewer tab，互不冲突。
 
 **两种内容来源（[ADR-011](../../adr/011-tool-result-resource-uri.md)）**：
 
@@ -214,16 +237,38 @@ type ResourceLinkPart = {
 
 opencode 将 MCP `CallToolResult.content[]` 中的 `resource_link` 项作为独立 part 转发到 SSE，前端读 `data.store.part[messageID]` 即可拿到。多个 resource_link 在 `parts` 数组里按声明顺序出现。
 
-### 2.5.2 mimeType → OutputCard 类型路由
+### 2.5.2 路由规则:business_type 优先,mimeType 兜底
+
+路径 A resource_link 的路由按**两级规则**(`business_type` 字段定义见 [mcp-contract.md](../agents/mcp-contract.md))。
+
+**第一级 — `business_type` 字段**:
+
+| business_type 取值 | 行为 |
+|---|---|
+| `"mindmap"` | **出双卡**:一张 `type: "json"` 走 JsonRenderer(shiki 高亮原始 JSON)+ 一张 `type: "mindmap"` 走 MindmapRenderer(markmap 渲染)。两卡共享同一 URI,在 ResultViewer 各开独立 tab,由 tab-store `(uri, type)` 复合去重保证不重复 |
+| 其他取值(如 `"key_findings"` / `"search_reports"` 等)/ 缺失 | 走第二级 mimeType 路由(单卡) |
+
+> 第一版只有 `"mindmap"` 触发特殊渲染;其他 tool 名取值当前都按通用产物走 mimeType 路由,行为一致。
+> 未来如需为某个 tool 加专属渲染(如 search_reports 走 ReferenceList chip,见 [insight-references.md](insight-references.md)),在本表追加一行 + 客户端加分支。
+
+**第二级 — mimeType 路由(其他 business_type / 缺失时)**:
 
 | mimeType | OutputCardType | 渲染策略 |
 |---|---|---|
 | `text/html` | `html` | fetch URI → 拿到 HTML → 走 HtmlRenderer 的 iframe sandbox（§5）|
 | `text/markdown` | `markdown` | fetch URI → 走 MarkdownRenderer |
-| `application/json` | 进二级判断 | 解析 JSON → `isMindmapJSON` 命中 → `mindmap`；否则 → `json` |
+| `application/json` | `json` | fetch URI → 走 JsonRenderer(shiki 高亮)。**不做二次判断 retype**——是不是 mindmap 由服务端 `business_type` 显式声明,客户端不再嗅探 |
 | `text/csv` | `table` | fetch URI → 转 Markdown 表格 → 走 TableRenderer |
 | Office（xlsx / docx / pptx）/ PDF / 图片 / 二进制 | `file` | 不在 ResultViewer 内渲染，FileFallback 提供**双按钮**：①「用本地应用打开」`download-resource` IPC → 落地临时文件 → `window.api.openPath` 唤起 OS 关联应用（Excel/WPS/Numbers）②「下载到本地」`window.api.saveFilePicker` 用户选目录 → 落地。详见 §5 + [ADR-009](../../adr/009-no-office-preview.md) |
 | 其他未识别 | `file` fallback | 同上双按钮 |
+
+**为什么删除"`application/json` 内容二次判断 retype"**:
+
+旧实现:对话流出 1 张 json 卡 → 用户点开 → fetch + `isMindmapJSON` 判断 → 命中则 retype 为 mindmap。问题:
+- 卡片标题始终是 "JSON 数据"(误标——内容是思维导图),用户体验断层
+- 客户端做 shape 嗅探,跟"业务类型由服务端声明"的设计哲学冲突
+
+新设计:服务端 `business_type: "mindmap"` 显式声明,客户端直接出双卡,**零嗅探**。
 
 ### 2.5.3 OutputCard / ResultTab 类型扩展
 
@@ -609,6 +654,58 @@ iframe 默认高度 0，需要显式给。三种方案：
 
 ---
 
+## 6.B 紧凑预览入口条（OutputCard 视觉,本期新设计）
+
+### 6.B.1 设计目标
+
+按 §0 核心原则:
+- 对话区不被替代,LLM 输出的代码段 / markdown 表格 / 思考文字**完整保留**
+- 卡片**降级为入口条**(~40px 高),作为"附加预览"能力
+- 多类型并列时(json + mindmap 同一段命中)出多张并排入口条
+
+### 6.B.2 布局
+
+```
+┌─ assistant 对话气泡(opencode <Markdown> 完整渲染) ────┐
+│ 我帮你画一个柱状图:                                    │
+│ ```html                                                │
+│ <!DOCTYPE html>...                                     │  ← shiki 高亮 + 复制按钮
+│ ```                                                    │
+└────────────────────────────────────────────────────────┘
+┌─ 紧凑入口条(~40px,样式 .octo-preview-entry) ─────────┐
+│ [icon] 可视化页面                          [预览 →]   │
+└────────────────────────────────────────────────────────┘
+┌─ 多类型并列时第二张 ──────────────────────────────────┐
+│ [icon] JSON 数据                            [预览 →]   │
+└────────────────────────────────────────────────────────┘
+```
+
+样式由 [octo-tokens.css](../../../packages/app/src/pages/insight/octo-tokens.css) `.octo-preview-entry` 系列 class 定义。
+
+### 6.B.3 点击行为
+
+点击入口条 → `onOpenResult(card)` → `tabStore.openTab(card)`:
+- `(uri, type)` 复合命中已有 tab → 激活已有 tab
+- 否则新建 tab,激活
+- 同 URI 不同 type(典型:json + mindmap)各开一个 tab,互不冲突
+
+### 6.B.4 与旧设计的对比
+
+| 维度 | 旧(本期前) | 新(本期起) |
+|---|---|---|
+| 卡片高度 | ~60-80px,含描述 + 时间 | ~40px,仅图标 + 标题 + 描述 + "预览 →" |
+| 对话区文字 | mindmap/html/json 类型出卡时**整段隐藏**(CSS suppress) | **完整保留** |
+| 多类型命中 | 按优先级取一个 | **并列多张** |
+| 视觉权重 | 抢主对话区焦点 | 辅助入口,不抢焦点 |
+
+### 6.B.5 不做的事
+
+- ❌ **不**给 fence 代码块旁加预览按钮(选项 A — DOM 注入,有上游 streaming patch 干扰风险,本期不做)
+- ❌ **不**给 fence 代码块加下载按钮(上游 `<Markdown>` 已有复制按钮,下载是低频需求,Markdown 表格的 CSV/Excel 下载继续在入口卡的 ActionBar 里)
+- ❌ **不**修改 opencode 上游 `<Markdown>` 组件(保持纯上游复用,future-proof)
+
+---
+
 ## 6.A FileFallback（Office / PDF / 二进制）
 
 ### 6.A.1 设计目标
@@ -713,21 +810,36 @@ temp 路径策略：`app.getPath("temp") + "/octo/" + sessionId + "/" + sanitize
 >
 > R1 爱写解释性前缀（"好的，我帮你..."），flash 更结构化直出。嗅探收紧后这两个的卡片命中行为可能变化，必须双模型回归。
 
-#### V0-A 思维导图渲染 + 导出
+#### V0-A 思维导图渲染 + 导出 + 双卡并列
 
 **粘这条 prompt**：
 
 ```
-直接输出 JSON，不要任何解释文字，不要 ```json fence。
+直接输出 JSON，不要任何解释文字。
 shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 主题"调试工具用户研究"，至少 3 层、8 个节点。
 ```
 
 **验收**：
-- [ ] 对话区出现 OutputCard，类型图标为思维导图（`IconCardMindmap`），标题非空
-- [ ] 点开卡片 → ResultViewer 显示 markmap SVG（**手绘曲线连接节点**，不是直线/矩形框）
-- [ ] 点节点可折叠/展开子树
-- [ ] ActionBar [下载 ▾] → JSON (.json) → 文件能用任意文本编辑器打开，内容是原始 JSON
+- [ ] **对话区**显示 JSON 原文(opencode shiki 高亮),不再被隐藏
+- [ ] 对话气泡下方出现**两张并列入口条**:「思维导图 [预览]」+「JSON 数据 [预览]」(用户原话:"不去重,可同时打开源代码和思维导图")
+- [ ] 点「思维导图」→ ResultViewer 新 tab 显示 markmap SVG(**手绘曲线连接节点**),点节点可折叠/展开子树
+- [ ] 点「JSON 数据」→ 另一个 tab,JSON 内容用上游 Markdown shiki 高亮(不再是无高亮的 pre 块)
+- [ ] 两个 tab 共存,可在 TabBar 切换
+- [ ] ActionBar [下载 ▾] → JSON (.json) 文件能用任意文本编辑器打开
+
+#### V0-A2 内网真实 shape — `[{file, mindmaps:[...]}]`
+
+**模拟数据**(粘 prompt):
+```
+直接输出 JSON,无 fence:
+[{"file": "downloads/访谈.docx", "mindmaps": [{"name": "用户访谈提纲", "children": [{"name": "基本信息", "children": [{"name": "部门"}]}]}]}]
+```
+
+**验收**:
+- [ ] 双入口条出现(思维导图 + JSON)
+- [ ] 思维导图根节点是 file basename(此例为"访谈"),子节点为 mindmaps[0] 的内容
+- [ ] JSON 卡内容跟原文一致
 
 #### V0-B HTML 可视化 + 沙箱
 
@@ -740,8 +852,9 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 ```
 
 **验收**：
-- [ ] OutputCard 类型图标为 HTML（`IconCardHtml`）
-- [ ] 点开卡片 → ResultViewer 渲染出 4 柱柱状图（**真的有不同高度和颜色**，不是源码 pre 块）
+- [ ] **对话区显示完整 HTML 代码段**(opencode shiki 高亮),不再被隐藏
+- [ ] 对话气泡下方出现紧凑入口条「可视化页面 [预览 →]」(~40px 高,不是大卡)
+- [ ] 点开入口条 → ResultViewer 渲染出 4 柱柱状图（**真的有不同高度和颜色**，不是源码 pre 块）
 - [ ] 打开 DevTools Console → 能看到 `html-renderer ok`（说明 `allow-scripts` 生效）
 - [ ] DevTools Elements 检查 iframe → `sandbox="allow-scripts"`，**不含** `allow-same-origin`
 - [ ] ActionBar [下载 ▾] → HTML (.html) → 双击下载文件能在浏览器打开
@@ -761,6 +874,21 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 - [ ] 下载 .md → 用文本编辑器打开，是原始 markdown 表格语法
 - [ ] 下载 .csv → 双击用 Excel/Numbers 打开，**中文不乱码**，列结构正确
 - [ ] 下载 .xlsx → 双击用 Excel/Numbers 打开，**中文不乱码**，列结构正确
+
+#### V0-D-NEW 对话区不抹(本期核心红线)
+
+**粘这条 prompt**:
+
+```
+我要画一个柱状图。先解释思路:用 div + CSS 控制每个柱子的 height。然后给完整 HTML 代码。
+```
+
+**验收**:
+- [ ] 对话区**保留全部 LLM 文字**:解释思路段落 + HTML 代码段(shiki 高亮)
+- [ ] 下方紧凑入口条「可视化页面 [预览]」
+- [ ] 对话区**没有任何文字被隐藏**(对比旧设计:HTML fence 命中后整段对话会被 CSS 藏掉)
+
+> ⚠️ **本条是核心回归红线**。删除 `[data-suppress-raw]` 后,任何"输出大卡但藏对话"的回潮都属于功能倒退。
 
 #### V0-D fallback 行为 + 反例（嗅探收紧后必跑）
 
@@ -873,7 +1001,7 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 | `[octo:task] aggregate diff` | 任务卡聚合变化 | tasks 状态变化 |
 | `[octo:task] refresh click` / `markRefreshed` / `stop click` / `followup seed` | 任务卡操作 | 用户点按钮 |
 | `[octo:task] openResult` / `auto-openResult` | 任务卡打开结果 | 点查看结果 / 自动开 |
-| `[octo:tab] openTab` / `dedupe-by-uri` / `dedupe-by-id` | tab 创建 / 去重 | openTab 调用 |
+| `[octo:tab] openTab` / `dedupe-by-uri-and-type` / `dedupe-by-id` | tab 创建 / (uri,type) 复合去重 / id 去重 | openTab 调用 |
 | `[octo:office] download-start` / `download-ok` / `open-path` / `open-failed` | Office 唤起 | 点 FileFallback 按钮 |
 | `[octo:queue] enqueued` / `flushing` / `canceled` | busy 排队 | busy 时发送 / idle 后 flush |
 

@@ -43,7 +43,13 @@ function hasMindmapShape(json: unknown): boolean {
     const hasName = typeof obj.name === "string"
     const hasChildren = Array.isArray(obj.children)
     const hasNodes = Array.isArray(obj.nodes)
-    return (hasName && hasChildren) || hasNodes
+    if ((hasName && hasChildren) || hasNodes) return true
+    // 内网 MCP mindmap 工具实际 shape:{ file: string, mindmaps: [{name, children}] }
+    // 嵌套一层"文件包裹",mindmaps 数组里才是标准 shape;递归判断
+    const mindmaps = obj.mindmaps
+    if (Array.isArray(mindmaps) && mindmaps.length > 0) {
+      return hasMindmapShape(mindmaps[0])
+    }
   }
   return false
 }
@@ -62,23 +68,6 @@ export function isHTML(text: string): boolean {
     return tagCount >= 3
   }
   return false
-}
-
-/**
- * 收紧后的 plainJSON 判别:必须 ≥80 字符 + (带 fence 或 ≥3 个 key/元素)。
- * 避免 `{"foo":"bar"}` / `[1,2,3]` 等琐碎片段被误升级为卡片。
- * 详见 output-renderers.md §2.1 "为什么 plainJSON 加严"。
- */
-export function isPlainJSON(text: string): boolean {
-  const stripped = stripCodeFence(text)
-  if (stripped.length < 80) return false
-  const json = tryParseJSON(stripped)
-  if (!json) return false
-  const hasFence = /```(?:json)?\s*\n/i.test(text)
-  let count = 0
-  if (Array.isArray(json)) count = json.length
-  else if (typeof json === "object") count = Object.keys(json).length
-  return hasFence || count >= 3
 }
 
 export type HtmlFenceBlock = {

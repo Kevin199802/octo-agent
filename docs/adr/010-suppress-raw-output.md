@@ -1,6 +1,14 @@
 # ADR-010 — 机器可读卡片的原始输出隐藏策略
 
-**状态**：已决策（路线 B 待 MCP 联调后实现，当前用 CSS 临时过渡）
+**状态**：🚫 **已作废(2026-05-26)** — 整个 ADR 的前提("原始 JSON / HTML 源码对用户无价值,应隐藏")被否决,业界(Claude / ChatGPT / Cursor)对话区**永不抹除**,仅追加"附加预览入口"。详见 [output-renderers.md §0](../specs/ui/output-renderers.md#0-核心原则对话内容永不替代卡片是附加预览入口)。
+
+> **作废理由**:本 ADR 路线 A(CSS `[data-suppress-raw]` suppress)在内网/外网验证中出现两类问题:
+> 1. HTML / mindmap 命中时整段对话被藏(连同 LLM 的思考过程 / 解释文字),用户体验断裂
+> 2. 外网偶发性 suppress 失效 → "既有代码段又有原始"重复显示
+>
+> **新方案**(替代本 ADR):对话区由上游 `<Markdown>` 原样渲染(含 shiki / 复制按钮),卡片改为对话气泡下方紧凑入口条(~40px 高),作为附加预览能力。`[data-suppress-raw]` CSS 规则已删除,`suppressRawOutput` memo 已删除。
+>
+> 本 ADR 文件保留作为历史决策记录,**不再指导新实现**。
 
 ---
 

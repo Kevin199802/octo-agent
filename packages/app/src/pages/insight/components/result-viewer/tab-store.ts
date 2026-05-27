@@ -22,19 +22,22 @@ export function createTabStore() {
 
   function openTab(card: OutputCard) {
     // 去重优先级(spec: task-card.md §3.5 入口冗余 ≠ tab 重复):
-    //   1. card.uri 命中已有 tab 的 uri → 激活,不新建(多入口指向同一产物)
-    //   2. card.id 命中已有 tab → 激活(inline 模式 / 同入口重复点击)
+    //   1. (uri, type) 复合命中 → 激活(多入口指向同一产物 + 同一渲染视图)
+    //   2. id 命中 → 激活(inline 模式 / 同入口重复点击)
     //   3. 都不命中 → 新建
+    // 同一 URI 不同 type 可并存(典型场景:mindmap JSON 文件既可走 json 高亮预览,
+    // 也可走 mindmap 思维导图渲染——两个 tab 互不冲突)。
     const current = tabs()
     if (card.uri) {
-      const byUri = current.find((t) => t.uri === card.uri)
-      if (byUri) {
-        console.log("[octo:tab] dedupe-by-uri", {
-          existingTabId: byUri.id,
+      const byUriAndType = current.find((t) => t.uri === card.uri && t.type === card.type)
+      if (byUriAndType) {
+        console.log("[octo:tab] dedupe-by-uri-and-type", {
+          existingTabId: byUriAndType.id,
           incomingCardId: card.id,
           uri: card.uri,
+          type: card.type,
         })
-        setActiveId(byUri.id)
+        setActiveId(byUriAndType.id)
         return
       }
     }
@@ -88,10 +91,12 @@ export function createTabStore() {
     setActiveId(null)
   }
 
-  // URI 模式下 fetch 完成后回写 content / 修正 type(json → mindmap 二次判断等)
-  function cacheContent(id: string, content: string, retypeAs?: ResultTabType) {
+  // URI 模式下 fetch 完成后回写 content。
+  // tab.type 在对话流出卡时已由 business_type / mimeType 确定,此处不再修改 type
+  // (旧 retypeAs 参数已删除,详见 output-renderers.md §2.5.2 删除二次判断 retype 说明)
+  function cacheContent(id: string, content: string) {
     setTabs((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, content, type: retypeAs ?? t.type } : t)),
+      prev.map((t) => (t.id === id ? { ...t, content } : t)),
     )
   }
 
