@@ -106,40 +106,42 @@ export const PRESET_PROMPTS: PresetPrompt[] = [/* 见 §3.1.2 */]
 
 #### 3.1.2 预置内容(初版,可微调)
 
-label 沿用原 [store/prompt-template.ts](../../../packages/app/src/pages/insight/store/prompt-template.ts) 已确认的中文标题(已被本 PR 删除,git history 可查);text 由原 `systemHint` 改写为"用户消息"语气(保持原输出格式定义不自创):
+label 与 text 由设计师统一给出(2026-05-27 修订):**label 用业务语义**(用户看到的按钮文字),**text 在设计师文案前补 tool 名**(确保 LLM 100% 调对工具,见 §6 风险表"预置文本对 LLM 调用准确性不足"):
 
 ```typescript
 export const PRESET_PROMPTS: PresetPrompt[] = [
   {
     id: "key_findings",
-    label: "观点解析",
+    label: "观点解析报告",
     expectedTool: "key_findings",
     categories: ["interview"],
-    text: "请使用 key_findings 工具处理附件访谈材料,输出三列 Markdown 表格:访谈问题 | 用户观点 | 场景主体。",
+    text: "请使用 key_findings 工具,基于上传的访谈逐字稿,解析用户观点并生成报告。",
   },
   {
     id: "run_guide_analysis",
     label: "按提纲聚类",
     expectedTool: "run_guide_analysis",
     categories: ["interview"],
-    text: "请使用 run_guide_analysis 工具,按提纲对附件访谈材料做聚类分析。如果我没提供提纲,先问我要。",
+    text: "请使用 run_guide_analysis 工具,基于上传的访谈大纲和逐字稿,聚类用户观点并生成报告。",
   },
   {
     id: "mindmap",
     label: "思维导图",
     expectedTool: "mindmap",
     categories: ["interview"],
-    text: "请使用 mindmap 工具生成思维导图,返回 JSON 我这边会自动渲染。",
+    text: "请使用 mindmap 工具,基于上传的逐字稿,生成思维导图。",
   },
   {
     id: "run_usability_analysis",
-    label: "可用性分析",
+    label: "评估问题分析",
     expectedTool: "run_usability_analysis",
     categories: ["usability"],
-    text: "请使用 run_usability_analysis 工具对附件中的可用性测试材料做分析。",
+    text: "请使用 run_usability_analysis 工具,基于上传的任务书和逐字稿,做可用性测试分析并生成报告。",
   },
 ]
 ```
+
+**多文件角色识别(如按提纲聚类的"大纲 vs 逐字稿")责任归 MCP tool description**(UXR 团队),客户端 prompt 不重复定义。详见 [mcp-contract.md §Tool 描述写法原则](../agents/mcp-contract.md)。
 
 **不本期上的一个**:
 - `search_reports` / 知识问答:**引用型工具,UX 与产物型差异大,本期不开预置入口**。该工具契约已在 [mcp-contract.md §引用型工具契约](../agents/mcp-contract.md#引用型工具契约) 定义(`_octoDisplay: "reference"` + ReferenceList chip 清单),与产物型(OutputCard 大卡)的渲染模型完全不同。要做胶囊需要先理顺"问答类预置"的整体交互方向(单 turn 触发 / 上下文连续追问 / 角标定位 / chip 收起等),作为独立专题做,**不在本 PR 范围**。当前用户仍可通过自由对话触发(LLM 自然语言识别)。

@@ -114,7 +114,7 @@ function Header(props: {
             disabled={props.busy}
             class="px-2 py-1 text-xs rounded disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-secondary)" }}
-            title={props.busy ? "等待当前任务完成后再操作" : "终止任务"}
+            title={props.busy ? "请等待当前任务完成后再操作" : "终止任务"}
           >
             ⏹ 终止
           </button>
@@ -142,9 +142,9 @@ function RefreshButton(props: { taskId: string; busy: boolean; onClick: () => vo
       }}
       title={
         props.busy
-          ? "等待当前任务完成后再操作"
+          ? "请等待当前任务完成后再操作"
           : cooling()
-            ? "3 分钟内只能刷新一次,避免高频骚扰 LLM"
+            ? "请稍后再试"
             : "查询任务进度"
       }
     >

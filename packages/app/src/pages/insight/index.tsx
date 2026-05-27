@@ -844,7 +844,7 @@ function InsightContent() {
                     type="button"
                     onClick={() => void handleSubmit()}
                     disabled={!prompt().trim() || hasUploadingAttachments()}
-                    title={hasUploadingAttachments() ? "等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)}
+                    title={hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)}
                     class="octo-btn-send flex-shrink-0 ml-auto"
                   >
                     <IconSend size={14} />
