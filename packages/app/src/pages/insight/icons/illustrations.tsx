@@ -1,8 +1,23 @@
 import type { JSX } from "solid-js"
 import insightEmptyUrl from "./IllustrationInsightEmpty.svg?url"
 import resultEmptyUrl from "./IllustrationResultEmpty.svg?url"
+import iconSendBlueUrl from "./IconSend.svg?url"
 
 type IllustrationProps = { width?: number; height?: number; class?: string }
+
+/** 发送按钮成品 SVG(含蓝色圆 + 内嵌纸飞机 + 外发光);自带视觉, button 容器只负责 onClick/disabled。*/
+export function IconSendBlue(props: IllustrationProps): JSX.Element {
+  return (
+    <img
+      src={iconSendBlueUrl}
+      width={props.width ?? 40}
+      height={props.height ?? 40}
+      alt=""
+      aria-hidden="true"
+      class={props.class}
+    />
+  )
+}
 
 export function IllustrationInsightEmpty(props: IllustrationProps): JSX.Element {
   return (

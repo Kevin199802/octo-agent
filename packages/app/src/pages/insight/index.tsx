@@ -25,8 +25,7 @@ import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
-import { IconSend } from "./icons"
-import { IllustrationInsightEmpty } from "./icons/illustrations"
+import { IllustrationInsightEmpty, IconSendBlue } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, UploadError } from "./lib/upload"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { mimeToOutputType } from "./utils/resource-link"
@@ -800,19 +799,23 @@ function InsightContent() {
               />
 
               <div
-                class="rounded-[var(--octo-radius-lg)] overflow-hidden transition-all duration-300 relative group"
+                class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group"
                 style={{
-                  background: "var(--octo-surface-page)",
-                  "box-shadow": "0 0 0 1px var(--octo-border-input, #E5E7EB), 0 4px 16px -4px rgba(0, 0, 0, 0.05), 0 0 20px -5px rgba(0, 103, 209, 0.15)",
+                  border: "1px solid transparent",
+                  background: `
+                    linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
+                    linear-gradient(135deg,
+                      rgba(246, 97, 23, 0.7) 1%,
+                      rgba(95, 45, 255, 0.7) 8%,
+                      rgba(61, 93, 255, 0.7) 22%,
+                      rgba(104, 138, 255, 0.7) 43%,
+                      rgba(28, 171, 111, 0.7) 54%,
+                      rgba(61, 93, 255, 0.7) 87%,
+                      rgba(206, 7, 232, 0.7) 92%) border-box`,
+                  "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
                   "margin-top": attachments().length > 0 ? "6px" : "0",
                 }}
               >
-                <div class="absolute inset-0 rounded-[var(--octo-radius-lg)] pointer-events-none opacity-0 group-focus-within:opacity-100 transition-opacity duration-300" 
-                     style={{ 
-                       "box-shadow": "0 0 0 1.5px rgba(0, 103, 209, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.5)",
-                       "background": "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(0, 103, 209, 0.03) 100%)"
-                     }} />
-
                 <textarea
                   ref={textareaRef!}
                   value={prompt()}
@@ -842,7 +845,7 @@ function InsightContent() {
                     type="button"
                     onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
                     disabled={maxAttachments()}
-                    class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-400 hover:text-gray-600"
+                    class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
                     title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
                   >
                     <Icon name="plus" class="size-5" />
@@ -855,17 +858,13 @@ function InsightContent() {
                     onClick={() => void handleSubmit()}
                     disabled={!prompt().trim() || hasUploadingAttachments()}
                     title={hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)}
-                    class="flex flex-shrink-0 items-center justify-center size-8 rounded-full ml-auto text-white shadow-sm transition-all duration-200"
+                    class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                     style={{
-                       background: (!prompt().trim() || hasUploadingAttachments()) 
-                         ? "var(--octo-border-input, #c9c9c9)" 
-                         : "linear-gradient(135deg, #0077ED 0%, #0057C2 100%)",
-                       "box-shadow": (!prompt().trim() || hasUploadingAttachments())
-                         ? "none"
-                         : "0 2px 8px rgba(0, 103, 209, 0.4)"
+                      opacity: (!prompt().trim() || hasUploadingAttachments()) ? 0.4 : 1,
+                      filter: (!prompt().trim() || hasUploadingAttachments()) ? "grayscale(0.5)" : "none",
                     }}
                   >
-                    <IconSend size={14} class="relative right-[1px] bottom-[1px] text-white" />
+                    <IconSendBlue width={40} height={40} />
                   </button>
                 </div>
               </div>
