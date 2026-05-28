@@ -348,9 +348,15 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 |---|---|
 | 新增 `ipcMain.handle("download-resource", ...)`：node fetch 下载远程 URL，落地到指定本地路径（mkdir -p + fs.writeFile） | 接线 — 配合 FileFallback「用本地应用打开」前置步骤；通用底层能力（不仅限 office），未来视频 / 图片 / 任意二进制都可复用 |
 
+#### `packages/desktop-electron/package.json`
+
+| 改了什么 | 性质 |
+|---|---|
+| `electron` 依赖 `40.4.1` → `42` | 依赖升级（避免 native 模块预编译差异）。**已知 quirk**：bun 跨主版本升级 electron 时**不自动重跑** postinstall，导致 `node_modules/.bun/electron@<new>/node_modules/electron/dist/` 不存在，启动报 `Info.plist not found`。修复：手动跑 `node node_modules/.bun/electron@<version>/node_modules/electron/install.js`。typecheck 通过，未跑 dev/build/package。 |
+
 #### `bun.lock`
 
-随 `octo-app` workspace 条目删除自动更新；后续随 `packages/app/package.json` 新增 `write-excel-file` / `markmap-*` 自动更新。非手动修改。
+随 `octo-app` workspace 条目删除自动更新；后续随 `packages/app/package.json` 新增 `write-excel-file` / `markmap-*` 自动更新；随 `packages/desktop-electron/package.json` electron 主版本升级自动更新。非手动修改。
 
 **撤回到纯上游**（合入内网最坏情况）：
 
