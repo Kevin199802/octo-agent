@@ -186,6 +186,24 @@ describe("uxrJsonToMarkdown", () => {
   test("空数组返回 null", () => {
     expect(uxrJsonToMarkdown("[]")).toBe(null)
   })
+  test("内网 MCP { mindmaps } 形态:直接展开,不把 file 当根", () => {
+    const text = JSON.stringify([
+      {
+        file: "downloads/xxx/访谈纲要.docx",
+        mindmaps: [
+          { name: "主题", children: [{ name: "痛点", children: [] }] },
+        ],
+      },
+    ])
+    expect(uxrJsonToMarkdown(text)).toBe("# 主题\n- 痛点")
+  })
+  test("多文件 { mindmaps } 形态:平铺所有 mindmaps 根节点", () => {
+    const text = JSON.stringify([
+      { file: "a.docx", mindmaps: [{ name: "A", children: [] }] },
+      { file: "b.docx", mindmaps: [{ name: "B", children: [] }] },
+    ])
+    expect(uxrJsonToMarkdown(text)).toBe("# A\n# B")
+  })
 })
 
 describe("parseMarkdownTable", () => {

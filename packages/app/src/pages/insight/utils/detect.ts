@@ -44,8 +44,8 @@ function hasMindmapShape(json: unknown): boolean {
     const hasChildren = Array.isArray(obj.children)
     const hasNodes = Array.isArray(obj.nodes)
     if ((hasName && hasChildren) || hasNodes) return true
-    // 内网 MCP mindmap 工具实际 shape:{ file: string, mindmaps: [{name, children}] }
-    // 嵌套一层"文件包裹",mindmaps 数组里才是标准 shape;递归判断
+    // 内网 MCP mindmap 工具 shape:{ mindmaps: [{name, children}, ...] }
+    // 以 mindmaps 字段为准识别;file 字段(若存在)与识别无关。
     const mindmaps = obj.mindmaps
     if (Array.isArray(mindmaps) && mindmaps.length > 0) {
       return hasMindmapShape(mindmaps[0])
