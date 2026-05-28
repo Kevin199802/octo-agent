@@ -18,13 +18,14 @@ import { useGlobalSync } from "@/context/global-sync"
 import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
+import { Icon } from "@opencode-ai/ui/icon"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
-import { IconAttach, IconSend } from "./icons"
+import { IconSend } from "./icons"
 import { IllustrationInsightEmpty } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, UploadError } from "./lib/upload"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
@@ -335,6 +336,7 @@ function InsightContent() {
 
     // optimistic user message —— 立即写入 sync.data,UI 瞬时反馈
     // directory 不传 → 默认走 SDKProvider 注入的 homeDir;model 不传 → 服务端按 agent 默认配置
+    // model/variant 暂不传(等内网 agent-scoped 模型方案落地后再接,见会话决策)
     const optimisticMessage: Message = {
       id: messageID,
       sessionID: sessionId,
@@ -798,21 +800,27 @@ function InsightContent() {
               />
 
               <div
-                class="rounded-[var(--octo-radius-lg)] overflow-hidden"
+                class="rounded-[var(--octo-radius-lg)] overflow-hidden transition-all duration-300 relative group"
                 style={{
                   background: "var(--octo-surface-page)",
-                  "box-shadow": "0 2px 12px rgba(0, 0, 0, 0.08)",
+                  "box-shadow": "0 0 0 1px var(--octo-border-input, #E5E7EB), 0 4px 16px -4px rgba(0, 0, 0, 0.05), 0 0 20px -5px rgba(0, 103, 209, 0.15)",
                   "margin-top": attachments().length > 0 ? "6px" : "0",
                 }}
               >
+                <div class="absolute inset-0 rounded-[var(--octo-radius-lg)] pointer-events-none opacity-0 group-focus-within:opacity-100 transition-opacity duration-300" 
+                     style={{ 
+                       "box-shadow": "0 0 0 1.5px rgba(0, 103, 209, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.5)",
+                       "background": "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(0, 103, 209, 0.03) 100%)"
+                     }} />
+
                 <textarea
                   ref={textareaRef!}
                   value={prompt()}
                   onInput={(e) => setPrompt(e.currentTarget.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="输入指令，按 Enter 发送…"
+                  placeholder="上传评估任务书、逐字稿，智能整理问题和观点"
                   rows={3}
-                  class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none"
+                  class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                   style={{
                     color: "var(--octo-text-primary)",
                     "font-family": "var(--octo-font)",
@@ -821,7 +829,7 @@ function InsightContent() {
                   }}
                 />
 
-                <div class="flex items-center gap-2 px-2.5 pb-2.5">
+                <div class="flex items-center gap-2 px-2.5 pb-2.5 relative z-10">
                   <input
                     ref={fileInputRef!}
                     type="file"
@@ -834,20 +842,30 @@ function InsightContent() {
                     type="button"
                     onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
                     disabled={maxAttachments()}
-                    class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment flex-shrink-0"
+                    class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-400 hover:text-gray-600"
                     title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
                   >
-                    <IconAttach size={14} />
+                    <Icon name="plus" class="size-5" />
                   </button>
+
+                  {/* 模型切换胶囊位:等内网 agent-scoped 模型方案落地后接入,见 SPEC TODO */}
 
                   <button
                     type="button"
                     onClick={() => void handleSubmit()}
                     disabled={!prompt().trim() || hasUploadingAttachments()}
                     title={hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)}
-                    class="octo-btn-send flex-shrink-0 ml-auto"
+                    class="flex flex-shrink-0 items-center justify-center size-8 rounded-full ml-auto text-white shadow-sm transition-all duration-200"
+                    style={{
+                       background: (!prompt().trim() || hasUploadingAttachments()) 
+                         ? "var(--octo-border-input, #c9c9c9)" 
+                         : "linear-gradient(135deg, #0077ED 0%, #0057C2 100%)",
+                       "box-shadow": (!prompt().trim() || hasUploadingAttachments())
+                         ? "none"
+                         : "0 2px 8px rgba(0, 103, 209, 0.4)"
+                    }}
                   >
-                    <IconSend size={14} />
+                    <IconSend size={14} class="relative right-[1px] bottom-[1px] text-white" />
                   </button>
                 </div>
               </div>

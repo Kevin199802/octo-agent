@@ -26,19 +26,19 @@
 2. 对"看起来能跑"的方案要警惕，多问"为什么没人这么做"
 3. spec 写完后专门 review 一次，假设自己第一次看到这个方案
 
-**反例（曾发生的返工）**：base64 文件走 MCP 上传 / 让 LLM 把 JSON 转 mermaid / 设计 batch_xxx 工具替代 xxx(items[])。这些 spec 都是写完后才被打断质疑、然后大幅重写的。
+**反例（曾发生的返工）**：base64 文件走 MCP 上传 / 让 LLM 把 JSON 转 mermaid / 设计 batch_xxx 工具替代 xxx(items[])。
 
 ---
 
 ## 工作目录
 
-**我们在 `packages/app/` 里加页面**，与内网的 `packages/app/` 保持相同目录结构，便于按图索骥对接。
+**我们在 `packages/app/` 里加页面**。
 
 | 路径 | 说明 |
 |---|---|
-| `packages/app/src/pages/insight/` | 用研 Agent 页面（**合入物**，对应内网同路径） |
-| `packages/agent/insight/agents/` | opencode agent 配置文件（**合入物**，详见 [docs/intranet-handoff.md](docs/intranet-handoff.md)） |
-| `packages/app/src/pages/_shell/` | OctoShell 框架层：sidebar + topbar |
+| `packages/app/src/pages/insight/` | 用研 Agent 页面（合入物）|
+| `packages/agent/insight/agents/` | opencode agent 配置文件（合入物）|
+| `packages/app/src/pages/_shell/` | OctoShell 框架层 |
 | `packages/app/src/app.tsx` | OctoShell 路由分叉（限改） |
 
 其他 agent 各自在 `packages/app/src/pages/<name>/` 建立相同结构。
@@ -59,64 +59,34 @@
 
 ## 非业务包变更登记（强制）
 
-**除以上"自由改"范围外，任何文件改动（包括但不限于构建配置、根 package.json、bun.lock、接线文件等）必须立即在 `docs/architecture.md §5.4` 补充一条记录**，说明改了什么、为什么改。
-
-**不允许**：改完就跑，让架构文档跟代码漂移。  
-**目的**：AI 频繁操作时留下可追溯的变更日志，替代人工巡查。
+**除以上"自由改"范围外，任何文件改动（构建配置、根 package.json、bun.lock、接线文件等）必须立即在 `docs/architecture.md §5.4` 补充一条记录**，说明改了什么、为什么改。
 
 ---
 
 ## 内网集成手册维护
 
-`docs/intranet-handoff.md` 是给内网集成者（人或 AI）的对外操作手册。
-
-**不需要每次改动立即同步**。代码 / 依赖 / 新增文件等改动 rsync/diff 自然能带过去，handoff 不重复登记。
-
-在两个时机 review + 更新即可：
-- 准备通知内网"可以合入"的里程碑前
-- 合入物**对外契约**明显变化时（如 `insight.md` frontmatter 字段约定调整、合入物目录结构变化）
-
-**目的**：降低单次 commit 的文档维护负担，避免和 §5.4 形成双写。
+`docs/intranet-handoff.md` 是给内网集成者的对外操作手册。**里程碑前或对外契约变化时** review + 更新，平时不需要每次改动同步（diff/rsync 自然带过去）。
 
 ---
 
 ## 设计素材清单（强制）
 
-**UI 开发过程中，凡遇到以下情况，须立即在 [`docs/specs/ui/design-assets-needed.md`](docs/specs/ui/design-assets-needed.md) 对应区块追加记录**：
-
-- 图标用自绘 SVG 占位（无设计师提供的精确切图）
-- 插图、空状态图、品牌图形等用代码近似替代
-- 头像、用户信息等需要真实数据或组件替换
-
-**不允许**：开发完跳过不记，让清单与代码脱节。  
-**目的**：给设计师一张完整的"待交付"清单，确保切图后能快速定位替换位置。
+UI 开发中遇到 SVG 占位 / 插图近似替代 / 真实数据缺失等情况，立即在 [docs/specs/ui/design-assets-needed.md](docs/specs/ui/design-assets-needed.md) 追加记录。**目的**：给设计师一张可交付清单。
 
 ---
 
 ## 实施原则
 
-- **复用零件**：思维链 / 工具流 / markdown / 各 dialog 等 import `@opencode-ai/ui` 的组件，**绝不重写**
-- **页面自包含**：`insight/` 目录内的样式、组件、工具函数全部放在目录内，不往外散
-- **可视化各自引库**：ECharts / mermaid 等在用到的页面目录内引入，不抽共享组件
-- **Office 预览**：`window.api.openPath(filePath)` 唤起本地应用，不做浏览器内渲染
-- **PromptInput 自己写**：上游 PromptInput 设计为 chat 工作流(@-mention 代码库 / 斜杠命令 / 历史回溯 / 代码粘贴)，1500+ 行，深度耦合 `useSessionLayout / useFile / useCommand / useComments` 等 chat 专属 context；insight 工作流(文档上传 + 预置提示词按钮 + MCP 任务卡片)功能集重叠度 < 20%，复用成本远高于自实现。详见 [SPEC-INS-005 §7](docs/specs/ui/insight-data-layer-reuse.md#7-输入区评估保留自实现--理由更新)
-- **提示词走单 turn 而非 session 级**：预置提示词按钮点击 = 把文本填入输入框作为本 turn 的用户消息，不再走 `system` 字段(原 [ADR-007](docs/adr/007-prompt-template-via-system-field.md) 已部分作废)。理由:session 级 system 会污染整段对话上下文。详见 [SPEC-INS-007](docs/specs/ui/insight-prompt-redesign.md)
-- **对话内容永不替代,卡片是附加预览入口**：业界(Claude Artifacts / ChatGPT Canvas / Cursor)共识——对话区由上游 `<Markdown>` 原样渲染(含代码段 shiki 高亮 / 表格 / 复制按钮),OutputCard 是对话气泡下方的紧凑入口条(~40px),不替代对话内容。原 [ADR-010](docs/adr/010-suppress-raw-output.md) 路线 A(CSS suppress)**已作废**。详见 [output-renderers.md §0](docs/specs/ui/output-renderers.md#0-核心原则对话内容永不替代卡片是附加预览入口)
+- **复用零件**：`@opencode-ai/ui` 的组件 import，不重写
+- **页面自包含**：`insight/` 内的样式/组件/工具不外散
+- **可视化各自引库**：ECharts/mermaid 等在用到的页面目录内引入
+- **Office 预览**：`window.api.openPath(filePath)` 唤起本地应用，不浏览器渲染
+- **PromptInput 自实现**：见 [SPEC-INS-005 §7](docs/specs/ui/insight-data-layer-reuse.md#7-输入区评估保留自实现--理由更新)
+- **预置提示词单 turn，不走 session system 字段**：见 [SPEC-INS-007](docs/specs/ui/insight-prompt-redesign.md)
+- **对话内容永不替代，卡片是附加预览入口**：见 [output-renderers.md §0](docs/specs/ui/output-renderers.md#0-核心原则对话内容永不替代卡片是附加预览入口)
 
 ---
 
-## 架构决策(ADR)
+## 架构决策（ADR）
 
-- ADR-001 — Electron vs Tauri → [docs/adr/001-electron-vs-tauri.md](docs/adr/001-electron-vs-tauri.md)
-- ADR-002 — Vue 3 替换 SolidJS → [docs/adr/002-vue3-ui-rewrite.md](docs/adr/002-vue3-ui-reuse.md) **(已弃用)**
-- ADR-003 — LLM Provider 接入 → [docs/adr/003-openai-compat-provider.md](docs/adr/003-openai-compat-provider.md)
-- ADR-004 — 切回 SolidJS → [docs/adr/004-solidjs-ui-reuse.md](docs/adr/004-solidjs-ui-reuse.md)
-- ADR-005 — 提示词模板 vs Subagent → [docs/adr/005-prompt-template-vs-subagent.md](docs/adr/005-prompt-template-vs-subagent.md)
-- ADR-006 — 文件上传走 InsightPage 直传，不经过 MCP → [docs/adr/006-upload-architecture.md](docs/adr/006-upload-architecture.md)
-- ADR-007 — 提示词模板通过 session.prompt() 的 system 字段传递 → [docs/adr/007-prompt-template-via-system-field.md](docs/adr/007-prompt-template-via-system-field.md) **(部分作废,被 SPEC-INS-007 覆盖)**
-- ADR-008 — Agent 配置走 cascading 模式（A 类 bundle 内写死，B/C 类用户文件）→ [docs/adr/008-cascading-config.md](docs/adr/008-cascading-config.md)
-- ADR-009 — 不在客户端预览 Office 文件（docx/pptx/xlsx）→ [docs/adr/009-no-office-preview.md](docs/adr/009-no-office-preview.md)
-- ADR-010 — 机器可读卡片原始输出隐藏策略 → [docs/adr/010-suppress-raw-output.md](docs/adr/010-suppress-raw-output.md) **(已作废,2026-05-26;新方案见 [output-renderers.md §0](docs/specs/ui/output-renderers.md))**
-- ADR-011 — MCP 工具结果走"摘要 + Resource URI"，大内容不内联 → [docs/adr/011-tool-result-resource-uri.md](docs/adr/011-tool-result-resource-uri.md)
-- ADR-012 — MCP 工具按业务能力铺开（N tools），而非单 tool + enum 参数 → [docs/adr/012-mcp-tools-by-capability.md](docs/adr/012-mcp-tools-by-capability.md)
-- ADR-013 — 长任务进度查询策略：卡片刷新按钮 + LLM 触发（业界没有 30min + agent 对话的标配，2.3 是当前阶段务实选择）→ [docs/adr/013-long-task-progress-strategy.md](docs/adr/013-long-task-progress-strategy.md)
+完整 ADR 列表见 [docs/adr/](docs/adr/)。
