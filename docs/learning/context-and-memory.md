@@ -325,7 +325,48 @@ A:把 `AGENTS.md` 放进项目 git 仓库就行 —— 团队 clone 项目自动
 
 ---
 
-## 9. 进一步阅读
+## 9. 附:Claude Code(开发助手)的记忆 ≠ opencode/Octo 运行时记忆
+
+⚠️ **本节讲的是"帮我们开发这个项目的 AI 助手(Claude Code)"自己的记忆机制,跟前面 §1–8 讲的
+opencode/Octo 运行时 agent 的记忆(AGENTS.md / 压缩)是两套完全独立、互不相干的东西,别混。**
+
+| 维度 | opencode/Octo 运行时记忆(§1–8) | Claude Code 开发助手记忆(本节) |
+|---|---|---|
+| 服务谁 | **出厂产品**里跑的 agent(给最终用户) | **开发期**辅助我们写代码的 AI 助手 |
+| 存在哪 | 仓库内 `AGENTS.md`/`CLAUDE.md` + SQLite | 仓库**外**,用户机器 `~/.claude/` 下 |
+| 是否随产品发布 | ✅ 是合入物 | ❌ 不发布,纯开发辅助 |
+| 用途 | 产品功能 | 学习 + 开发过程中的记忆管理 |
+
+### 9.1 记忆文件在哪
+
+Claude Code 的文件记忆是一个个 markdown 文件(每条一个事实,带 frontmatter),分两个作用域:
+
+| 作用域 | 目录 | 说明 |
+|---|---|---|
+| **项目级**(本项目专属) | `~/.claude/projects/<项目路径转义>/memory/` | 本项目是 `~/.claude/projects/-Users-huowenkai-Desktop-projects-octo-agent/memory/`(路径里 `/`→`-`)。索引文件 `MEMORY.md` 每行一条指针 |
+| **全局/用户级**(跨所有项目) | `~/.claude/memory/` | **当前尚未创建**;要做跨项目通用记忆时新建此目录 + 一份 `MEMORY.md` 索引 |
+
+每条记忆 frontmatter 的 `type` 分四类:`user`(用户是谁)、`feedback`(怎么和我协作的偏好/纠正)、
+`project`(项目相关的非显然背景)、`reference`(外部资源指针)。
+
+### 9.2 怎么把"通用记忆"提升到全局
+
+判断标准:**这条记忆换个项目还成立吗?**
+
+- **成立 → 适合提到全局**:比如"始终用简体中文回复""能自动验证的都走自动验证""本地文件复制走 Bash"
+  ——这些是跟我协作的通用偏好,与 Octo 无关。
+- **不成立 → 留在项目级**:比如"main=纯opencode/dev=全部业务""协作三方边界"——只对本项目成立。
+
+手动提升操作:把项目级 `memory/` 里那条 `.md` 文件**移动**到 `~/.claude/memory/`,并在
+**全局 `~/.claude/memory/MEMORY.md`** 里补一行指针(从项目 `MEMORY.md` 删掉对应行)。下次任何项目的
+会话都会带上这条全局记忆。
+
+> 当前本项目的 `feedback_*` 几条(语言、自动验证、本地复制、spec 先质疑、文档分层)基本都是通用偏好,
+> 是提升到全局的候选;`project_*` 几条(项目背景、三方边界、PR 协作模型)是 Octo 专属,留项目级。
+
+---
+
+## 10. 进一步阅读
 
 - 源码:[packages/opencode/src/session/compaction.ts](../../packages/opencode/src/session/compaction.ts)
 - 源码:[packages/opencode/src/session/instruction.ts](../../packages/opencode/src/session/instruction.ts)
