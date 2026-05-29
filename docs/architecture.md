@@ -373,6 +373,12 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 
 随 `octo-app` workspace 条目删除自动更新；后续随 `packages/app/package.json` 新增 `write-excel-file` / `markmap-*` 自动更新；随 `packages/desktop-electron/package.json` electron 主版本升级自动更新。非手动修改。
 
+#### `.github/TEAM_MEMBERS`（补充）
+
+| 改了什么 | 性质 |
+|---|---|
+| 追加内部协作者登录名 `yuziyuan` / `yuanfayu`（2026-05-29） | PR 治理 — 上游 `pr-standards` / 合规检查对名单内作者跳过 conventional 标题、关联 issue、模板合规等检查（名单从 `dev` 分支读）。内部成员加入后,其 PR 不再被当外部贡献者拦(`needs:title` / `needs:issue` / `needs:compliance` / 2h 自动关)。owner `Kevin199802` 及后续成员按同格式自行追加。协作规则见 [collab-pr-protocol.md](collab-pr-protocol.md) |
+
 **撤回到纯上游**（合入内网最坏情况）：
 
 1. 上面所有改动逆向回滚
