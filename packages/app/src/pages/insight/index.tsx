@@ -848,22 +848,22 @@ function InsightContent() {
                           <Icon name="plus" class="size-5" />
                         </button>
 
-                        {/* 模型切换胶囊(disabled 占位):等内网 agent-scoped 模型方案落地后接入 */}
-                        <div
-                          class="flex items-center gap-1 px-3 h-8 rounded-full text-[13px] select-none"
-                          style={{
-                            border: "1px solid var(--octo-border-default)",
-                            color: "var(--octo-text-secondary)",
-                            background: "var(--octo-surface-page)",
-                            cursor: "not-allowed",
-                            opacity: 0.7,
+                        <ModelSelectorPopover
+                          model={selection.model}
+                          triggerAs="button"
+                          triggerProps={{
+                            class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                            "data-action": "prompt-model",
                           }}
-                          aria-disabled="true"
-                          title="模型选择(暂不可切换)"
+                          onClose={() => { requestAnimationFrame(() => textareaRef?.focus()) }}
                         >
-                          <span>DeepSeek-V4-Pro</span>
-                          <Icon name="chevron-down" class="size-3.5" />
-                        </div>
+                          {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
+                              synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
+                          <span class="truncate">
+                            {selection.model.current()?.name ?? "选择模型"}
+                          </span>
+                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                        </ModelSelectorPopover>
 
                         <button
                           type="button"
@@ -936,22 +936,6 @@ function InsightContent() {
                   </div>
                 </Show>
 
-                <ModelSelectorPopover
-                  model={selection.model}
-                  triggerAs="button"
-                  triggerProps={{
-                    class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
-                    "data-action": "prompt-model",
-                  }}
-                  onClose={() => { requestAnimationFrame(() => textareaRef?.focus()) }}
-                >
-                  {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
-                      synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
-                  <span class="truncate">
-                    {selection.model.current()?.name ?? "选择模型"}
-                  </span>
-                  <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
-                </ModelSelectorPopover>
                 {/* 预置提示词按钮 (SPEC-INS-007 §3.1.3):放在输入框白卡片之外,
                     视觉层级:辅助操作浮在输入框上方,与卡片解耦 */}
                 <PresetPrompts
@@ -1012,7 +996,22 @@ function InsightContent() {
                       <Icon name="plus" class="size-5" />
                     </button>
 
-                    {/* 模型切换胶囊位:等内网 agent-scoped 模型方案落地后接入,见 SPEC TODO */}
+                    <ModelSelectorPopover
+                      model={selection.model}
+                      triggerAs="button"
+                      triggerProps={{
+                        class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                        "data-action": "prompt-model",
+                      }}
+                      onClose={() => { requestAnimationFrame(() => textareaRef?.focus()) }}
+                    >
+                      {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
+                          synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
+                      <span class="truncate">
+                        {selection.model.current()?.name ?? "选择模型"}
+                      </span>
+                      <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                    </ModelSelectorPopover>
 
                     <button
                       type="button"
