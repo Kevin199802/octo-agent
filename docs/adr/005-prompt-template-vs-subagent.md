@@ -42,6 +42,8 @@ InsightPage 输入区有两个维度的用户选择：
 
 并行收益：3 份文档串行约 90s，subagent 并行约 30s。
 
+> **现状（2026-05-29）**：`interview-worker` 这一 fallback **从未落地**——首选的批量 `doc_urls` 路线服务端已原生支持，无需客户端并行。其 `default-config.json` 占位条目（无对应 prompt 文件、insight.md 也从不分派）已于 commit `7230324`（cherry-pick 自 `92df27c`，PR [#1](https://github.com/Kevin199802/octo-agent/pull/1)）移除。若日后服务端不支持批量需启用，须重建 config block + 新增 `packages/agent/interview-worker/agents/interview-worker.md`。
+
 ## 思维导图的处理
 
 思维导图是 `analyze_interview` 的一个 `analysis_type` 值（`"mindmap"`），服务端复用现有思维导图接口，**直接返回 JSON**，客户端渲染 JSON（不需要 LLM 做格式转换）。
