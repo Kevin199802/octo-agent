@@ -105,6 +105,14 @@ function InsightContent() {
     return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
   })
 
+  // 会话消息是否已加载:切到"未加载过的已存在会话"时 message[id] 为 undefined,
+  // 期间不渲染首页空态(否则会闪一下 Octo Insight 首页),等加载完再按是否为空决定。
+  // 无 id(全新/首页)视作已加载,正常显示首页空态。
+  const sessionMessagesLoaded = createMemo(() => {
+    const id = params.id
+    return !id || sync.data.message[id] !== undefined
+  })
+
   // ── 长任务卡片聚合(spec: docs/specs/ui/task-card.md §3.3)──
   // 扫所有 assistant message 的 part,按 task_id 分组取最新状态;锚点 = 最早 part 所在 user message
   const taskCards = createMemo((): Map<string, TaskCardEntry> => {
@@ -283,6 +291,51 @@ function InsightContent() {
 
   const tabStore = createTabStore()
 
+  // ── 任务面板按需弹出 + 过渡动画 (SPEC-INS-009) ────────────────
+  // panelCollapsed:用户手动收起(保留 tab,仅隐藏容器);与"无产物"区分两种收起来源。
+  // panelVisible = 有已打开产物 且 未手动收起。无产物时聊天居中铺满,有产物才 split。
+  const [panelCollapsed, setPanelCollapsed] = createSignal(false)
+  const panelVisible = createMemo(() => tabStore.tabs().length > 0 && !panelCollapsed())
+
+  // 动画三态:
+  //   panelMounted   —— 面板是否在 DOM(可见时挂载,收起动画播完才卸载,保证滑出可见)
+  //   panelExpanded  —— 驱动聊天列宽度的目标态(滑入时延一帧置真,从 100% 过渡到 chatWidth)
+  //   panelAnimating —— 仅切换期间为真;开启 width transition。拖拽分隔线不触发本 effect,
+  //                     故 transition 关闭,分隔线跟手不滞后。
+  const PANEL_ANIM_MS = 280
+  const [panelMounted, setPanelMounted] = createSignal(false)
+  const [panelExpanded, setPanelExpanded] = createSignal(false)
+  const [panelAnimating, setPanelAnimating] = createSignal(false)
+  let panelExitTimer: ReturnType<typeof setTimeout> | undefined
+  let panelAnimEndTimer: ReturnType<typeof setTimeout> | undefined
+
+  createEffect(on(panelVisible, (show) => {
+    if (panelExitTimer) { clearTimeout(panelExitTimer); panelExitTimer = undefined }
+    setPanelAnimating(true)
+    if (show) {
+      setPanelMounted(true)
+      // 双 rAF:确保面板先以 width:0(聊天 100%)落地一帧,再过渡到展开宽,首次也有滑入
+      requestAnimationFrame(() => requestAnimationFrame(() => setPanelExpanded(true)))
+    } else {
+      setPanelExpanded(false)
+      panelExitTimer = setTimeout(() => setPanelMounted(false), PANEL_ANIM_MS)
+    }
+    // 动画窗口结束后关掉 animating,使后续拖拽无 transition
+    if (panelAnimEndTimer) clearTimeout(panelAnimEndTimer)
+    panelAnimEndTimer = setTimeout(() => setPanelAnimating(false), PANEL_ANIM_MS + 30)
+  }, { defer: true }))
+
+  /** 打开/激活产物时统一清掉手动收起态,确保面板滑入(即便之前被收起) */
+  function revealPanel() {
+    if (panelCollapsed()) setPanelCollapsed(false)
+  }
+
+  /** 关 tab:若关掉的是最后一个,复位 collapsed 以便下次产物干净滑入 */
+  function handleCloseTab(id: string) {
+    tabStore.closeTab(id)
+    if (tabStore.tabs().length === 0) setPanelCollapsed(false)
+  }
+
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
@@ -290,6 +343,7 @@ function InsightContent() {
   // queue 必须清:在 session A 排队的 text 不能错发到 session B(SPEC-INS-007 §3.3.5)
   createEffect(on(() => params.id, () => {
     tabStore.reset()
+    setPanelCollapsed(false)
     setQueuedText(null)
     clearRefreshState()
     autoOpenedTaskIds.clear()
@@ -578,6 +632,7 @@ function InsightContent() {
 
   function handleOpenResult(card: OutputCard) {
     tabStore.openTab(card)
+    revealPanel()
   }
 
   // ── 长任务卡片操作(spec: docs/specs/ui/task-card.md §6) ──────
@@ -671,6 +726,7 @@ function InsightContent() {
     // 用户视觉上看到最后激活的是数组里最后一个 = 第一张?— 让我们激活第一张
     for (const oc of ocs) tabStore.openTab(oc)
     tabStore.activate(ocs[0].id)
+    revealPanel()
   }
 
   // ── 自动 openTab(ResultViewer 当前为空时,首个 completed 任务自动开;spec §8.3)──
@@ -690,6 +746,7 @@ function InsightContent() {
       })
       for (const oc of ocs) tabStore.openTab(oc)
       tabStore.activate(ocs[0].id)
+      revealPanel()
       break  // 一次只自动开一个 task 的全部产物
     }
   })
@@ -745,12 +802,17 @@ function InsightContent() {
       <Toast.Region />
       <div class="size-full flex overflow-hidden relative" data-page="insight">
 
-        {/* ── 左栏：对话面板（固定宽度，始终可拖拽） ──── */}
+        {/* ── 左栏：对话面板 ────
+             展开态:固定 chatWidth,可拖拽分隔。收起态:撑满 100%,内容居中 reading-width。
+             宽度在 chatWidth ↔ 100% 间过渡;任务面板 flex:1 跟随重排自然伸缩(SPEC-INS-009 §3)。
+             panelAnimating 仅切换期间为真 → 拖拽分隔线时无 transition,跟手不滞后。 */}
         <div
-          class="flex flex-col overflow-hidden flex-shrink-0"
+          class="flex flex-col overflow-hidden relative"
           style={{
-            width: `${chatWidth()}px`,
+            width: panelExpanded() ? `${chatWidth()}px` : "100%",
             flex: "0 0 auto",
+            "min-width": "0",
+            transition: panelAnimating() ? `width ${PANEL_ANIM_MS}ms ease` : "none",
             background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-shell-bg)",
             outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
           }}
@@ -758,9 +820,28 @@ function InsightContent() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+          {/* 收起态唤回浮标:有产物但面板被收起时,右上角浮「产出 (N)」(待收起动画结束再现,避免与滑出重叠) */}
+          <Show when={tabStore.tabs().length > 0 && panelCollapsed() && !panelAnimating()}>
+            <button
+              type="button"
+              onClick={() => setPanelCollapsed(false)}
+              title="展开产出面板"
+              class="absolute top-3 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors"
+              style={{
+                background: "var(--octo-surface-page)",
+                color: "var(--octo-text-secondary)",
+                border: "1px solid var(--octo-border-divider)",
+                "box-shadow": "0 1px 4px rgba(0,0,0,0.06)",
+              }}
+            >
+              <Icon name="chevron-left" class="size-3.5 opacity-70" />
+              产出 ({tabStore.tabs().length})
+            </button>
+          </Show>
             <Show
               when={params.id && userMessages().length > 0}
               fallback={
+                <Show when={sessionMessagesLoaded()}>
                 <div class="size-full flex flex-col items-center justify-center px-8 py-10 overflow-y-auto">
                   <IllustrationInsightEmpty width={166} height={166} />
                   <div
@@ -882,6 +963,7 @@ function InsightContent() {
                     </div>
                   </div>
                 </div>
+                </Show>
               }
             >
               {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
@@ -891,7 +973,11 @@ function InsightContent() {
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
+                <div
+                  ref={autoScroll.contentRef}
+                  class="py-3 flex flex-col gap-0 w-full mx-auto"
+                  style={{ "max-width": "800px" }}
+                >
                   <For each={userMessages()}>
                     {(msg) => (
                       <InsightTurn
@@ -911,8 +997,8 @@ function InsightContent() {
                 </div>
               </div>
 
-              {/* 输入区 */}
-              <div class="shrink-0 p-4">
+              {/* 输入区(居中 reading-width,与消息列表对齐) */}
+              <div class="shrink-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
                 <AttachmentBar
                   attachments={attachments()}
                   onRemove={removeAttachment}
@@ -1033,42 +1119,45 @@ function InsightContent() {
 
         </div>
 
-        {/* ── 聊天/结果 拖拽分隔线（半侧贴边胶囊）
-             top/bottom 缩进 20px：避免与 Windows classic 滚动条两端箭头（~17px）热区重合 */}
-        <div
-          class="absolute flex items-center justify-center group"
-          style={{ top: "20px", bottom: "20px", left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
-          onPointerDown={handleDividerPointerDown}
-        >
+        {/* ── 任务面板:有产物且未收起时挂载;收起动画播完才卸载(SPEC-INS-009) ── */}
+        <Show when={panelMounted()}>
+          {/* 聊天/结果 拖拽分隔线（半侧贴边胶囊）—— 仅在动画结束的展开稳态显示,避免滑动中错位
+              top/bottom 缩进 20px：避免与 Windows classic 滚动条两端箭头（~17px）热区重合 */}
+          <Show when={panelExpanded() && !panelAnimating()}>
           <div
-            class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
-            style={{
-              width: "12px",
-              height: "36px",
-              "border-radius": "10px 0 0 10px",
-              "box-shadow": "-2px 0 4px rgba(0,0,0,0.04), inset 1px 0 0 rgba(0,0,0,0.02)",
-              border: "1px solid var(--octo-border-divider)",
-              "border-right": "none",
-            }}
+            class="absolute flex items-center justify-center group"
+            style={{ top: "20px", bottom: "20px", left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
+            onPointerDown={handleDividerPointerDown}
           >
             <div
-              class="w-[2px] h-[14px] rounded-full mr-[2px]"
-              style={{ background: "var(--octo-border-input, #c9c9c9)" }}
-            />
+              class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
+              style={{
+                width: "12px",
+                height: "36px",
+                "border-radius": "10px 0 0 10px",
+                "box-shadow": "-2px 0 4px rgba(0,0,0,0.04), inset 1px 0 0 rgba(0,0,0,0.02)",
+                border: "1px solid var(--octo-border-divider)",
+                "border-right": "none",
+              }}
+            >
+              <div
+                class="w-[2px] h-[14px] rounded-full mr-[2px]"
+                style={{ background: "var(--octo-border-input, #c9c9c9)" }}
+              />
+            </div>
           </div>
-        </div>
+          </Show>
 
-        {/* ── 中栏：ResultViewer（始终渲染，无 tab 时显示空态） */}
-        <ResultViewer
-          tabs={tabStore.tabs()}
-          activeId={tabStore.activeId()}
-          onActivate={tabStore.activate}
-          onClose={tabStore.closeTab}
-          onCacheContent={tabStore.cacheContent}
-        />
-
-        {/* ── 右栏：Workspace 占位 (P2) ──────────────── */}
-        <div />
+          {/* 中栏：ResultViewer(flex:1 跟随聊天列宽度重排,收起时被挤到 0 并裁切) */}
+          <ResultViewer
+            tabs={tabStore.tabs()}
+            activeId={tabStore.activeId()}
+            onActivate={tabStore.activate}
+            onClose={handleCloseTab}
+            onCacheContent={tabStore.cacheContent}
+            onCollapse={() => setPanelCollapsed(true)}
+          />
+        </Show>
       </div>
     </DataProvider>
   )

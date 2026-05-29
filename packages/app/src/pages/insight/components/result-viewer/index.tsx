@@ -52,6 +52,8 @@ export function ResultViewer(props: {
   onClose: (id: string) => void
   /** URI 模式 fetch 完成后回写缓存 */
   onCacheContent?: (id: string, content: string) => void
+  /** 收起任务面板(保留 tab,仅隐藏容器);见 SPEC-INS-009 */
+  onCollapse?: () => void
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
 
@@ -66,6 +68,7 @@ export function ResultViewer(props: {
           activeId={props.activeId}
           onActivate={props.onActivate}
           onClose={props.onClose}
+          onCollapse={props.onCollapse}
         />
         <Show when={activeTab()}>
           {(tab) => (
