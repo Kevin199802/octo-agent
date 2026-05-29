@@ -22,7 +22,6 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { ModelsProvider } from "@/context/models"
 import { LocalProvider } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
-import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import {
   InsightModelSelectionProvider,
   useInsightModelSelection,
@@ -886,12 +885,8 @@ function InsightContent() {
                     }}
                     onClose={() => { requestAnimationFrame(() => textareaRef?.focus()) }}
                   >
-                    <Show when={selection.model.current()?.provider?.id}>
-                      <ProviderIcon
-                        id={selection.model.current()?.provider?.id ?? ""}
-                        class="size-3.5 shrink-0 opacity-70"
-                      />
-                    </Show>
+                    {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
+                        synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
                     <span class="truncate">
                       {selection.model.current()?.name ?? "选择模型"}
                     </span>
