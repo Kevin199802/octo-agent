@@ -1,6 +1,9 @@
 # Octo Agent — 开发、调试、打包指南
 
-> 上次同步:2026-04-27。环境:macOS,Apple Silicon。Linux/Windows 需调整。
+> 上次同步:2026-05-29。
+> - 主路径在 **macOS, Apple Silicon** 上验证（dev / build / package 全通）。
+> - **Windows 11 x64** 已端到端验证（dev 启动 + chat 流式回话），需要按 [§1.1](#11-windows-开发者补充) 做的小量适配已在仓库内打好 patch，开发者无需手工改源码。
+> - Linux 未验证；理论上跟 Windows 等价，遇到差异请补到本文档。
 
 里程碑跟踪与验收清单见仓库根 [ROADMAP.md](../ROADMAP.md)。架构与目录边界见 [docs/architecture.md](architecture.md)。
 
@@ -12,14 +15,35 @@
 |---|---|---|
 | Bun | 1.3+ | 包管理器、脚本运行器 |
 | Node.js | 20+ | Electron 主进程、native 模块编译 |
-| Xcode CLI Tools | 最新 | macOS 上 node-pty 等 native 模块编译 |
+| Xcode CLI Tools | 最新 | **macOS only**:node-pty 等 native 模块编译 |
 | Git | 任意 | — |
 
 ```bash
 bun --version          # 1.3.x
 node --version         # v20+
-xcode-select -p        # 应输出路径,无输出则: xcode-select --install
+xcode-select -p        # macOS 上应输出路径,无输出则: xcode-select --install
 ```
+
+### 1.1 Windows 开发者补充
+
+| 项 | macOS | Windows |
+|---|---|---|
+| 原生编译工具链 | Xcode CLI Tools | Bun 自带 Bun shell + Node 20 已够;**目前仓库内未触发任何 Windows 上必须本地编译的 native 模块**(`@lydell/node-pty` 走预编译 binary) |
+| Electron GUI 启动 | `bun run dev:ui` 即可 | 同左 |
+| `predev` 中的 `plutil` / `codesign` / `lsregister` / `killall Dock` 调用 | 跑 | 自动跳过(见 §3 `predev` 钩子) |
+| Bun bundle 子资源拷贝(`jsonc-parser/lib/umd/impl/*`、`opencode/migration/`) | 自动 | 自动 — `electron.vite.config.ts` 的 `opencode:copy-server-assets` 插件已统一处理,见 [architecture.md §5.4](architecture.md#54-上游接线壳改动清单) |
+
+**首次 `bun install` 前必做的一项配置检查**:
+
+确认 `C:\Users\<你>\.npmrc` 里**没有** `registry=https://registry.npmmirror.com/` 或其他第三方镜像设置。Bun 兼容 npm 配置,会跟读 `.npmrc`;若设了镜像,所有依赖的 tarball URL 会被解析成镜像 URL 并写进 `bun.lock`,造成跨平台同事拉到本不该走的源。
+
+```powershell
+# 检查
+Get-Content $env:USERPROFILE\.npmrc | Select-String "^registry"
+# 应当输出空,或输出 registry=https://registry.npmjs.org/
+```
+
+若已经污染 `bun.lock`,**不要 commit 那个 lockfile**,先从干净分支恢复:`git checkout origin/dev -- bun.lock`。**`//registry.npmjs.org/:_authToken=...` 这行(npm 鉴权)保留**,仅删 `registry=...` 那行即可。
 
 ---
 
@@ -102,12 +126,13 @@ bun run --cwd packages/desktop-electron dev
 
 ### `predev` 钩子
 
-`bun run dev` 之前会跑 `scripts/predev.ts`,做两件事:
+`bun run dev` 之前会跑 `scripts/predev.ts`,做三件事(macOS 上;Windows 自动跳过 2):
 
 1. 拷贝应用图标
-2. 在 `packages/opencode` 跑一次 `bun script/build-node.ts`,产出 Node bundle 给 main 进程 import
+2. **macOS only**:`plutil` patch Electron binary 的 `Info.plist`(给 dev 模式菜单栏显示 "Octo AI")、`codesign --force --deep` 重签名、`lsregister -f` 重注册、`touch` + `killall Dock` 刷新。**这段被 `if (process.platform === "darwin")` 包裹**,Windows / Linux 上整段不执行
+3. 在 `packages/opencode` 跑一次 `bun script/build-node.ts`,产出 Node bundle 给 main 进程 import
 
-opencode 源码没改时第一次跑过就够了,后续 dev 仍会重复。如果想跳过:`cd packages/desktop-electron && bunx electron-vite dev`。
+opencode 源码没改时第一次跑过就够了,后续 dev 仍会重复。如果想跳过:`cd packages/desktop-electron && bunx electron-vite dev`(注:跳过会同时跳过 macOS plist 补丁和 opencode bundle 构建,opencode 源没动过才安全)。
 
 ### 应用名称的配置位置
 
@@ -188,10 +213,13 @@ bun run --cwd packages/desktop-electron package:mac
 | AI 回复显示 `opencode/big-pickle` | 配置没生效,后端用占位模型 | 同上,检查后端 stdout 里有没有"loaded provider"日志 |
 | 5175 端口冲突 | Vite strictPort 被占 | `lsof -i :5175` 找到占用进程 kill,或改 [electron.vite.config.ts](../packages/desktop-electron/electron.vite.config.ts) 的 `server.port` |
 | 4096 端口冲突 | 已在跑 opencode CLI / 上次 dev 没退干净 | `lsof -i :4096` 杀掉,或 `OPENCODE_PORT=4097 bun run dev:serve` |
-| `bun install` tree-sitter 编译失败 | Xcode CLI Tools 未装 | `xcode-select --install` |
+| `bun install` tree-sitter 编译失败 | macOS Xcode CLI Tools 未装 | `xcode-select --install`(Windows 上一般不触发,Bun 自带工具链够用) |
 | Vue HMR 不生效 | proxy ws 没开 | 确认 vite proxy 配了 `ws: true` |
 | 改了 config.json 没效果 | 后端在内存里缓存了配置 | 重启后端(整个 dev 重跑) |
 | 切了模型仍是旧回复 | 同上 | 同上 |
+| **Windows**:`predev` 报 `bun: command not found: plutil` 或类似 | 用了未带平台 guard 的旧 `predev.ts` | 拉一下最新 dev 分支,见 [architecture.md §5.4](architecture.md#54-上游接线壳改动清单) `predev.ts` 行 |
+| **Windows**:`bun run dev` 起来后 Electron 窗口空白 / DevTools Network 里 `/provider` `/global/config` `/path` `/project` 全 500 | opencode bundle 内含的 jsonc-parser 子模块 / SQLite migration 子目录在 electron-vite 重定位后路径错 | 已由 `electron.vite.config.ts` 的 `opencode:copy-server-assets` 插件统一拷贝处理,无需手工干预;若仍出现见 [architecture.md §5.4](architecture.md#54-上游接线壳改动清单) 三条 `electron.vite.config.ts` 登记复核 |
+| **Windows**:`bun install` 把所有依赖 URL 写成 `registry.npmmirror.com/...` 导致 `bun.lock` 大面积 diff | `~/.npmrc` 里设了第三方镜像源 | 见 [§1.1](#11-windows-开发者补充);**已污染的 `bun.lock` 千万别 commit**,`git checkout origin/dev -- bun.lock` 恢复 |
 | 打包后白屏 | renderer 资源路径问题 | 见第 5 节排查清单 |
 
 ---
