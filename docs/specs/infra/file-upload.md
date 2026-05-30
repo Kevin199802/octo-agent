@@ -120,6 +120,10 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 
 **客户端 chip 交互**：附件 chip 渲染在**输入胶囊内部顶部**（不在胶囊外），单行横向滚动（类 Claude/Gemini），不随内容撑开胶囊；单 chip 文件名溢出省略，chip 数量溢出横向滚动；下方 textarea 自有纵向滚动区。
 
+**文件选择器 accept**：`<input accept>` 由 `ALLOWED_EXT` 派生（`.txt,.md,.docx,.xlsx,.pdf`），让原生弹窗预过滤、减少误选。但 accept 仅是 UX 提示**不做强制**——拖拽完全绕过它，用户也可在弹窗切「所有文件」，故校验仍以 `validateFile`（扩展名 + 大小 0/上限）为唯一事实源。
+
+**失败 chip 反馈**：error chip 用样式化 Tooltip（非原生 title）hover 显示失败原因；仅"通过校验、真正发起过上传"的失败 chip（`retriable=true`）显示 ↻ 重传，客户端校验失败的 chip 不显示重传、提示「请删除后重新选择文件」。
+
 ---
 
 ## 服务端实现（给内网开发团队）

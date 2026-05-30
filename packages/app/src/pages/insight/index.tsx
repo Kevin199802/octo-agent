@@ -32,9 +32,10 @@ import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue } from "./icons/illustrations"
-import { uploadFile, validateFile, formatUploadsForPrompt, UploadError } from "./lib/upload"
+import { uploadFile, validateFile, formatUploadsForPrompt, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
-import { mimeToOutputType } from "./utils/resource-link"
+import { linkToOutputType } from "./utils/resource-link"
 import { clearRefreshState, markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
 
@@ -78,6 +79,13 @@ export default function InsightPage() {
 
 // 单轮对话最多上传文件数(超出提示分多轮处理)
 const MAX_ATTACHMENTS = 10
+
+// 文件选择器 accept:从 ALLOWED_EXT 派生(与 validateFile 同一事实源)。
+// 仅是原生弹窗的预过滤提示,不做强制——拖拽绕过它,校验仍以 validateFile 为准。
+const UPLOAD_ACCEPT = ALLOWED_EXT.map((e) => `.${e}`).join(",")
+
+// 添加附件按钮的 tooltip 提示:支持的文件类型 + 大小 + 数量上限(均从常量派生)。
+const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB，最多 ${MAX_ATTACHMENTS} 个`
 
 function InsightContent() {
   const params = useParams<{ id?: string }>()
@@ -719,7 +727,7 @@ function InsightContent() {
       return card.resourceLinks.map((link, idx) => ({
         id: `task-${card.taskId}-${idx}`,
         title: link.name || `${baseTitle} ${idx + 1}`,
-        type: mimeToOutputType(link.mimeType),
+        type: linkToOutputType(link),
         source: "uri" as const,
         uri: link.uri,
         mimeType: link.mimeType,
@@ -950,18 +958,24 @@ function InsightContent() {
                           type="file"
                           multiple
                           class="hidden"
-                          accept="*/*"
+                          accept={UPLOAD_ACCEPT}
                           onChange={handleFileInputChange}
                         />
-                        <button
-                          type="button"
-                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                          disabled={maxAttachments()}
-                          class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                          title={maxAttachments() ? "最多 10 个文件" : "添加附件"}
+                        <Tooltip
+                          placement="top"
+                          class="flex-shrink-0"
+                          value={maxAttachments() ? `最多 ${MAX_ATTACHMENTS} 个文件` : UPLOAD_HINT}
                         >
-                          <Icon name="plus" class="size-5" />
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                            disabled={maxAttachments()}
+                            class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
+                            aria-label="添加附件"
+                          >
+                            <Icon name="plus" class="size-5" />
+                          </button>
+                        </Tooltip>
 
                         <ModelSelectorPopover
                           model={selection.model}
@@ -1102,18 +1116,24 @@ function InsightContent() {
                       type="file"
                       multiple
                       class="hidden"
-                      accept="*/*"
+                      accept={UPLOAD_ACCEPT}
                       onChange={handleFileInputChange}
                     />
-                    <button
-                      type="button"
-                      onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                      disabled={maxAttachments()}
-                      class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                      title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                    <Tooltip
+                      placement="top"
+                      class="flex-shrink-0"
+                      value={maxAttachments() ? `最多 ${MAX_ATTACHMENTS} 个文件` : UPLOAD_HINT}
                     >
-                      <Icon name="plus" class="size-5" />
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        disabled={maxAttachments()}
+                        class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
+                        aria-label="添加附件"
+                      >
+                        <Icon name="plus" class="size-5" />
+                      </button>
+                    </Tooltip>
 
                     <ModelSelectorPopover
                       model={selection.model}
@@ -1189,6 +1209,7 @@ function InsightContent() {
             onClose={handleCloseTab}
             onCacheContent={tabStore.cacheContent}
             onCollapse={() => setPanelCollapsed(true)}
+            onSetViewMode={tabStore.setViewMode}
           />
         </Show>
       </div>
