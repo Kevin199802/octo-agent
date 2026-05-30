@@ -91,7 +91,7 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 
 ### 注入格式
 
-各 agent 页面上传完成后，统一以以下格式注入到 prompt 文本末尾（保持一致，LLM 可识别）：
+各 agent 页面上传完成后，URL 段落以**独立的 synthetic text part** 随消息发送（不再拼进用户可见文本），格式（保持一致，LLM 可识别）：
 
 ```
 [已上传文件]
@@ -99,7 +99,16 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 - filename-2.txt:  https://obs.example.com/.../filename-2.txt
 ```
 
-不再走 `FilePartInput.url`——避免 opencode SDK 误将 URL 当本地文件 fetch。
+发送时拆成两个 text part：
+
+| part | 内容 | synthetic | 模型可见 | 气泡显示 |
+|---|---|---|---|---|
+| 1 | 用户输入的干净文本 | 否 | ✓ | ✓ |
+| 2 | 上述 `[已上传文件]` 段落 | **是** | ✓ | ✗ |
+
+**为什么用 synthetic part**：server `toModelMessages` 对 user 消息只过滤 `ignored`、不过滤 `synthetic`，所以 synthetic part 照样喂给模型（LLM 拿得到 URL）；而上游 `UserMessageDisplay` 只渲染非 synthetic text part，气泡不会暴露 S3 长地址。文件本身在气泡里以**文件卡片**呈现（insight 页解析 synthetic 段落 `parseUploadedFiles` 渲染，optimistic / server 回传后都稳定存在）。
+
+不再走 `FilePartInput.url`——避免 opencode SDK 误将 URL 当本地文件 fetch（file part 会被当作媒体附件直传给模型，而非文本 URL）。
 
 ### 大小 / 扩展名常量
 
@@ -107,6 +116,9 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 |---|---|---|
 | `MAX_UPLOAD_SIZE` | 100MB | Insight 当前场景。其他 agent 接入时可在各自 lib 内调整 |
 | `ALLOWED_EXT` | txt/md/docx/xlsx/pdf | 由 MCP 工具 `analyze_interview` 决定可处理格式 |
+| `MAX_ATTACHMENTS` | 10 | 单轮对话最多附件数（页面级常量，见 `insight/index.tsx`）。超出弹 toast「请保持上传文件不超过10个或分多轮对话处理」，单次批量超额截取前 N 个 |
+
+**客户端 chip 交互**：附件 chip 渲染在**输入胶囊内部顶部**（不在胶囊外），单行横向滚动（类 Claude/Gemini），不随内容撑开胶囊；单 chip 文件名溢出省略，chip 数量溢出横向滚动；下方 textarea 自有纵向滚动区。
 
 ---
 
@@ -361,13 +373,14 @@ bun run dev
 
 | # | 操作 | 期望结果 |
 |---|---|---|
-| 1 | Insight 页选一个 .docx / .pdf 文件（< 100MB） | chip 立即出现 ⏳ uploading 状态；Console 出 `1/5 start` |
+| 1 | Insight 页选一个 .docx / .pdf 文件（< 100MB） | 输入胶囊内部顶部出现 chip（⏳ uploading）；Console 出 `1/5 start` |
 | 2 | 等待请求完成 | chip 变蓝色 done 状态；Console 依次出现 `2/5 request` → `3/5 response` → `5/5 success` |
 | 3 | DevTools Network 看 POST 请求 | URL = env var 配置的地址；Content-Type 为 multipart/form-data；body 里**只有 file 一个字段** |
 | 4 | 响应体形态 | `{ content: { url, fileId, fileName, size, mime }, success: true, errorCode: 200, errorMessage: null }` |
-| 5 | 输入文字 → 点发送 | Console 出 `[octo:prompt] send`，含 `uploads: [{ name, url }]` |
-| 6 | session 内 prompt 文本末尾 | 含 `[已上传文件]\n- <filename>: <url>` 段 |
-| 7 | LLM 调 `analyze_interview` 时 | `doc_urls` 参数能填入步骤 4 里的 `content.url` |
+| 5 | 输入文字 → 点发送 | Console 出 `[octo:prompt] send`，含 `uploads: [{ name, url }]`；`optimistic added` 的 `partsCount=2` |
+| 6 | 用户气泡渲染 | 气泡**只显示干净文本**（不暴露 S3 URL）；气泡上方右对齐出现**文件卡片**（文件名 + 扩展名徽标） |
+| 7 | session 内消息 part | 含一个 `synthetic:true` 的 text part，内容为 `[已上传文件]\n- <filename>: <url>` 段 |
+| 8 | LLM 调 `analyze_interview` 时 | `doc_urls` 参数能填入步骤 4 里的 `content.url`（synthetic part 已喂给模型） |
 
 #### 4. 边界 / 错误链路验证
 
@@ -382,6 +395,7 @@ bun run dev
 | 服务端 5xx | 服务端进程崩溃 / S3 失败 | ⚠️ "服务端错误 (errorCode=500)" |
 | 重传 | 任一 error chip 点 ↻ | chip 重新进入 ⏳ uploading 状态 |
 | 等待中禁发 | uploading 状态时点发送按钮 | 按钮 disabled，hover 提示"等待附件上传完成" |
+| 超过 10 个 | 已有附件后再选，使总数 > 10 | 弹 toast「请保持上传文件不超过10个或分多轮对话处理」；只接受补满到 10 的前 N 个 |
 
 #### 5. 服务端协议合规校验
 

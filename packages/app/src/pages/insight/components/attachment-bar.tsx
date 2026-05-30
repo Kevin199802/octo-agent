@@ -58,18 +58,17 @@ export function AttachmentBar(props: {
   onRemove: (id: string) => void
   onRetry?: (id: string) => void
 }): JSX.Element {
+  // 放在输入胶囊内部顶部:单行横向滚动(类 Claude/Gemini),不随内容撑开胶囊;
+  // 单 chip 文件名溢出省略,chip 数量溢出横向滚动。下方 textarea 自有纵向滚动区。
   return (
     <Show when={props.attachments.length > 0}>
-      <div
-        class="flex flex-wrap gap-1.5 px-3 py-2"
-        style={{ "border-bottom": "1px solid rgba(0,0,0,0.06)" }}
-      >
+      <div class="octo-attach-strip flex items-center gap-1.5 px-3 pt-2.5 pb-1">
         <For each={props.attachments}>
           {(att) => {
             const style = () => STATUS_STYLE[att.status]
             return (
               <div
-                class="flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs"
+                class="flex flex-shrink-0 items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs whitespace-nowrap"
                 title={att.status === "error" ? att.error ?? "上传失败" : att.filename}
                 style={{
                   background: style().bg,

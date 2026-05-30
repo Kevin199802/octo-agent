@@ -9,6 +9,13 @@ import { isMarkdownTable, isMindmapJSON, scanFencedHtml, type HtmlFenceBlock } f
 import { findResourceLinks, mimeToOutputType } from "../utils/resource-link"
 import { type TaskCardEntry } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
+import { parseUploadedFiles } from "../lib/upload"
+
+/** 文件名扩展名徽标(MD / DOCX / PDF …);无扩展名回落 FILE */
+function extBadge(filename: string): string {
+  const ext = filename.split(".").pop()?.toUpperCase()
+  return ext && ext !== filename.toUpperCase() ? ext : "FILE"
+}
 
 export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html"
 
@@ -99,6 +106,18 @@ export function InsightTurn(props: {
     const msg = assistantMsg()
     if (!msg) return []
     return (data.store.part as Record<string, { type: string; text?: string }[]>)?.[msg.id] ?? []
+  })
+
+  // 用户上传的文件:从本 turn user 消息的 synthetic 上传块解析。
+  // URL 走 synthetic text part(LLM 收得到,气泡不显示),这里渲染成文件卡片替代裸 S3 地址。
+  const inputAttachments = createMemo((): Array<{ filename: string; url: string }> => {
+    const parts =
+      (data.store.part as Record<string, Array<{ type: string; text?: string; synthetic?: boolean }>>)?.[
+        props.messageID
+      ] ?? []
+    const block = parts.find((p) => p.type === "text" && p.synthetic && typeof p.text === "string")
+    if (!block?.text) return []
+    return parseUploadedFiles(block.text)
   })
 
   // 本轮是否是最新的（最后一条）用户消息 —— 仅对最新轮次显示生成中占位
@@ -281,6 +300,20 @@ export function InsightTurn(props: {
 
   return (
     <div class="flex flex-col">
+      {/* 用户上传的文件卡片(贴合用户气泡上方,右对齐)——替代在气泡里暴露 S3 URL */}
+      <Show when={inputAttachments().length > 0}>
+        <div class="octo-input-attachments">
+          <For each={inputAttachments()}>
+            {(f) => (
+              <div class="octo-input-attachment-card" title={f.filename}>
+                <span class="octo-input-attachment-card__badge">{extBadge(f.filename)}</span>
+                <span class="octo-input-attachment-card__name">{f.filename}</span>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+
       <SessionTurn
         sessionID={props.sessionID}
         messageID={props.messageID}

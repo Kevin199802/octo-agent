@@ -6,6 +6,17 @@
 
 **命名约定**：图标文件统一放 `packages/app/src/pages/_shell/icons/` 或各页面目录的 `icons/` 子目录，以 PascalCase SolidJS 组件导出，文件名即下表"图标名"列。
 
+**交付格式约定（硬约束）**：
+
+| 资产类型 | 格式 | 要求 |
+|---|---|---|
+| 图标（`Icon*`） | **SVG**（首选） | 经 SVGO 优化；设 `viewBox`、不写死 `width/height`（由代码控尺寸）；**单色图标**用 `fill="currentColor"`（颜色由 CSS 控，跟随主题）；**多色图标**（如文件类型图标）品牌色内联、透明背景；同一套图标 stroke 宽度一致 |
+| 需动效的图标（如上传中 spinner） | **SVG** | 单段弧/单 path，可被 CSS `transform: rotate` 旋转，不要内嵌 SMIL 动画 |
+| 插图（`Illustration*`） | SVG 首选；纯位图退 **WebP / 2x·3x PNG** | 透明背景；放 `packages/app/public/assets/` |
+
+**不接受**：icon font、sprite sheet（本仓走每组件内联 SVG，不用雪碧图）、JPG（无透明通道）。
+设计师按目标像素（14 / 16 / 24 / 32）对齐像素网格设计，但**交付仍是矢量 SVG**。
+
 ---
 
 ## 批次管理
@@ -16,6 +27,7 @@
 |---|---|---|
 | **Batch 1** | Topbar / Sidebar / Insight 输入区 / ResultViewer 输出卡片图标 | 已交付（§1–§5，作为存档保留） |
 | **Batch 2** | 长任务卡片状态视觉态（5 态图标、按钮图标、状态色 token） | 待交付（§6） |
+| **Batch 3** | 文件上传交互：附件 chip + 气泡内文件卡片（文件类型图标集、chip 状态/操作图标） | 待交付（§7） |
 
 **追加新批次**：开新章节、批次号 +1，在本表登记范围与状态。完成后状态改 "已交付"。
 
@@ -118,6 +130,53 @@
 | `--octo-danger-subtle` | `rgba(220, 38, 38, 0.08)` | failed 卡片底色 |
 
 stopped 态当前复用 `--octo-surface-hover` / `--octo-border-default`，无新 token。
+
+---
+
+---
+
+# Batch 3 — 待交付（文件上传交互）
+
+> spec: [file-upload.md](../infra/file-upload.md)。本批次是 Insight 文件上传交互改版（chip 移入胶囊内部 + 气泡内文件卡片替代裸 S3 URL）后新增的素材诉求。
+> 参考视觉：客户给的图一（蓝色 `DOCX` 文件图标）、图二（`MD` 徽标式文件卡片）。
+
+## 7.1 文件类型图标集（核心，chip 与文件卡片共用）
+
+一套统一风格的文件类型图标，**附件 chip** 和**气泡内文件卡片**两处复用。当前用 Emoji / 文字徽标占位，需设计师给一套切图。
+
+| 图标名 | 文件类型 | 当前占位 | 用到的位置 |
+|---|---|---|---|
+| `IconFilePdf` | pdf | `📕` Emoji | chip：`attachment-bar.tsx → getMimeIcon()`；卡片徽标：`insight-turn.tsx → extBadge()` |
+| `IconFileDocx` | doc/docx | `📝` Emoji | 同上 |
+| `IconFileXlsx` | xls/xlsx | `📊` Emoji | 同上 |
+| `IconFileMarkdown` | md | `📄` Emoji | 同上 |
+| `IconFileTxt` | txt | `📄` Emoji | 同上 |
+| `IconFileImage` | 图片 | `🖼` Emoji | 同上 |
+| `IconFileGeneric` | 其他/兜底 | `📄` Emoji | 同上 |
+
+**尺寸**：两套尺寸或一套矢量两处缩放——
+- chip 内（胶囊顶部单行）：**14×14**，与 12px 文件名同行
+- 气泡内文件卡片：**24×24 ~ 32×32**（参考图二卡片左侧徽标量级，可带类型色底）
+
+**风格要求**：建议每种类型带辨识色（如 pdf 红、docx/word 蓝、xlsx/excel 绿、md/txt 灰），与图一/图二一致；矢量优先（SVG），便于两处缩放。
+
+> 当前气泡文件卡片用纯文字徽标（`MD` / `DOCX`，`octo-tokens.css .octo-input-attachment-card__badge`）占位。
+> **目标态（推荐，视觉优先）**：把徽标位替换成 §7.1 的彩色 `IconFile*` 图标（参考图一蓝色 DOCX 块），辨识度与一致性最佳。
+> 纯文字徽标仅作为图标集未就绪时的降级兜底，非目标态。
+
+## 7.2 chip 状态 / 操作图标（`attachment-bar.tsx`）
+
+附件 chip 上的状态与操作图标，当前 Emoji / 文字占位。
+
+| 图标名 | 用途 | 尺寸 | 当前占位 | 替换位置 |
+|---|---|---|---|---|
+| `IconChipUploading` | 上传中状态 | 12×12 | `⏳` Emoji | `attachment-bar.tsx` Switch `att.status === "uploading"` |
+| `IconChipError` | 上传失败状态 | 12×12 | `⚠️` Emoji | `attachment-bar.tsx` Switch `att.status === "error"` |
+| `IconChipRetry` | 失败重传按钮 | 11×11 | `↻` 文字 | `attachment-bar.tsx` 重传 `<button>` |
+| `IconChipRemove` | 移除附件按钮 | 11×11 | `×` 文字 | `attachment-bar.tsx` 删除 `<button>` |
+
+> `IconChipRetry` / `IconChipRemove` 与 Batch 2 长任务卡片的 `↻` / 关闭语义相近，若设计给的是通用图标可直接复用，不必单独切。
+> `IconChipUploading` 若需转圈动画，建议给可 CSS 旋转的单色 SVG（spinner）。
 
 ---
 
