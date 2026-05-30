@@ -280,7 +280,7 @@ export function InsightTurn(props: {
   // 历史 ADR-010 路线 A(CSS suppress)已作废,详见 docs/specs/ui/output-renderers.md §0。
 
   return (
-    <div class="flex flex-col">
+    <div class="flex flex-col mb-4">
       <SessionTurn
         sessionID={props.sessionID}
         messageID={props.messageID}
