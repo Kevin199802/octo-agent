@@ -91,10 +91,11 @@
 }
 
 /* 用户消息气泡 */
-[data-component="session-turn"] [data-component="user-message"] {
-  background: var(--octo-brand-subtle);
-  padding: 12px;
-  border-radius: var(--octo-radius-lg);
+[data-component="user-message"] [data-slot="user-message-text"] {
+  border-radius: 16px 16px 2px 16px;
+  background-color: rgba(10, 89, 247, 0.08);
+  font-size: 14px;
+  border: none;
 }
 [data-component="session-turn"] [data-slot="user-message-attachment"] {
   background: var(--octo-surface-page) !important;
@@ -168,7 +169,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  padding: 0 2px 8px 2px;       /* 输入框外:不要左右内缩 + 给输入框留间距 */
+  padding: 0 2px 16px 2px;      /* 输入框外:不要左右内缩 + 给输入框留 16px 间距 */
 }
 
 .octo-preset-scroll {
@@ -188,8 +189,8 @@
   flex-shrink: 0;
   padding: 4px 12px;
   border-radius: 999px;
-  border: 1px solid var(--octo-border-default);
-  background: var(--octo-surface-page);
+  border: none;
+  background: rgba(44, 46, 52, 0.05);
   color: var(--octo-text-primary);
   font-size: 12px;
   font-family: var(--octo-font);
@@ -202,7 +203,6 @@
 .octo-preset-chip:hover:not(:disabled) {
   background: var(--octo-brand-a8);
   color: var(--octo-brand);
-  border-color: var(--octo-brand-a25);
 }
 .octo-preset-chip:disabled {
   opacity: 0.5;

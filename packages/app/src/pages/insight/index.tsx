@@ -767,7 +767,7 @@ function InsightContent() {
           style={{
             width: `${chatWidth()}px`,
             flex: "0 0 auto",
-            background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-shell-bg)",
+            background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-surface-page)",
             outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
           }}
           onDragOver={handleDragOver}
@@ -805,11 +805,6 @@ function InsightContent() {
                       attachments={attachments()}
                       onRemove={removeAttachment}
                       onRetry={retryUpload}
-                    />
-
-                    <PresetPrompts
-                      prompts={PRESET_PROMPTS}
-                      onClick={handlePresetClick}
                     />
 
                     <div
