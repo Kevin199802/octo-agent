@@ -102,11 +102,11 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   }
 
   if (!UPLOAD_ENDPOINT) {
-    const err = new UploadError(
-      "ENDPOINT_NOT_CONFIGURED",
-      "上传端点未配置：在 packages/app/.env.local 设置 VITE_OCTO_UPLOAD_ENDPOINT=<内网地址>，然后重启 dev",
-    )
-    console.error(`${LOG} endpoint not configured`, { hint: err.message })
+    // 用户可见文案友好简洁;开发期排查提示(改 .env.local)只走 console,不糊给用户
+    const err = new UploadError("ENDPOINT_NOT_CONFIGURED", "上传服务暂时不可用，请稍后重试")
+    console.error(`${LOG} endpoint not configured`, {
+      hint: "在 packages/app/.env.local 设置 VITE_OCTO_UPLOAD_ENDPOINT=<内网地址>,然后重启 dev",
+    })
     throw err
   }
 
