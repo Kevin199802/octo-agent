@@ -32,7 +32,7 @@ import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
-import { IllustrationInsightEmpty, IconSendBlue } from "./icons/illustrations"
+import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, UploadError } from "./lib/upload"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { mimeToOutputType } from "./utils/resource-link"
@@ -470,6 +470,21 @@ function InsightContent() {
     console.log("[octo:queue] canceled, restored to input")
   }
 
+  async function handleAbort() {
+    const sid = params.id
+    if (!sid) return
+    // 先取消排队消息，避免 abort 完成后 idle 触发器自动 flush
+    if (queuedText()) cancelQueued()
+    try {
+      await globalSDK.client.session.abort({ sessionID: sid })
+    } catch {
+      // session_status 事件自动同步状态，忽略网络错误
+    }
+  }
+
+  // 输入框空 + AI 忙 → 发送键变为停止键
+  const stopping = createMemo(() => isBusy() && !prompt().trim() && !hasUploadingAttachments())
+
   function handlePresetClick(preset: PresetPrompt) {
     setPrompt(preset.text)
     console.log("[octo:preset] click", { id: preset.id, expectedTool: preset.expectedTool })
@@ -868,16 +883,18 @@ function InsightContent() {
 
                         <button
                           type="button"
-                          onClick={() => void handleSubmit()}
-                          disabled={!prompt().trim() || hasUploadingAttachments()}
-                          title={hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)}
+                          onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
+                          disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
+                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
                           class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                           style={{
-                            opacity: (!prompt().trim() || hasUploadingAttachments()) ? 0.4 : 1,
-                            filter: (!prompt().trim() || hasUploadingAttachments()) ? "grayscale(0.5)" : "none",
+                            opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
+                            filter: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
                           }}
                         >
-                          <IconSendBlue width={40} height={40} />
+                          <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
+                            <IconStopBlue width={40} height={40} />
+                          </Show>
                         </button>
                       </div>
                     </div>
@@ -948,7 +965,7 @@ function InsightContent() {
                 />
 
                 <div
-                  class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group"
+                  class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group flex flex-col"
                   style={{
                     border: "1px solid transparent",
                     background: `
@@ -962,6 +979,7 @@ function InsightContent() {
                         rgba(61, 93, 255, 0.7) 87%,
                         rgba(206, 7, 232, 0.7) 92%) border-box`,
                     "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
+                    height: "150px",
                     "margin-top": attachments().length > 0 ? "6px" : "0",
                   }}
                 >
@@ -971,12 +989,10 @@ function InsightContent() {
                     onInput={(e) => setPrompt(e.currentTarget.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="上传评估任务书、逐字稿，智能整理问题和观点"
-                    rows={3}
-                    class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
+                    class="w-full flex-1 resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
                       "font-family": "var(--octo-font)",
-                      "max-height": "120px",
                       "overflow-y": "auto",
                     }}
                   />
@@ -1019,16 +1035,18 @@ function InsightContent() {
 
                     <button
                       type="button"
-                      onClick={() => void handleSubmit()}
-                      disabled={!prompt().trim() || hasUploadingAttachments()}
-                      title={hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)}
+                      onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
+                      disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
+                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
                       class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                       style={{
-                        opacity: (!prompt().trim() || hasUploadingAttachments()) ? 0.4 : 1,
-                        filter: (!prompt().trim() || hasUploadingAttachments()) ? "grayscale(0.5)" : "none",
+                        opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
+                        filter: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
                       }}
                     >
-                      <IconSendBlue width={40} height={40} />
+                      <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
+                        <IconStopBlue width={40} height={40} />
+                      </Show>
                     </button>
                   </div>
                 </div>
