@@ -3,6 +3,16 @@ import type { OutputCard } from "../insight-turn"
 
 export type ResultTabType = "table" | "mindmap" | "markdown" | "file" | "json" | "html"
 
+/** 视图模式:preview=渲染态(markmap/表格/iframe/markdown),source=原始代码态。仅 toggle 类型有意义 */
+export type TabViewMode = "preview" | "source"
+
+// 支持「预览/代码」切换的类型:预览=渲染态,代码=原始源(shiki 高亮)。
+// json 本身即源、file 无源,不在其列(单视图)。见 output-renderers.md §1 视图切换。
+const TOGGLE_TYPES = new Set<ResultTabType>(["mindmap", "html", "table", "markdown"])
+export function isToggleType(type: ResultTabType): boolean {
+  return TOGGLE_TYPES.has(type)
+}
+
 export type ResultTab = {
   id: string
   title: string
@@ -13,6 +23,7 @@ export type ResultTab = {
   mimeType?: string         // uri 模式必填(影响渲染路由)
   fileName?: string         // uri 模式来自 resource_link.name,供下载默认文件名
   description?: string      // uri 模式来自 resource_link.description,可在 ActionBar 副标题展示
+  viewMode?: TabViewMode    // 预览/代码 切换态(缺省视作 "preview");仅 mindmap/html/table/markdown 用
   createdAt: Date
 }
 
@@ -86,6 +97,10 @@ export function createTabStore() {
     setActiveId(id)
   }
 
+  function setViewMode(id: string, mode: TabViewMode) {
+    setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, viewMode: mode } : t)))
+  }
+
   function reset() {
     setTabs([])
     setActiveId(null)
@@ -100,7 +115,7 @@ export function createTabStore() {
     )
   }
 
-  return { tabs, activeId, activate, openTab, closeTab, reset, cacheContent }
+  return { tabs, activeId, activate, openTab, closeTab, reset, cacheContent, setViewMode }
 }
 
 export type TabStore = ReturnType<typeof createTabStore>

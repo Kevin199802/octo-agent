@@ -1,7 +1,8 @@
 import { createSignal, onCleanup, Show, For } from "solid-js"
 import type { JSX } from "solid-js"
 import writeXlsxFile from "write-excel-file/browser"
-import type { ResultTab } from "./tab-store"
+import type { ResultTab, TabViewMode } from "./tab-store"
+import { isToggleType } from "./tab-store"
 import { IconActionCopy, IconActionDownload } from "../../icons"
 import { parseMarkdownTable, tableToCSV, extractTableMarkdown } from "../../utils/markdown-table"
 import { stripCodeFence } from "../../utils/detect"
@@ -96,34 +97,82 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
   }
 }
 
-export function ActionBar(props: { tab: ResultTab }): JSX.Element {
+export function ActionBar(props: {
+  tab: ResultTab
+  viewMode: TabViewMode
+  onSetViewMode: (mode: TabViewMode) => void
+}): JSX.Element {
   // URI 模式 fetch 未完成时 content 为空,禁用复制 / 下载
   const ready = () => typeof props.tab.content === "string" && props.tab.content.length > 0
+  // file 类型(Office/PDF/二进制):FileFallback 自带"用本地应用打开/下载到本地",
+  // ActionBar 的复制/下载对它无意义(content 为空,复制不出东西),整组隐藏。
+  const showActions = () => props.tab.type !== "file"
+  const showToggle = () => isToggleType(props.tab.type)
   return (
     <div
-      class="flex items-center justify-between px-4 py-1.5 shrink-0"
+      class="flex items-center justify-between px-4 py-1.5 shrink-0 gap-2"
       style={{
         "border-bottom": "1px solid var(--octo-border-divider)",
         background: "var(--octo-surface-page)",
         "min-height": "36px",
       }}
     >
-      <span class="text-xs truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
-      <div class="flex items-center gap-0.5">
-        <ActionBtn
-          icon={<IconActionCopy size={14} />}
-          label="复制"
-          disabled={!ready()}
-          onClick={() => {
-            if (!ready()) return
-            const text = props.tab.type === "table"
-              ? extractTableMarkdown(props.tab.content!)
-              : props.tab.content!
-            copyToClipboard(text)
-          }}
-        />
-        <DownloadMenu tab={props.tab} disabled={!ready()} />
-      </div>
+      <Show
+        when={showToggle()}
+        fallback={
+          <span class="text-xs truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
+        }
+      >
+        <ViewModeToggle mode={props.viewMode} onSet={props.onSetViewMode} />
+      </Show>
+      <Show when={showActions()}>
+        <div class="flex items-center gap-0.5">
+          <ActionBtn
+            icon={<IconActionCopy size={14} />}
+            label="复制"
+            disabled={!ready()}
+            onClick={() => {
+              if (!ready()) return
+              const text = props.tab.type === "table"
+                ? extractTableMarkdown(props.tab.content!)
+                : props.tab.content!
+              copyToClipboard(text)
+            }}
+          />
+          <DownloadMenu tab={props.tab} disabled={!ready()} />
+        </div>
+      </Show>
+    </div>
+  )
+}
+
+// 预览/代码 分段切换(仅 mindmap/html/table/markdown)
+function ViewModeToggle(props: { mode: TabViewMode; onSet: (mode: TabViewMode) => void }): JSX.Element {
+  const seg = (mode: TabViewMode, label: string) => {
+    const active = () => props.mode === mode
+    return (
+      <button
+        type="button"
+        onClick={() => props.onSet(mode)}
+        class="px-2.5 py-1 text-xs rounded-md transition-colors"
+        style={{
+          background: active() ? "var(--octo-surface-page)" : "transparent",
+          color: active() ? "var(--octo-text-primary)" : "var(--octo-text-secondary)",
+          "font-weight": active() ? "500" : "400",
+          "box-shadow": active() ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+        }}
+      >
+        {label}
+      </button>
+    )
+  }
+  return (
+    <div
+      class="flex items-center gap-0.5 p-0.5 rounded-lg"
+      style={{ background: "var(--octo-surface-hover, #f1f1f1)" }}
+    >
+      {seg("preview", "预览")}
+      {seg("source", "代码")}
     </div>
   )
 }
