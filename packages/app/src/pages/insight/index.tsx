@@ -1040,7 +1040,7 @@ function InsightContent() {
           style={{ top: "20px", bottom: "20px", left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
           onPointerDown={handleDividerPointerDown}
         >
-          <div
+          {/* <div
             class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
             style={{
               width: "12px",
@@ -1055,7 +1055,7 @@ function InsightContent() {
               class="w-[2px] h-[14px] rounded-full mr-[2px]"
               style={{ background: "var(--octo-border-input, #c9c9c9)" }}
             />
-          </div>
+          </div> */}
         </div>
 
         {/* ── 中栏：ResultViewer（始终渲染，无 tab 时显示空态） */}
