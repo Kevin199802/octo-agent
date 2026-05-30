@@ -9,6 +9,8 @@ import {
   createSignal,
   For,
   on,
+  onCleanup,
+  onMount,
   Show,
 } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
@@ -18,6 +20,8 @@ import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { Icon } from "@opencode-ai/ui/icon"
+import { useTheme } from "@opencode-ai/ui/theme/context"
+import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { ModelsProvider } from "@/context/models"
 import { LocalProvider } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
@@ -84,6 +88,28 @@ function InsightContent() {
   const globalSync = useGlobalSync()
   const sync = useSync()
   const selection = useInsightModelSelection()
+  const themeCtx = useTheme()
+
+  // Insight 暂不适配暗色模式：mount 时注入全局亮色 token 覆盖（selector 为 html 自身），
+  // 使 portal（模型选择弹窗等）也能被覆盖到；insight 是全屏页，不影响其他页面。
+  // html[data-color-scheme="dark"] 比 :root 优先级高（attribute selector），可覆盖 ThemeProvider。
+  // 覆盖 token 来自 oc-2 light variant，与 ThemeProvider 写入 :root 的来源一致。
+  onMount(() => {
+    const oc2 = themeCtx.themes()["oc-2"]
+    if (!oc2) return
+    const css = themeToCss(resolveThemeVariant(oc2.light, false))
+    const style = document.createElement("style")
+    style.id = "oc-insight-force-light"
+    style.textContent = [
+      `html[data-color-scheme="dark"] {`,
+      `  color-scheme: light;`,
+      `  --text-mix-blend-mode: multiply;`,
+      `  ${css}`,
+      `}`,
+    ].join("\n")
+    document.head.appendChild(style)
+    onCleanup(() => { document.getElementById("oc-insight-force-light")?.remove() })
+  })
 
   const homeDir = () => globalSync.data.path.home
 

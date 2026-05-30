@@ -278,11 +278,11 @@
 
 
 
-/* ── 防止 opencode 深色主题污染 Insight ───────────────────────────
-   Insight 不做深色模式。opencode ThemeProvider 把上游 token 写到 :root，
-   系统切深色时这些变量会变为暗值。
-   在 [data-page="insight"] 作用域内把用到的上游 token 钉死为 OC-2 亮色值：
-   CSS 自定义属性在子元素上声明会覆盖从 :root 继承的值。               */
+/* ── 防止 opencode 深色主题污染 Insight (FOUC 初屏保护层) ──────────
+   主要防护：InsightContent.onMount 注入 html[data-color-scheme="dark"] 全局覆盖，
+   含所有 oc-2 亮色 token，覆盖 portal 弹窗（模型选择等），cleanup 时移除。
+   这里的静态规则仅覆盖 JS 尚未执行时的初次渲染闪烁（FOUC）场景，
+   scoped 在 [data-page="insight"]，不影响其他页面的 portal。        */
 [data-page="insight"] {
   --background-base:              #ffffff;
   --background-stronger:          #f7f7f7;
