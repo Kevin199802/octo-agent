@@ -1,5 +1,6 @@
 import { For, Match, Show, Switch } from "solid-js"
 import type { JSX } from "solid-js"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 
 export type AttachmentStatus = "uploading" | "done" | "error"
 
@@ -11,6 +12,9 @@ export type Attachment = {
   status: AttachmentStatus
   url?: string // status=done 时有
   error?: string // status=error 时有（用于 tooltip）
+  // 是否可重传：仅"通过校验、真正发起过上传"的失败 chip 可重传(filesById 里有原 File)。
+  // 客户端校验失败(扩展名/大小/空文件)的 chip 重试同文件必然同错,不提供重试,只能删除重选。
+  retriable?: boolean
 }
 
 function getMimeIcon(filename: string, mime: string): string {
@@ -66,10 +70,11 @@ export function AttachmentBar(props: {
         <For each={props.attachments}>
           {(att) => {
             const style = () => STATUS_STYLE[att.status]
-            return (
+            // chip 本体;error 态由外层 Tooltip 显示错误原因,非 error 用原生 title 显示全名
+            const chip = () => (
               <div
                 class="flex flex-shrink-0 items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs whitespace-nowrap"
-                title={att.status === "error" ? att.error ?? "上传失败" : att.filename}
+                title={att.status === "error" ? undefined : att.filename}
                 style={{
                   background: style().bg,
                   border: style().border,
@@ -83,7 +88,7 @@ export function AttachmentBar(props: {
                   </Switch>
                 </span>
                 <span class="max-w-[110px] truncate">{truncateFilename(att.filename)}</span>
-                <Show when={att.status === "error" && props.onRetry}>
+                <Show when={att.status === "error" && att.retriable && props.onRetry}>
                   <button
                     type="button"
                     onClick={() => props.onRetry?.(att.id)}
@@ -101,6 +106,26 @@ export function AttachmentBar(props: {
                   ×
                 </button>
               </div>
+            )
+            // error chip 用样式化 Tooltip 显式给出失败原因(原生 title 太弱不易察觉);
+            // 校验失败(不可重传)时追加一句操作引导,让"为什么没重试按钮"有解释。
+            return (
+              <Show when={att.status === "error"} fallback={chip()}>
+                <Tooltip
+                  placement="top"
+                  class="flex-shrink-0"
+                  value={
+                    <div class="text-xs leading-snug">
+                      <div>{att.error ?? "上传失败"}</div>
+                      <Show when={!att.retriable}>
+                        <div style={{ opacity: 0.7, "margin-top": "2px" }}>请删除后重新选择文件</div>
+                      </Show>
+                    </div>
+                  }
+                >
+                  {chip()}
+                </Tooltip>
+              </Show>
             )
           }}
         </For>

@@ -582,9 +582,13 @@ function InsightContent() {
       const mime = file.type || "application/octet-stream"
       const validationErr = validateFile(file)
       if (validationErr) {
+        // 客户端校验失败:不存 File,标 retriable=false → chip 不显示重试,只能删除重选
+        console.warn("[octo:upload] client-validate rejected", {
+          id, filename: file.name, code: validationErr.code, message: validationErr.message,
+        })
         setAttachments((prev) => [
           ...prev,
-          { id, filename: file.name, mime, size: file.size, status: "error", error: validationErr.message },
+          { id, filename: file.name, mime, size: file.size, status: "error", error: validationErr.message, retriable: false },
         ])
         continue
       }
@@ -609,8 +613,9 @@ function InsightContent() {
         err instanceof Error ? err.message :
         "上传失败"
       console.error("[InsightPage] upload failed", { id, filename: file.name, err })
+      // 已发起过上传(File 在 filesById):标 retriable=true → chip 显示重试
       setAttachments((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status: "error", error: message } : a)),
+        prev.map((a) => (a.id === id ? { ...a, status: "error", error: message, retriable: true } : a)),
       )
     }
   }
@@ -623,11 +628,14 @@ function InsightContent() {
   function retryUpload(id: string) {
     const file = filesById.get(id)
     if (!file) {
-      // 客户端 validate 失败的 chip 没有原 File，无法重传；用户应删除重新选
+      // 客户端 validate 失败的 chip 没有原 File，无法重传；用户应删除重新选。
+      // 正常情况下这类 chip 已隐藏重试按钮(retriable=false),走到这里属兜底,打日志便于排查。
+      console.warn("[octo:upload] retry skipped: no original File (client-validation chip)", { id })
       return
     }
+    console.log("[octo:upload] retry", { id, filename: file.name })
     setAttachments((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: "uploading", error: undefined } : a)),
+      prev.map((a) => (a.id === id ? { ...a, status: "uploading", error: undefined, retriable: undefined } : a)),
     )
     void doUpload(id, file)
   }
