@@ -83,6 +83,13 @@
   border-radius: var(--octo-radius-md) !important;
 }
 
+/* session-turn 错误 card 文字颜色修复：
+   [data-page="insight"] 把 --text-on-critical-base 钉为 #fff，
+   导致 session-turn.css 的 .error-card 文字变白色看不见，这里强制回黑色。 */
+[data-component="session-turn"] .error-card {
+  color: var(--octo-text-primary) !important;
+}
+
 /* 用户消息气泡 */
 [data-component="session-turn"] [data-component="user-message"] {
   background: var(--octo-brand-subtle);
