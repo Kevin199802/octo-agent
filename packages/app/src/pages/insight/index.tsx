@@ -26,6 +26,7 @@ import {
   useInsightModelSelection,
 } from "./store/model-selection"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
+import { ConversationHeader } from "./components/conversation-header"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
@@ -884,6 +885,9 @@ function InsightContent() {
                 </div>
               }
             >
+              {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
+              <ConversationHeader />
+
               {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
               <div
                 class="flex-1 overflow-y-auto min-h-0"
