@@ -88,7 +88,7 @@ cp .env.example .env.local
 
 **对接要点**（给内网开发服务端实现的同学）：
 
-- 接口形态、S3 路径策略（`<bucket>/files/<agent>/<yyyy-mm-dd>/<uuid>_<filename>`）、响应封装、错误码、DB 表设计、联调步骤全部见 [file-upload.md](specs/infra/file-upload.md)
+- 接口形态、S3 路径策略（`<bucket>/files/<agent>/<yyyy-mm-dd>/<uuid>/<filename>`，UUID 独立一层而非拼文件名）、响应封装、错误码、DB 表设计、联调步骤全部见 [file-upload.md](specs/infra/file-upload.md)
 - 客户端走环境变量注入端点，对接后填 `VITE_OCTO_UPLOAD_ENDPOINT=...` 即可，无需改源码
 - 客户端有全链路 console 日志（前缀 `[octo:upload]`），隔空联调时让客户端同学截 Console 给你
 - ADR-006 已明确：本上传服务**与 UXR 团队的 MCP 工具产物上传互不相关**
