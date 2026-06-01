@@ -411,7 +411,6 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
             disabled={revealBusy()}
             class="px-3 py-1 text-xs rounded disabled:opacity-50"
             style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
-            title="在 Finder / Explorer 中定位本地副本(可手动 cp 或保留编辑后内容)"
           >
             {revealBusy() ? "定位中…" : "在文件夹中打开"}
           </button>
@@ -421,7 +420,6 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
             disabled={downloadBusy()}
             class="px-3 py-1 text-xs rounded disabled:opacity-50"
             style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
-            title="重新从源 URL 下载一份到你选择的位置(不含本地编辑改动)"
           >
             {downloadBusy() ? "保存中…" : "另存为"}
           </button>
