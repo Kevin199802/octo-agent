@@ -104,7 +104,7 @@ export function ActionBar(props: {
 }): JSX.Element {
   // URI 模式 fetch 未完成时 content 为空,禁用复制 / 下载
   const ready = () => typeof props.tab.content === "string" && props.tab.content.length > 0
-  // file 类型(Office/PDF/二进制):FileFallback 自带"用本地应用打开/下载到本地",
+  // file 类型(Office/PDF/二进制):FileFallback 自带"用本地应用打开 / 在文件夹中打开 / 另存为",
   // ActionBar 的复制/下载对它无意义(content 为空,复制不出东西),整组隐藏。
   const showActions = () => props.tab.type !== "file"
   const showToggle = () => isToggleType(props.tab.type)

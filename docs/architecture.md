@@ -349,19 +349,22 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 
 | 改了什么 | 性质 |
 |---|---|
-| 新增 `downloadResource(url, destPath)` → IPC `download-resource` | 接线 — 给 InsightPage FileFallback 把远程 resource_link 落地本地文件（[ADR-009](adr/009-no-office-preview.md) 双按钮：「用本地应用打开」需要先 download 再 `openPath`）|
+| 新增 `downloadResource(url, destPath)` → IPC `download-resource` | 接线 — 给 InsightPage FileFallback 把远程 resource_link 落地本地文件（[ADR-009](adr/009-no-office-preview.md) 三按钮：「用本地应用打开」前置 download；「另存为」直接落用户选定路径）|
+| 新增 `showItemInFolder(path)` → IPC `show-item-in-folder`（fire-and-forget send） | 接线 — FileFallback「在文件夹中打开」按钮，让用户定位本地临时副本(打开过 / 改过的 Office 文件可手动 cp 或保留编辑内容,微信桌面端模式) |
 
 #### `packages/desktop-electron/src/preload/types.ts`（补充）
 
 | 改了什么 | 性质 |
 |---|---|
 | `ElectronAPI` 接口加 `downloadResource(url: string, destPath: string): Promise<void>` | 接线 — 给 `window.api.downloadResource` 提供 TS 类型 |
+| `ElectronAPI` 接口加 `showItemInFolder(path: string): void` | 接线 — 给 `window.api.showItemInFolder` 提供 TS 类型 |
 
 #### `packages/desktop-electron/src/main/ipc.ts`（补充）
 
 | 改了什么 | 性质 |
 |---|---|
 | 新增 `ipcMain.handle("download-resource", ...)`：node fetch 下载远程 URL，落地到指定本地路径（mkdir -p + fs.writeFile） | 接线 — 配合 FileFallback「用本地应用打开」前置步骤；通用底层能力（不仅限 office），未来视频 / 图片 / 任意二进制都可复用 |
+| 新增 `ipcMain.on("show-item-in-folder", ...)`：`shell.showItemInFolder(path)` 在系统文件管理器中定位文件 | 接线 — FileFallback「在文件夹中打开」按钮的主进程入口 |
 
 #### `packages/desktop-electron/package.json`
 

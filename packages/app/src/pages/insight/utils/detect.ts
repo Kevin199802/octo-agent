@@ -23,36 +23,8 @@ export function isMarkdownTable(text: string): boolean {
   return tableLines.length >= 2
 }
 
-export function isMindmapJSON(text: string): boolean {
-  const raw = stripCodeFence(text)
-  if (!raw.startsWith("[") && !raw.startsWith("{")) return false
-  const json = tryParseJSON(raw)
-  if (!json) return false
-  return hasMindmapShape(json)
-}
-
-function hasMindmapShape(json: unknown): boolean {
-  if (Array.isArray(json)) {
-    const first = json[0]
-    if (Array.isArray(first)) return hasMindmapShape(first)
-    if (first && typeof first === "object") return hasMindmapShape(first)
-    return false
-  }
-  if (json && typeof json === "object") {
-    const obj = json as Record<string, unknown>
-    const hasName = typeof obj.name === "string"
-    const hasChildren = Array.isArray(obj.children)
-    const hasNodes = Array.isArray(obj.nodes)
-    if ((hasName && hasChildren) || hasNodes) return true
-    // 内网 MCP mindmap 工具 shape:{ mindmaps: [{name, children}, ...] }
-    // 以 mindmaps 字段为准识别;file 字段(若存在)与识别无关。
-    const mindmaps = obj.mindmaps
-    if (Array.isArray(mindmaps) && mindmaps.length > 0) {
-      return hasMindmapShape(mindmaps[0])
-    }
-  }
-  return false
-}
+// mindmap 检测已迁至 mindmap-adapter.isMindmapJSON(与渲染共用 uxrJsonToMarkdown 同一规则,
+// 避免"判定命中但渲染为空"的漂移)。detect 不再重复实现 shape 嗅探。
 
 /**
  * 整段判别是否为 HTML —— 保留供单测复用,但 detectCards 主路径不再用它,
