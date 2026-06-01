@@ -48,6 +48,7 @@ import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
 
 const InsightPage = lazy(() => import("@/pages/insight"))
+const InsightCardsDevPage = lazy(() => import("@/pages/insight/_dev/cards-preview"))
 const ChatPage = lazy(() => import("@/pages/chat"))
 const StudioPage = lazy(() => import("@/pages/studio"))
 const loadSession = () => import("@/pages/session")
@@ -129,7 +130,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   }
   const isOctoPage = () => {
     const p = location.pathname
-    return p === "/chat" || p === "/studio"
+    return p === "/chat" || p === "/studio" || p.startsWith("/_dev/")
   }
   return (
     <Show
@@ -318,6 +319,7 @@ export function AppInterface(props: {
               >
                 <Route path="/" component={() => <Navigate href="/insight" />} />
                 <Route path="/insight/:id?" component={InsightPage} />
+                <Route path="/_dev/insight-cards" component={InsightCardsDevPage} />
                 <Route path="/chat" component={ChatPage} />
                 <Route path="/studio" component={StudioPage} />
                 <Route path="/:dir" component={DirectoryLayout}>

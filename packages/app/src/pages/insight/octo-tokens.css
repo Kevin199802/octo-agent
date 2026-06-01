@@ -312,26 +312,27 @@
   --icon-invert-base:             #ffffff;
 }
 
-/* ── 入口卡片(预览入口):紧凑条,不抢主对话区视觉 ─────────────
+/* ── 入口卡片(预览入口):紧凑卡,不抢主对话区视觉 ─────────────
    设计依据:docs/specs/ui/output-renderers.md §6.B。
-   高度 ~40px,挂在对话气泡下方,作为"附加预览"入口,不替代对话内容。 */
+   高度 ~78px(SVG 精确值:图标 28px + 上下各 25px padding)。 */
 .octo-preview-entry {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 12px;
+  padding: 25px 20px;
   margin: 6px 12px 0;
-  background: var(--octo-surface-page);
-  border: 1px solid var(--octo-border-default);
-  border-radius: var(--octo-radius-md);
+  background: linear-gradient(90deg, rgb(245, 248, 255) 0%, rgb(255, 255, 255) 49.85%);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
   cursor: pointer;
   transition: border-color 120ms ease, background 120ms ease;
   width: calc(100% - 24px);
   text-align: left;
+  font-family: "HarmonyOS Sans SC", system-ui, sans-serif;
 }
 .octo-preview-entry:hover {
-  border-color: var(--octo-brand-a25);
-  background: var(--octo-brand-a3);
+  border-color: rgba(10, 89, 247, 0.25);
+  background: linear-gradient(90deg, rgb(235, 242, 255) 0%, rgb(245, 248, 255) 49.85%);
 }
 .octo-preview-entry__icon {
   flex: 0 0 auto;
@@ -356,6 +357,7 @@
 }
 .octo-preview-entry__desc {
   font-size: 11px;
+  font-weight: 400;
   color: var(--octo-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
