@@ -12,6 +12,15 @@ export function uxrJsonToMarkdown(text: string): string | null {
   return roots.map((node) => renderNode(node, 0)).join("\n")
 }
 
+/**
+ * 是否值得出"思维导图"卡 = 是否真能渲染成 markmap。
+ * 检测与渲染共用 uxrJsonToMarkdown 这一条规则 —— 避免"判定命中但渲染为空"的漂移
+ * (历史 bug:detect.hasMindmapShape 对 {nodes:[]} / 空 mindmaps 判 true,但 collectRoots 收不到根 → 渲染失败兜底)。
+ */
+export function isMindmapJSON(text: string): boolean {
+  return uxrJsonToMarkdown(text) != null
+}
+
 function collectRoots(json: unknown): MindmapNode[] {
   if (Array.isArray(json)) {
     return json.flatMap((item) => collectRoots(item))

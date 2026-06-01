@@ -146,12 +146,14 @@ function isMarkdownTable(text: string): boolean {
   return tableLines.length >= 2
 }
 
-// 2. Mindmap JSON：解析 + UXR 双层数组 shape / { name, children } shape
+// 2. Mindmap JSON：检测 = 渲染。直接复用渲染适配函数,「能渲染成 markmap 才算命中」。
+//    实现在 mindmap-adapter.ts(detect 的上层,避免循环依赖),不再单独写一套 shape 嗅探。
 function isMindmapJSON(text: string): boolean {
-  const json = tryParseJSON(stripCodeFence(text))
-  if (!json) return false
-  return hasMindmapShape(json)   // 实现见 detect.ts
+  return uxrJsonToMarkdown(text) != null   // 实现见 mindmap-adapter.ts
 }
+// 为什么不再单独写 hasMindmapShape:旧实现的 shape 嗅探比渲染规则更松
+// (对 { nodes: [] } / 空 mindmaps 判 true,但 collectRoots 收不到根 → 渲染为空),
+// 导致"判定命中但渲染失败兜底"的漂移。检测与渲染共用同一条规则后,从根上消除该不一致。
 
 // 3. HTML：扫所有 text part 找 ```html fence（多 fence → 多卡）
 //    单 part 内既支持闭合 fence,也接受流式中途未闭合的 fence(取到字符串末尾)
@@ -285,7 +287,9 @@ opencode 将 MCP `CallToolResult.content[]` 中的 `resource_link` 项作为独�
 - 卡片标题始终是 "JSON 数据"(误标——内容是思维导图),用户体验断层
 - 客户端做 shape 嗅探,跟"业务类型由服务端声明"的设计哲学冲突
 
-新设计:服务端 `business_type: "mindmap"` 显式声明,客户端直接出双卡,**零嗅探**。
+新设计:服务端 `business_type: "mindmap"` 显式声明,客户端直接出**单卡**(`type: "mindmap"`,预览/代码切换),**零嗅探**。
+
+**路径 A 内容违约的兜底(2026-06 修订)**:服务端声明 `business_type: "mindmap"` 但实际文件内容不是 mindmap shape 时(服务端违反契约),客户端无法在出卡阶段预校验——内容是打开卡片时才 fetch 的(`UriTabBody`),出卡时只有 `uri`。因此降级发生在**卡内渲染时**:`ResultViewer` 的 mindmap 分支用 `isMindmapJSON(content)` 校验,不符就**直接显示代码视图(原始 JSON)**而非空的错误占位,也**不另起新卡**(原始 JSON 本就在这张卡的「代码」切换里)。与路径 B 共用同一条 `isMindmapJSON` 规则。
 
 ### 2.5.3 OutputCard / ResultTab 类型扩展
 
@@ -523,6 +527,8 @@ export function MindmapRenderer(props: { content: string }) {
   )
 }
 ```
+
+> 上为示意版。实际组件还含:容器尺寸兜底(ResizeObserver,面板按需弹出时 width:0 不会算出 NaN transform)、以及 `uxrJsonToMarkdown` 返回 null 时的精简占位「无法渲染为思维导图」(仅一行说明,不贴原始内容/不引导去别处)。正常流程下 `ResultViewer` 已用 `isMindmapJSON` 预校验、内容违约时直接降级为代码视图(见 §2.5.2 路径 A 内容违约兜底),故该占位是组件自身的防御兜底,常态不触达。
 
 ### 4.4 适配层：UXR JSON → Markdown
 

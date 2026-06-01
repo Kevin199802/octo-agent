@@ -10,6 +10,7 @@ import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { stripCodeFence } from "../../utils/detect"
+import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { getDesktopApi } from "../../lib/electron-api"
 
@@ -166,7 +167,13 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
         </Show>
       </Match>
       <Match when={props.tab.type === "mindmap"}>
-        <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="json" />}>
+        {/* 预览态仅在内容真能渲染成思维导图时走 MindmapRenderer;否则(源码态 / 内容非 mindmap shape)
+            直接降级为代码视图看原始 JSON —— 服务端 business_type:"mindmap" 但内容违约时,
+            不出空的错误占位、也不另起新卡(原始 JSON 就在这张卡里)。详见 output-renderers.md §6.A。 */}
+        <Show
+          when={!isSource() && isMindmapJSON(content())}
+          fallback={<SourceCodeView content={content()} lang="json" />}
+        >
           <MindmapRenderer content={content()} />
         </Show>
       </Match>
