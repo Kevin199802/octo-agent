@@ -37,9 +37,10 @@ import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
-import { uploadFile, validateFile, formatUploadsForPrompt, UploadError } from "./lib/upload"
+import { uploadFile, validateFile, formatUploadsForPrompt, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
-import { mimeToOutputType } from "./utils/resource-link"
+import { linkToOutputType } from "./utils/resource-link"
 import { clearRefreshState, markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
 
@@ -80,6 +81,16 @@ export default function InsightPage() {
     </Show>
   )
 }
+
+// 单轮对话最多上传文件数(超出提示分多轮处理)
+const MAX_ATTACHMENTS = 10
+
+// 文件选择器 accept:从 ALLOWED_EXT 派生(与 validateFile 同一事实源)。
+// 仅是原生弹窗的预过滤提示,不做强制——拖拽绕过它,校验仍以 validateFile 为准。
+const UPLOAD_ACCEPT = ALLOWED_EXT.map((e) => `.${e}`).join(",")
+
+// 添加附件按钮的 tooltip 提示:支持的文件类型 + 大小 + 数量上限(均从常量派生)。
+const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB，最多 ${MAX_ATTACHMENTS} 个`
 
 function InsightContent() {
   const params = useParams<{ id?: string }>()
@@ -130,6 +141,14 @@ function InsightContent() {
     const id = params.id
     if (!id) return []
     return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+  })
+
+  // 会话消息是否已加载:切到"未加载过的已存在会话"时 message[id] 为 undefined,
+  // 期间不渲染首页空态(否则会闪一下 Octo Insight 首页),等加载完再按是否为空决定。
+  // 无 id(全新/首页)视作已加载,正常显示首页空态。
+  const sessionMessagesLoaded = createMemo(() => {
+    const id = params.id
+    return !id || sync.data.message[id] !== undefined
   })
 
   // ── 长任务卡片聚合(spec: docs/specs/ui/task-card.md §3.3)──
@@ -310,6 +329,51 @@ function InsightContent() {
 
   const tabStore = createTabStore()
 
+  // ── 任务面板按需弹出 + 过渡动画 (SPEC-INS-009) ────────────────
+  // panelCollapsed:用户手动收起(保留 tab,仅隐藏容器);与"无产物"区分两种收起来源。
+  // panelVisible = 有已打开产物 且 未手动收起。无产物时聊天居中铺满,有产物才 split。
+  const [panelCollapsed, setPanelCollapsed] = createSignal(false)
+  const panelVisible = createMemo(() => tabStore.tabs().length > 0 && !panelCollapsed())
+
+  // 动画三态:
+  //   panelMounted   —— 面板是否在 DOM(可见时挂载,收起动画播完才卸载,保证滑出可见)
+  //   panelExpanded  —— 驱动聊天列宽度的目标态(滑入时延一帧置真,从 100% 过渡到 chatWidth)
+  //   panelAnimating —— 仅切换期间为真;开启 width transition。拖拽分隔线不触发本 effect,
+  //                     故 transition 关闭,分隔线跟手不滞后。
+  const PANEL_ANIM_MS = 280
+  const [panelMounted, setPanelMounted] = createSignal(false)
+  const [panelExpanded, setPanelExpanded] = createSignal(false)
+  const [panelAnimating, setPanelAnimating] = createSignal(false)
+  let panelExitTimer: ReturnType<typeof setTimeout> | undefined
+  let panelAnimEndTimer: ReturnType<typeof setTimeout> | undefined
+
+  createEffect(on(panelVisible, (show) => {
+    if (panelExitTimer) { clearTimeout(panelExitTimer); panelExitTimer = undefined }
+    setPanelAnimating(true)
+    if (show) {
+      setPanelMounted(true)
+      // 双 rAF:确保面板先以 width:0(聊天 100%)落地一帧,再过渡到展开宽,首次也有滑入
+      requestAnimationFrame(() => requestAnimationFrame(() => setPanelExpanded(true)))
+    } else {
+      setPanelExpanded(false)
+      panelExitTimer = setTimeout(() => setPanelMounted(false), PANEL_ANIM_MS)
+    }
+    // 动画窗口结束后关掉 animating,使后续拖拽无 transition
+    if (panelAnimEndTimer) clearTimeout(panelAnimEndTimer)
+    panelAnimEndTimer = setTimeout(() => setPanelAnimating(false), PANEL_ANIM_MS + 30)
+  }, { defer: true }))
+
+  /** 打开/激活产物时统一清掉手动收起态,确保面板滑入(即便之前被收起) */
+  function revealPanel() {
+    if (panelCollapsed()) setPanelCollapsed(false)
+  }
+
+  /** 关 tab:若关掉的是最后一个,复位 collapsed 以便下次产物干净滑入 */
+  function handleCloseTab(id: string) {
+    tabStore.closeTab(id)
+    if (tabStore.tabs().length === 0) setPanelCollapsed(false)
+  }
+
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
@@ -317,6 +381,7 @@ function InsightContent() {
   // queue 必须清:在 session A 排队的 text 不能错发到 session B(SPEC-INS-007 §3.3.5)
   createEffect(on(() => params.id, () => {
     tabStore.reset()
+    setPanelCollapsed(false)
     setQueuedText(null)
     clearRefreshState()
     autoOpenedTaskIds.clear()
@@ -369,10 +434,14 @@ function InsightContent() {
     const doneAttachments = opts.consumeAttachments
       ? attachments().filter((a) => a.status === "done" && a.url)
       : []
-    const fullText = text + formatUploadsForPrompt(
+    // 上传 URL 块走独立 synthetic text part:LLM 收得到(server 只过滤 ignored),
+    // 但气泡不渲染(上游 UserMessageDisplay 过滤 synthetic)。文件卡片由 InsightTurn 解析渲染。
+    const uploadBlock = formatUploadsForPrompt(
       doneAttachments.map((a) => ({ filename: a.filename, url: a.url! })),
     )
-    const textPart: TextPartInput = { type: "text", text: fullText }
+    const cleanTextPart: TextPartInput = { type: "text", text }
+    const parts: TextPartInput[] = [cleanTextPart]
+    if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
     const messageID = Identifier.ascending("message")
     const agent = "insight"
 
@@ -392,13 +461,27 @@ function InsightContent() {
       time: { created: Date.now() },
       model,
     } as Message
-    const optimisticPart: Part = {
-      id: Identifier.ascending("part"),
-      sessionID: sessionId,
-      messageID,
-      type: "text",
-      text: fullText,
-    } as Part
+    // optimistic 镜像发送的 parts:干净文本 + (有附件时)synthetic 上传块。
+    // synthetic part 同样写入 optimistic,使乐观渲染就与 server 回传一致(气泡只显示干净文本)。
+    const optimisticParts: Part[] = [
+      {
+        id: Identifier.ascending("part"),
+        sessionID: sessionId,
+        messageID,
+        type: "text",
+        text,
+      } as Part,
+    ]
+    if (uploadBlock) {
+      optimisticParts.push({
+        id: Identifier.ascending("part"),
+        sessionID: sessionId,
+        messageID,
+        type: "text",
+        text: uploadBlock,
+        synthetic: true,
+      } as Part)
+    }
 
     console.log("[octo:prompt] send", {
       source: opts.source,
@@ -414,15 +497,16 @@ function InsightContent() {
     console.log("[octo:prompt] send-full", {
       source: opts.source,
       messageID,
-      fullText,   // 含 attachments 拼接后的最终文本
+      cleanText: text,         // 用户可见文本
+      uploadBlock,             // synthetic 上传块(喂给 LLM,气泡不显示)
     })
 
     sync.session.optimistic.add({
       sessionID: sessionId,
       message: optimisticMessage,
-      parts: [optimisticPart],
+      parts: optimisticParts,
     })
-    console.log("[octo:prompt] optimistic added", { messageID, partsCount: 1 })
+    console.log("[octo:prompt] optimistic added", { messageID, partsCount: optimisticParts.length })
 
     if (opts.consumeAttachments) {
       filesById.clear()
@@ -434,7 +518,7 @@ function InsightContent() {
         sessionID: sessionId,
         agent,
         model,
-        parts: [textPart],
+        parts,
         messageID,
       })
       console.log("[octo:prompt] sent (async)", { messageID, sessionID: sessionId })
@@ -536,16 +620,25 @@ function InsightContent() {
   const filesById = new Map<string, File>()
 
   function addAttachments(files: File[]) {
-    const slots = 5 - attachments().length
+    const slots = MAX_ATTACHMENTS - attachments().length
+    // 超过 10 个:提示并截断到剩余槽位(单次超额取前 N 个);已满则只提示不新增
+    if (files.length > slots) {
+      showToast("请保持上传文件不超过10个或分多轮对话处理")
+    }
+    if (slots <= 0) return
     const toAdd = files.slice(0, slots)
     for (const file of toAdd) {
       const id = crypto.randomUUID()
       const mime = file.type || "application/octet-stream"
       const validationErr = validateFile(file)
       if (validationErr) {
+        // 客户端校验失败:不存 File,标 retriable=false → chip 不显示重试,只能删除重选
+        console.warn("[octo:upload] client-validate rejected", {
+          id, filename: file.name, code: validationErr.code, message: validationErr.message,
+        })
         setAttachments((prev) => [
           ...prev,
-          { id, filename: file.name, mime, size: file.size, status: "error", error: validationErr.message },
+          { id, filename: file.name, mime, size: file.size, status: "error", error: validationErr.message, retriable: false },
         ])
         continue
       }
@@ -570,8 +663,9 @@ function InsightContent() {
         err instanceof Error ? err.message :
         "上传失败"
       console.error("[InsightPage] upload failed", { id, filename: file.name, err })
+      // 已发起过上传(File 在 filesById):标 retriable=true → chip 显示重试
       setAttachments((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status: "error", error: message } : a)),
+        prev.map((a) => (a.id === id ? { ...a, status: "error", error: message, retriable: true } : a)),
       )
     }
   }
@@ -584,11 +678,14 @@ function InsightContent() {
   function retryUpload(id: string) {
     const file = filesById.get(id)
     if (!file) {
-      // 客户端 validate 失败的 chip 没有原 File，无法重传；用户应删除重新选
+      // 客户端 validate 失败的 chip 没有原 File，无法重传；用户应删除重新选。
+      // 正常情况下这类 chip 已隐藏重试按钮(retriable=false),走到这里属兜底,打日志便于排查。
+      console.warn("[octo:upload] retry skipped: no original File (client-validation chip)", { id })
       return
     }
+    console.log("[octo:upload] retry", { id, filename: file.name })
     setAttachments((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: "uploading", error: undefined } : a)),
+      prev.map((a) => (a.id === id ? { ...a, status: "uploading", error: undefined, retriable: undefined } : a)),
     )
     void doUpload(id, file)
   }
@@ -620,6 +717,7 @@ function InsightContent() {
 
   function handleOpenResult(card: OutputCard) {
     tabStore.openTab(card)
+    revealPanel()
   }
 
   // ── 长任务卡片操作(spec: docs/specs/ui/task-card.md §6) ──────
@@ -671,7 +769,7 @@ function InsightContent() {
       return card.resourceLinks.map((link, idx) => ({
         id: `task-${card.taskId}-${idx}`,
         title: link.name || `${baseTitle} ${idx + 1}`,
-        type: mimeToOutputType(link.mimeType),
+        type: linkToOutputType(link),
         source: "uri" as const,
         uri: link.uri,
         mimeType: link.mimeType,
@@ -713,6 +811,7 @@ function InsightContent() {
     // 用户视觉上看到最后激活的是数组里最后一个 = 第一张?— 让我们激活第一张
     for (const oc of ocs) tabStore.openTab(oc)
     tabStore.activate(ocs[0].id)
+    revealPanel()
   }
 
   // ── 自动 openTab(ResultViewer 当前为空时,首个 completed 任务自动开;spec §8.3)──
@@ -732,6 +831,7 @@ function InsightContent() {
       })
       for (const oc of ocs) tabStore.openTab(oc)
       tabStore.activate(ocs[0].id)
+      revealPanel()
       break  // 一次只自动开一个 task 的全部产物
     }
   })
@@ -772,7 +872,7 @@ function InsightContent() {
     lastTaskSnapshot = currentSnap
   })
 
-  const maxAttachments = () => attachments().length >= 5
+  const maxAttachments = () => attachments().length >= MAX_ATTACHMENTS
   function hasUploadingAttachments() {
     return attachments().some((a) => a.status === "uploading")
   }
@@ -787,12 +887,17 @@ function InsightContent() {
       <Toast.Region />
       <div class="size-full flex overflow-hidden relative" data-page="insight">
 
-        {/* ── 左栏：对话面板（固定宽度，始终可拖拽） ──── */}
+        {/* ── 左栏：对话面板 ────
+             展开态:固定 chatWidth,可拖拽分隔。收起态:撑满 100%,内容居中 reading-width。
+             宽度在 chatWidth ↔ 100% 间过渡;任务面板 flex:1 跟随重排自然伸缩(SPEC-INS-009 §3)。
+             panelAnimating 仅切换期间为真 → 拖拽分隔线时无 transition,跟手不滞后。 */}
         <div
-          class="flex flex-col overflow-hidden flex-shrink-0"
+          class="flex flex-col overflow-hidden relative"
           style={{
-            width: `${chatWidth()}px`,
+            width: panelExpanded() ? `${chatWidth()}px` : "100%",
             flex: "0 0 auto",
+            "min-width": "0",
+            transition: panelAnimating() ? `width ${PANEL_ANIM_MS}ms ease` : "none",
             background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-surface-page)",
             outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
           }}
@@ -800,9 +905,28 @@ function InsightContent() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+          {/* 收起态唤回浮标:有产物但面板被收起时,右上角浮「产出 (N)」(待收起动画结束再现,避免与滑出重叠) */}
+          <Show when={tabStore.tabs().length > 0 && panelCollapsed() && !panelAnimating()}>
+            <button
+              type="button"
+              onClick={() => setPanelCollapsed(false)}
+              title="展开产出面板"
+              class="absolute top-3 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors"
+              style={{
+                background: "var(--octo-surface-page)",
+                color: "var(--octo-text-secondary)",
+                border: "1px solid var(--octo-border-divider)",
+                "box-shadow": "0 1px 4px rgba(0,0,0,0.06)",
+              }}
+            >
+              <Icon name="chevron-left" class="size-3.5 opacity-70" />
+              产出 ({tabStore.tabs().length})
+            </button>
+          </Show>
             <Show
               when={params.id && userMessages().length > 0}
               fallback={
+                <Show when={sessionMessagesLoaded()}>
                 <div class="size-full flex flex-col items-center justify-center px-8 py-10 overflow-y-auto">
                   <IllustrationInsightEmpty width={166} height={166} />
                   <div
@@ -827,14 +951,13 @@ function InsightContent() {
                   </div>
 
                   <div style={{ "margin-top": "80px", width: "100%", "max-width": "800px" }}>
-                    <AttachmentBar
-                      attachments={attachments()}
-                      onRemove={removeAttachment}
-                      onRetry={retryUpload}
+                    <PresetPrompts
+                      prompts={PRESET_PROMPTS}
+                      onClick={handlePresetClick}
                     />
 
                     <div
-                      class="rounded-[24px] transition-all duration-300 relative group flex flex-col"
+                      class="rounded-[24px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                       style={{
                         border: "1px solid transparent",
                         background: `
@@ -849,9 +972,14 @@ function InsightContent() {
                             rgba(206, 7, 232, 1) 92%) border-box`,
                         "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
                         height: "150px",
-                        "margin-top": attachments().length > 0 ? "6px" : "0",
                       }}
                     >
+                      {/* 附件条在胶囊内部顶部:单行横向滚动,不撑开胶囊 */}
+                      <AttachmentBar
+                        attachments={attachments()}
+                        onRemove={removeAttachment}
+                        onRetry={retryUpload}
+                      />
                       <textarea
                         ref={textareaRef!}
                         value={prompt()}
@@ -872,18 +1000,24 @@ function InsightContent() {
                           type="file"
                           multiple
                           class="hidden"
-                          accept="*/*"
+                          accept={UPLOAD_ACCEPT}
                           onChange={handleFileInputChange}
                         />
-                        <button
-                          type="button"
-                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                          disabled={maxAttachments()}
-                          class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                          title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                        <Tooltip
+                          placement="top"
+                          class="flex-shrink-0"
+                          value={maxAttachments() ? `最多 ${MAX_ATTACHMENTS} 个文件` : UPLOAD_HINT}
                         >
-                          <Icon name="plus" class="size-5" />
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                            disabled={maxAttachments()}
+                            class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
+                            aria-label="添加附件"
+                          >
+                            <Icon name="plus" class="size-5" />
+                          </button>
+                        </Tooltip>
 
                         <ModelSelectorPopover
                           model={selection.model}
@@ -921,6 +1055,7 @@ function InsightContent() {
                     </div>
                   </div>
                 </div>
+                </Show>
               }
             >
               {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
@@ -933,7 +1068,11 @@ function InsightContent() {
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
+                <div
+                  ref={autoScroll.contentRef}
+                  class="py-3 flex flex-col gap-0 w-full mx-auto"
+                  style={{ "max-width": "800px" }}
+                >
                   <For each={userMessages()}>
                     {(msg) => (
                       <InsightTurn
@@ -953,14 +1092,8 @@ function InsightContent() {
                 </div>
               </div>
 
-              {/* 输入区 */}
-              <div class="shrink-0 p-4">
-                <AttachmentBar
-                  attachments={attachments()}
-                  onRemove={removeAttachment}
-                  onRetry={retryUpload}
-                />
-
+              {/* 输入区(居中 reading-width,与消息列表对齐) */}
+              <div class="shrink-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
                 {/* 队列提示条:busy 时点了发送会先入队,这里给反馈 (SPEC-INS-007 §3.3.4) */}
                 <Show when={queuedText()}>
                   <div class="octo-queue-banner">
@@ -986,7 +1119,7 @@ function InsightContent() {
                 />
 
                 <div
-                  class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group flex flex-col"
+                  class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group flex flex-col overflow-hidden"
                   style={{
                     border: "1px solid transparent",
                     background: `
@@ -1004,6 +1137,12 @@ function InsightContent() {
                     "margin-top": attachments().length > 0 ? "6px" : "0",
                   }}
                 >
+                  {/* 附件条在胶囊内部顶部:单行横向滚动,不撑开胶囊 */}
+                  <AttachmentBar
+                    attachments={attachments()}
+                    onRemove={removeAttachment}
+                    onRetry={retryUpload}
+                  />
                   <textarea
                     ref={textareaRef!}
                     value={prompt()}
@@ -1024,18 +1163,24 @@ function InsightContent() {
                       type="file"
                       multiple
                       class="hidden"
-                      accept="*/*"
+                      accept={UPLOAD_ACCEPT}
                       onChange={handleFileInputChange}
                     />
-                    <button
-                      type="button"
-                      onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                      disabled={maxAttachments()}
-                      class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                      title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                    <Tooltip
+                      placement="top"
+                      class="flex-shrink-0"
+                      value={maxAttachments() ? `最多 ${MAX_ATTACHMENTS} 个文件` : UPLOAD_HINT}
                     >
-                      <Icon name="plus" class="size-5" />
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        disabled={maxAttachments()}
+                        class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
+                        aria-label="添加附件"
+                      >
+                        <Icon name="plus" class="size-5" />
+                      </button>
+                    </Tooltip>
 
                     <ModelSelectorPopover
                       model={selection.model}
@@ -1076,42 +1221,47 @@ function InsightContent() {
 
         </div>
 
-        {/* ── 聊天/结果 拖拽分隔线（半侧贴边胶囊）
-             top/bottom 缩进 20px：避免与 Windows classic 滚动条两端箭头（~17px）热区重合 */}
-        <div
-          class="absolute flex items-center justify-center group"
-          style={{ top: "20px", bottom: "20px", left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
-          onPointerDown={handleDividerPointerDown}
-        >
-          {/* <div
-            class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
-            style={{
-              width: "12px",
-              height: "36px",
-              "border-radius": "10px 0 0 10px",
-              "box-shadow": "-2px 0 4px rgba(0,0,0,0.04), inset 1px 0 0 rgba(0,0,0,0.02)",
-              border: "1px solid var(--octo-border-divider)",
-              "border-right": "none",
-            }}
+        {/* ── 任务面板:有产物且未收起时挂载;收起动画播完才卸载(SPEC-INS-009) ── */}
+        <Show when={panelMounted()}>
+          {/* 聊天/结果 拖拽分隔线（半侧贴边胶囊）—— 仅在动画结束的展开稳态显示,避免滑动中错位
+              top/bottom 缩进 20px：避免与 Windows classic 滚动条两端箭头（~17px）热区重合 */}
+          <Show when={panelExpanded() && !panelAnimating()}>
+          <div
+            class="absolute flex items-center justify-center group"
+            style={{ top: "20px", bottom: "20px", left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
+            onPointerDown={handleDividerPointerDown}
           >
+            {/* 拖拽手柄视觉胶囊已隐藏(dev-yfy d8bc3d4):保留热区与拖拽手感,仅去掉胶囊视觉
             <div
-              class="w-[2px] h-[14px] rounded-full mr-[2px]"
-              style={{ background: "var(--octo-border-input, #c9c9c9)" }}
-            />
-          </div> */}
-        </div>
+              class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
+              style={{
+                width: "12px",
+                height: "36px",
+                "border-radius": "10px 0 0 10px",
+                "box-shadow": "-2px 0 4px rgba(0,0,0,0.04), inset 1px 0 0 rgba(0,0,0,0.02)",
+                border: "1px solid var(--octo-border-divider)",
+                "border-right": "none",
+              }}
+            >
+              <div
+                class="w-[2px] h-[14px] rounded-full mr-[2px]"
+                style={{ background: "var(--octo-border-input, #c9c9c9)" }}
+              />
+            </div> */}
+          </div>
+          </Show>
 
-        {/* ── 中栏：ResultViewer（始终渲染，无 tab 时显示空态） */}
-        <ResultViewer
-          tabs={tabStore.tabs()}
-          activeId={tabStore.activeId()}
-          onActivate={tabStore.activate}
-          onClose={tabStore.closeTab}
-          onCacheContent={tabStore.cacheContent}
-        />
-
-        {/* ── 右栏：Workspace 占位 (P2) ──────────────── */}
-        <div />
+          {/* 中栏：ResultViewer(flex:1 跟随聊天列宽度重排,收起时被挤到 0 并裁切) */}
+          <ResultViewer
+            tabs={tabStore.tabs()}
+            activeId={tabStore.activeId()}
+            onActivate={tabStore.activate}
+            onClose={handleCloseTab}
+            onCacheContent={tabStore.cacheContent}
+            onCollapse={() => setPanelCollapsed(true)}
+            onSetViewMode={tabStore.setViewMode}
+          />
+        </Show>
       </div>
     </DataProvider>
   )

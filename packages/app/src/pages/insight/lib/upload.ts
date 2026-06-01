@@ -102,11 +102,11 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   }
 
   if (!UPLOAD_ENDPOINT) {
-    const err = new UploadError(
-      "ENDPOINT_NOT_CONFIGURED",
-      "上传端点未配置：在 packages/app/.env.local 设置 VITE_OCTO_UPLOAD_ENDPOINT=<内网地址>，然后重启 dev",
-    )
-    console.error(`${LOG} endpoint not configured`, { hint: err.message })
+    // 用户可见文案友好简洁;开发期排查提示(改 .env.local)只走 console,不糊给用户
+    const err = new UploadError("ENDPOINT_NOT_CONFIGURED", "上传服务暂时不可用，请稍后重试")
+    console.error(`${LOG} endpoint not configured`, {
+      hint: "在 packages/app/.env.local 设置 VITE_OCTO_UPLOAD_ENDPOINT=<内网地址>,然后重启 dev",
+    })
     throw err
   }
 
@@ -180,9 +180,25 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   return body.content
 }
 
-// 按 spec §注入格式：拼成 [已上传文件] 段落，附加到 prompt 文本末尾
+// 按 spec §注入格式：拼成 [已上传文件] 段落。
+//
+// 该段落作为**独立的 synthetic text part** 发送(不再拼进用户可见文本):
+//   - server 的 toModelMessages 对 user 消息只过滤 ignored,synthetic 照样喂给模型 → LLM 拿得到 URL
+//   - 上游 UserMessageDisplay 只渲染非 synthetic text part → 气泡不暴露 S3 长地址
+// 文件卡片由 InsightTurn 解析本段落渲染(parseUploadedFiles),optimistic / server 回传后都稳定存在。
 export function formatUploadsForPrompt(uploads: Array<{ filename: string; url: string }>): string {
   if (uploads.length === 0) return ""
   const lines = uploads.map((u) => `- ${u.filename}: ${u.url}`)
-  return `\n\n[已上传文件]\n${lines.join("\n")}`
+  return `[已上传文件]\n${lines.join("\n")}`
+}
+
+// formatUploadsForPrompt 的逆操作:从 synthetic text part 解析出 { filename, url } 列表,
+// 供 InsightTurn 渲染输入文件卡片。两者共用同一格式,是单一事实源。
+export function parseUploadedFiles(block: string): Array<{ filename: string; url: string }> {
+  const out: Array<{ filename: string; url: string }> = []
+  for (const line of block.split("\n")) {
+    const m = line.match(/^-\s+(.+?):\s+(https?:\/\/\S+)\s*$/)
+    if (m) out.push({ filename: m[1], url: m[2] })
+  }
+  return out
 }

@@ -67,13 +67,29 @@ OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 
 | 类型 | 触发模板 / 来源 | 服务端返回形态 | 入口卡文案 | 渲染器（ResultViewer 内） | 状态 |
 |---|---|---|---|---|---|
 | `table` | 观点解析 / 按提纲聚类 / AI用户画像 / 评估问题整理 | Markdown 表格字符串 | 分析表格 | TableRenderer | ✅ 已实现 |
-| `mindmap` | 思维导图 | JSON 结构（UXR 现有接口） | 思维导图 | MindmapRenderer（markmap-view）| ✅ 已实现 |
+| `mindmap` | 思维导图 | JSON 结构（UXR 现有接口） | 思维导图 | MindmapRenderer（markmap-view）+ 预览/代码切换 | ✅ 已实现 |
 | `html` | 未来富展示类 MCP tool（如独立的用户画像/可视化 tool）| HTML 字符串（建议 ```html``` fence 包裹） | 可视化页面 | HtmlRenderer（iframe sandbox）| ✅ 已实现 |
 | `markdown` | 用研知识问答 + 走 MCP `text/markdown` resource_link | Markdown 纯文本 | Markdown 文档 | MarkdownRenderer（复用上游 `<Markdown>`）| ✅ 已实现 |
 | `json` | 路径 A `application/json` resource_link（非 mindmap shape）/ 路径 B 嗅探到独立 JSON | JSON 字符串 | JSON 数据 | JsonRenderer（**上游 `<Markdown>` ```json fence 获 shiki 高亮**） | ✅ 已实现 |
 | `file` | 路径 A Office / PDF / 图片 / 二进制 resource_link | 二进制 URI | 文件名 | FileFallback（"用本地应用打开"+"下载"双按钮）| ✅ 已实现 |
 
-**多卡并列规则**：同一段内容可能同时命中多条规则（典型场景：内网 mindmap MCP 返回的 JSON 既符合 plainJSON 又符合 mindmap shape），此时**两张入口卡并列**（json + mindmap），用户按需点。tab-store 按 `(uri, type)` 复合去重——同 URI 不同 type 各开一个 ResultViewer tab，互不冲突。
+**视图切换(预览/代码) — 单卡内切换,取代旧"双卡"(2026-05-30 调整)**：
+
+> **旧设计**：mindmap 出**两张入口卡**(json + mindmap),各开一个 tab。
+> **新设计**：mindmap 收敛为**单卡**(`type: "mindmap"`),打开后在 ResultViewer 顶部用「预览 / 代码」分段切换——预览=markmap 渲染,代码=原始 JSON(shiki 高亮)。同理 html(渲染↔源码)、table(表格↔markdown 源)、markdown(渲染↔md 源)。
+
+| 类型 | 预览态(默认) | 代码态 | 切换 |
+|---|---|---|---|
+| `mindmap` | markmap 思维导图 | 原始 JSON(shiki) | ✅ |
+| `html` | iframe 渲染 | HTML 源(shiki) | ✅ |
+| `table` | 样式化表格 | Markdown 源(shiki) | ✅ |
+| `markdown` | 渲染后文档 | Markdown 源(shiki) | ✅ |
+| `json` | —(JSON 本身即"代码") | shiki 高亮 JSON | ❌ 单视图 |
+| `file` | —(不在应用内预览) | —(二进制无源) | ❌ 单视图,且 ActionBar 隐藏复制/下载(交给 FileFallback) |
+
+实现:`ResultTab.viewMode: "preview" \| "source"`(缺省 preview),`tab-store.setViewMode` 更新;`isToggleType()` 判定是否出切换控件;代码态统一走 `SourceCodeView`(把内容包 ```lang fence 喂上游 `<Markdown>` 获 shiki 高亮)。切换控件在 ActionBar 行左侧,与复制/下载同排。
+
+为什么改单卡:双卡占两个 tab、入口冗余,且"同一份产物的两种视图"本就该是一个对象的两个面(业界 Claude Artifacts / ChatGPT Canvas 都是单 artifact 内 预览/代码 切换)。
 
 **两种内容来源（[ADR-011](../../adr/011-tool-result-resource-uri.md)）**：
 
@@ -245,10 +261,11 @@ opencode 将 MCP `CallToolResult.content[]` 中的 `resource_link` 项作为独�
 
 | business_type 取值 | 行为 |
 |---|---|
-| `"mindmap"` | **出双卡**:一张 `type: "json"` 走 JsonRenderer(shiki 高亮原始 JSON)+ 一张 `type: "mindmap"` 走 MindmapRenderer(markmap 渲染)。两卡共享同一 URI,在 ResultViewer 各开独立 tab,由 tab-store `(uri, type)` 复合去重保证不重复 |
-| 其他取值(如 `"key_findings"` / `"search_reports"` 等)/ 缺失 | 走第二级 mimeType 路由(单卡) |
+| `"mindmap"` | **单卡** `type: "mindmap"`(`linkToOutputType` 统一路由)。打开后用「预览 / 代码」切换看 markmap 渲染或原始 JSON(见 §1 视图切换)。~~旧:双卡(json + mindmap)~~ |
+| 其他取值(如 `"key_findings"` / `"search_reports"` 等)/ 缺失 | 走第二级 mimeType 路由 |
 
-> 第一版只有 `"mindmap"` 触发特殊渲染;其他 tool 名取值当前都按通用产物走 mimeType 路由,行为一致。
+> 路由统一走 `linkToOutputType(link)`(`business_type` 优先,mimeType 兜底),两条出卡路径(insight-turn 路径 A / index `buildOutputCardsFromTask` 任务卡)共用,避免漂移。
+> 第一版只有 `"mindmap"` 触发特殊类型;其他 tool 名取值都按通用产物走 mimeType 路由。
 > 未来如需为某个 tool 加专属渲染(如 search_reports 走 ReferenceList chip,见 [insight-references.md](insight-references.md)),在本表追加一行 + 客户端加分支。
 
 **第二级 — mimeType 路由(其他 business_type / 缺失时)**:
@@ -726,6 +743,8 @@ iframe 默认高度 0，需要显式给。三种方案：
 | **用本地应用打开** | `window.api.downloadResource(uri, tempPath)` → `window.api.openPath(tempPath)`。OS 用关联应用打开（macOS LaunchServices / win ShellExecute），通常是 Excel / WPS / Numbers / Keynote / Preview |
 | **下载到本地** | `window.api.saveFilePicker({ defaultPath: filename })` 用户选目录 → `downloadResource(uri, chosenPath)` |
 
+> **ActionBar 对 `file` 类型隐藏复制/下载**(2026-05-30):file 的 `content` 从不 fetch(二进制),ActionBar 的「复制/下载」复制不出内容、也无意义,整组隐藏;打开/下载完全交给 FileFallback 自己的双按钮。`ActionBar` 内 `showActions = tab.type !== "file"`。
+
 ### 6.A.2 为什么不用 `<a target="_blank" href={uri}>`
 
 旧实现的 bug（详见图：点击 xlsx 弹两个窗口）：
@@ -820,12 +839,11 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 主题"调试工具用户研究"，至少 3 层、8 个节点。
 ```
 
-**验收**：
+**验收**（2026-05-30 改单卡 + 视图切换）：
 - [ ] **对话区**显示 JSON 原文(opencode shiki 高亮),不再被隐藏
-- [ ] 对话气泡下方出现**两张并列入口条**:「思维导图 [预览]」+「JSON 数据 [预览]」(用户原话:"不去重,可同时打开源代码和思维导图")
-- [ ] 点「思维导图」→ ResultViewer 新 tab 显示 markmap SVG(**手绘曲线连接节点**),点节点可折叠/展开子树
-- [ ] 点「JSON 数据」→ 另一个 tab,JSON 内容用上游 Markdown shiki 高亮(不再是无高亮的 pre 块)
-- [ ] 两个 tab 共存,可在 TabBar 切换
+- [ ] 对话气泡下方出现**一张入口条**「思维导图 [预览]」(不再是双卡)
+- [ ] 点开 → ResultViewer 新 tab,**默认预览态**显示 markmap SVG(**手绘曲线连接节点**),点节点可折叠/展开子树
+- [ ] ActionBar 左侧出现「预览 / 代码」分段控件;点「代码」→ 同一 tab 内切到原始 JSON(shiki 高亮),点「预览」切回 markmap
 - [ ] ActionBar [下载 ▾] → JSON (.json) 文件能用任意文本编辑器打开
 
 #### V0-A2 内网真实 shape — `[{file, mindmaps:[...]}]`
@@ -837,9 +855,9 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 ```
 
 **验收**:
-- [ ] 双入口条出现(思维导图 + JSON)
-- [ ] 思维导图根节点是 file basename(此例为"访谈"),子节点为 mindmaps[0] 的内容
-- [ ] JSON 卡内容跟原文一致
+- [ ] 单张「思维导图」入口条出现(不再双卡)
+- [ ] 预览态:思维导图根节点是 file basename(此例为"访谈"),子节点为 mindmaps[0] 的内容
+- [ ] 切「代码」态:JSON 内容跟原文一致
 
 #### V0-B HTML 可视化 + 沙箱
 
@@ -1056,6 +1074,7 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 | **tab uri 去重（同一 URI 多入口不重复开 tab）** | 本轮（2026-05） | tab-store.ts |
 | **FileFallback 双按钮（用本地应用打开 / 下载到本地）** | 本轮（2026-05） | preload + main `download-resource` IPC（[architecture.md §5.4](../../architecture.md#54-上游接线壳改动清单)）|
 | **全链路 console 埋点（detect/tab/office/resource）** | 本轮（2026-05） | — |
+| **预览/代码 视图切换（mindmap 双卡→单卡 + html/table/markdown 加切换）+ file 隐藏复制/下载** | 2026-05-30 | tab-store `viewMode` / `linkToOutputType` / `SourceCodeView` |
 | **§9 验证步骤扩充（V0-D 反例 / V0-E office / V0-F dedupe / 模型差异栏）** | 本轮（2026-05） | mac + win 双平台手动跑 V0-E |
 
 **联调期可能的小调整**：

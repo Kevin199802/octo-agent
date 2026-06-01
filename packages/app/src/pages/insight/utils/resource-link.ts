@@ -152,7 +152,6 @@ function readPart(part: unknown, branchHits?: { A: number; B: number; C1: number
 
 /**
  * MCP mimeType → OutputCardType 路由。
- * application/json 走 "json" 占位,渲染前 ResultViewer 二次判断是否走 mindmap shape。
  */
 export function mimeToOutputType(mimeType: string): OutputCardType {
   if (mimeType === "text/html") return "html"
@@ -161,6 +160,17 @@ export function mimeToOutputType(mimeType: string): OutputCardType {
   if (mimeType === "text/csv") return "table"
   // pdf / office / image / 其他二进制走 file fallback(下载按钮 / openPath)
   return "file"
+}
+
+/**
+ * resource_link → OutputCardType 统一路由(business_type 优先,mimeType 兜底)。
+ * `business_type: "mindmap"` → 单张 mindmap 卡(打开后用 预览/代码 切换看 markmap 或原始 JSON,
+ * 见 output-renderers.md §1 视图切换);其余按 mimeType 走通用产物路由。
+ * 两条出卡路径(insight-turn 路径 A / index buildOutputCardsFromTask 任务卡)共用本函数,避免漂移。
+ */
+export function linkToOutputType(link: { business_type?: string; mimeType: string }): OutputCardType {
+  if (link.business_type === "mindmap") return "mindmap"
+  return mimeToOutputType(link.mimeType)
 }
 
 /**

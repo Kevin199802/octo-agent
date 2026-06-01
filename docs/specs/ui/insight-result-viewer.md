@@ -3,6 +3,8 @@
 > 状态：框架已实现 · 优先级 P1 · 规模 [L] · 领域 ui/insight
 >
 > 上游已实现：✓ Markdown 渲染（marked + shiki + KaTeX）；✓ HTML 表格；✗ Tab 管理；✗ 结果查看器框架
+>
+> **面板显隐规则**（按需弹出 / 收起 / 居中收起态）见 [insight-result-panel-reveal.md](insight-result-panel-reveal.md)（SPEC-INS-009）。本 spec 只负责框架内部（Tab 管理、布局、空态、ActionBar shell）。
 
 ---
 

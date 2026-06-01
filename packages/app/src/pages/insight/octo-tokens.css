@@ -366,3 +366,62 @@
   font-size: 12px;
   color: var(--octo-brand);
 }
+
+/* ── 输入胶囊内附件条:单行横向滚动(类 Claude/Gemini)──────────
+   不换行、不撑开胶囊;chip 多了横向滚动,下方 textarea 自有纵向滚动。 */
+.octo-attach-strip {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+.octo-attach-strip::-webkit-scrollbar {
+  height: 6px;
+}
+.octo-attach-strip::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 3px;
+}
+.octo-attach-strip::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── 用户气泡上方的输入文件卡片(替代暴露 S3 URL,见 file-upload spec)──
+   右对齐贴合用户气泡;卡片显示文件名 + 扩展名徽标。 */
+.octo-input-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 12px 6px;
+}
+.octo-input-attachment-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 240px;
+  padding: 8px 12px;
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: var(--octo-radius-md);
+}
+.octo-input-attachment-card__badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--octo-brand);
+  border: 1px solid var(--octo-brand-a25);
+  border-radius: 4px;
+  padding: 3px 4px;
+}
+.octo-input-attachment-card__name {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--octo-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

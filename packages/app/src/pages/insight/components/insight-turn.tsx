@@ -6,9 +6,16 @@ import { createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml } from "../icons"
 import { isMarkdownTable, isMindmapJSON, scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
-import { findResourceLinks, mimeToOutputType } from "../utils/resource-link"
+import { findResourceLinks, linkToOutputType } from "../utils/resource-link"
 import { type TaskCardEntry } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
+import { parseUploadedFiles } from "../lib/upload"
+
+/** 文件名扩展名徽标(MD / DOCX / PDF …);无扩展名回落 FILE */
+function extBadge(filename: string): string {
+  const ext = filename.split(".").pop()?.toUpperCase()
+  return ext && ext !== filename.toUpperCase() ? ext : "FILE"
+}
 
 export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html"
 
@@ -101,6 +108,18 @@ export function InsightTurn(props: {
     return (data.store.part as Record<string, { type: string; text?: string }[]>)?.[msg.id] ?? []
   })
 
+  // 用户上传的文件:从本 turn user 消息的 synthetic 上传块解析。
+  // URL 走 synthetic text part(LLM 收得到,气泡不显示),这里渲染成文件卡片替代裸 S3 地址。
+  const inputAttachments = createMemo((): Array<{ filename: string; url: string }> => {
+    const parts =
+      (data.store.part as Record<string, Array<{ type: string; text?: string; synthetic?: boolean }>>)?.[
+        props.messageID
+      ] ?? []
+    const block = parts.find((p) => p.type === "text" && p.synthetic && typeof p.text === "string")
+    if (!block?.text) return []
+    return parseUploadedFiles(block.text)
+  })
+
   // 本轮是否是最新的（最后一条）用户消息 —— 仅对最新轮次显示生成中占位
   const isLatestTurn = createMemo(() => {
     const messages = ((data.store.message as Record<string, Message[]>)?.[props.sessionID] ?? [])
@@ -128,11 +147,10 @@ export function InsightTurn(props: {
     if (props.taskCards.length > 0) return []
 
     // ── 路径 A:MCP resource_link part(强契约,零嗅探)──
-    // 路由按 business_type(MUST 必填,取值 = MCP tool 名)。第一版:
-    //   - "mindmap" → 双卡(json + mindmap),共享同 URI,由 tab-store (uri,type) 复合去重保证不重复
-    //   - 其他(key_findings / search_reports / run_*_analysis 等)→ 单卡按 mimeType 路由
-    // 未来加新 tool 时按需在此追加分支(如 search_reports 走 ReferenceList chip,见 insight-references.md)。
-    // 详见 output-renderers.md §2.5.2 + mcp-contract.md §business_type
+    // 一个 resource_link = 一张卡,类型按 linkToOutputType(business_type 优先,mimeType 兜底)。
+    //   - "mindmap" → 单张 mindmap 卡(打开后 预览/代码 切换看 markmap 或原始 JSON)
+    //   - 其他(key_findings / search_reports / run_*_analysis 等)→ 按 mimeType 路由
+    // 详见 output-renderers.md §1 视图切换 / §2.5.2 + mcp-contract.md §business_type
     const links = findResourceLinks(parts)
     if (links.length > 0) {
       console.log("[octo:card] resource_links (no task)", {
@@ -140,48 +158,17 @@ export function InsightTurn(props: {
         links: links.map((l) => ({ mime: l.mimeType, name: l.name, uri: l.uri, business_type: l.business_type })),
         msgID: props.messageID,
       })
-      const cards: OutputCard[] = []
-      links.forEach((link, idx) => {
-        if (link.business_type === "mindmap") {
-          // 双卡:json 原始 + mindmap 可视化,共享 URI
-          cards.push({
-            id: `card-${props.messageID}-${idx}-json`,
-            title: link.name || `分析结果 ${idx + 1}`,
-            type: "json",
-            source: "uri" as const,
-            uri: link.uri,
-            mimeType: link.mimeType,
-            fileName: link.name,
-            description: link.description,
-            createdAt: new Date(),
-          })
-          cards.push({
-            id: `card-${props.messageID}-${idx}-mindmap`,
-            title: link.name ? `${link.name} (思维导图)` : "思维导图",
-            type: "mindmap",
-            source: "uri" as const,
-            uri: link.uri,
-            mimeType: link.mimeType,
-            fileName: link.name,
-            description: link.description,
-            createdAt: new Date(),
-          })
-        } else {
-          // 缺省 / reference / 其他:单卡按 mime 路由(reference 未来由 ReferenceList 接管,本期暂沿用)
-          cards.push({
-            id: `card-${props.messageID}-${idx}`,
-            title: link.name || `分析结果 ${idx + 1}`,
-            type: mimeToOutputType(link.mimeType),
-            source: "uri" as const,
-            uri: link.uri,
-            mimeType: link.mimeType,
-            fileName: link.name,
-            description: link.description,
-            createdAt: new Date(),
-          })
-        }
-      })
-      return cards
+      return links.map((link, idx) => ({
+        id: `card-${props.messageID}-${idx}`,
+        title: link.name || `分析结果 ${idx + 1}`,
+        type: linkToOutputType(link),
+        source: "uri" as const,
+        uri: link.uri,
+        mimeType: link.mimeType,
+        fileName: link.name,
+        description: link.description,
+        createdAt: new Date(),
+      }))
     }
 
     // ── 路径 B:自由文本嗅探(规则收紧版,spec §2.1)──
@@ -281,6 +268,20 @@ export function InsightTurn(props: {
 
   return (
     <div class="flex flex-col mb-4">
+      {/* 用户上传的文件卡片(贴合用户气泡上方,右对齐)——替代在气泡里暴露 S3 URL */}
+      <Show when={inputAttachments().length > 0}>
+        <div class="octo-input-attachments">
+          <For each={inputAttachments()}>
+            {(f) => (
+              <div class="octo-input-attachment-card" title={f.filename}>
+                <span class="octo-input-attachment-card__badge">{extBadge(f.filename)}</span>
+                <span class="octo-input-attachment-card__name">{f.filename}</span>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+
       <SessionTurn
         sessionID={props.sessionID}
         messageID={props.messageID}
