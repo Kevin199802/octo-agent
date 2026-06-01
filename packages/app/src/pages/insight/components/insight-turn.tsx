@@ -4,7 +4,7 @@ import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { useData } from "@opencode-ai/ui/context"
 import { createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
-import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml } from "../icons"
+import { OutputEntryCard } from "./output-entry-card"
 import { isMarkdownTable, scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
 import { findResourceLinks, linkToOutputType } from "../utils/resource-link"
@@ -38,41 +38,6 @@ export type OutputCard = {
 // 详见 docs/specs/ui/output-renderers.md §2。直接在 outputCards memo 内顺序判断,
 // 不再走"按优先级取一个"的旧路径。
 
-function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
-  switch (props.type) {
-    case "table": return <IconCardTable size={16} />
-    case "mindmap": return <IconCardMindmap size={16} />
-    case "json": return <IconCardJson size={16} />
-    case "file": return <IconCardFile size={16} />
-    case "markdown": return <IconCardMarkdown size={16} />
-    case "html": return <IconCardHtml size={16} />
-  }
-}
-
-function formatTime(d: Date): string {
-  return d.toLocaleString("zh-CN", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
-/**
- * 入口卡标题文案。优先用 card.title(来自 resource_link.name / heading);
- * 缺省时按类型给默认词,贴近用户语言("可视化页面"而非"HTML")。
- */
-function previewEntryLabel(card: OutputCard): string {
-  if (card.title && card.title.length > 0 && card.title !== "分析结果") return card.title
-  switch (card.type) {
-    case "html": return "可视化页面"
-    case "mindmap": return "思维导图"
-    case "table": return "分析表格"
-    case "markdown": return "Markdown 文档"
-    case "json": return "JSON 数据"
-    case "file": return card.fileName || "文件"
-  }
-}
 
 export function InsightTurn(props: {
   sessionID: string
@@ -309,22 +274,7 @@ export function InsightTurn(props: {
           - 入口卡是"附加预览能力",不替代对话内容
           - 类型差异化文案:html 称"可视化"、mindmap 称"思维导图"、table 称"表格"等 */}
       <For each={outputCards()}>
-        {(card) => (
-          <button
-            type="button"
-            class="octo-preview-entry"
-            onClick={() => props.onOpenResult(card)}
-          >
-            <span class="octo-preview-entry__icon"><CardTypeIcon type={card.type} /></span>
-            <span class="octo-preview-entry__body">
-              <span class="octo-preview-entry__title">{previewEntryLabel(card)}</span>
-              <Show when={card.description || card.fileName}>
-                <span class="octo-preview-entry__desc">{card.description || card.fileName}</span>
-              </Show>
-            </span>
-            <span class="octo-preview-entry__action">预览 →</span>
-          </button>
-        )}
+        {(card) => <OutputEntryCard card={card} onClick={() => props.onOpenResult(card)} />}
       </For>
 
       {/* 长任务卡片(spec: docs/specs/ui/task-card.md §5) */}

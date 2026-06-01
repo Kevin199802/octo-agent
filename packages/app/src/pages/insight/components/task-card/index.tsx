@@ -2,14 +2,30 @@ import { createSignal, Show, Switch, Match } from "solid-js"
 import type { JSX } from "solid-js"
 import { type TaskCardEntry, type TaskStatus, toolDisplayName } from "../../utils/task-detect"
 import { isInCooldown, remainingSeconds, formatCooldown } from "../../utils/task-refresh"
+import {
+  IconRefresh,
+  IconStop,
+  IconEye,
+  IconChevron,
+  IconStatusProcessing,
+  IconStatusCompleted,
+  IconStatusFailed,
+} from "./icons"
 
 /**
- * 长任务卡片 — 5 态视觉 + 刷新 / 终止 / follow-up 操作
+ * 长任务卡片 — 5 态视觉(2026-06 设计稿改版)
  * spec: docs/specs/ui/task-card.md §5
+ *
+ * 设计稿决策(见 memory insight-card-redesign-decisions):
+ * - 统一白底卡面(不再按状态变背景色),仅图标/按钮带色
+ * - 过程卡副文案优先 message,缺省"请稍后点击刷新获取结果"
+ * - 完成卡简化为"共生成 N 份文件,请点击查看",保留"继续讨论"但弱化收起
+ * - 失败卡错误详情可展开
+ * - pending/stopped 设计稿未给图,先用近似(灰调)
  */
 export function TaskCardView(props: {
   card: TaskCardEntry
-  busy: boolean                                  // session busy 时禁用按钮
+  busy: boolean
   onRefresh: (taskId: string) => void
   onStop: (taskId: string) => void
   onOpenResult: (taskId: string) => void
@@ -21,11 +37,13 @@ export function TaskCardView(props: {
 
   return (
     <div
-      class="mx-3 mb-3 p-3"
+      class="mx-3 mb-3 p-4"
       style={{
-        "border-radius": "var(--octo-radius-md)",
-        border: `1px solid ${statusBorderColor(status())}`,
-        background: statusBgColor(status()),
+        "border-radius": "12px",
+        border: "1px solid rgba(0,0,0,0.1)",
+        background: "linear-gradient(90deg, rgb(245,248,255) 0%, rgb(255,255,255) 49.85%)",
+        "box-shadow": "0 1px 3px rgba(16,24,40,0.04), 0 1px 2px rgba(16,24,40,0.03)",
+        "font-family": '"HarmonyOS Sans SC", system-ui, sans-serif',
         width: "calc(100% - 1.5rem)",
       }}
       data-task-id={props.card.taskId}
@@ -57,75 +75,87 @@ export function TaskCardView(props: {
             props.onRefresh(props.card.taskId)
           }}
           onStop={() => setConfirming(true)}
-        />
-        <Body
-          card={props.card}
           onOpenResult={() => {
             console.log("[octo:task] open result click", { taskId: props.card.taskId })
             props.onOpenResult(props.card.taskId)
           }}
+        />
+        <Body
+          card={props.card}
           onFollowup={() => {
             console.log("[octo:task] followup click", { taskId: props.card.taskId })
             props.onFollowup(props.card.taskId)
           }}
         />
-      </Show>
-      <Show when={!isTerminal()}>
-        <Footer card={props.card} />
+        {/* footer:提交时间 + ID(失败态不显示,错误详情已占位) */}
+        <Show when={status() !== "failed"}>
+          <Footer card={props.card} />
+        </Show>
       </Show>
     </div>
   )
 }
 
-// ── Header(图标 + 标题 + 操作按钮) ──
+// ── Header(状态图标 + 标题 + 右侧操作按钮) ──
 function Header(props: {
   card: TaskCardEntry
   busy: boolean
   onRefresh: () => void
   onStop: () => void
+  onOpenResult: () => void
 }): JSX.Element {
   const status = () => props.card.status
-  const isTerminal = () => status() === "completed" || status() === "failed" || status() === "stopped"
+  const inProgress = () => status() === "pending" || status() === "processing"
 
   return (
-    <div class="flex items-center gap-2 mb-1.5">
-      <span class="text-base flex-shrink-0">{statusIcon(status())}</span>
-      <div class="flex flex-col min-w-0 flex-1">
-        <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>
-          {toolDisplayName(props.card.toolName)}
-          <span class="text-xs ml-2" style={{ color: "var(--octo-text-secondary)" }}>
-            {statusLabel(status())}
-          </span>
-        </span>
-        <span class="text-xs truncate mt-0.5" style={{ color: "var(--octo-text-secondary)" }}>
-          ID: {shortId(props.card.taskId)}
-        </span>
-      </div>
-      <Show when={!isTerminal()}>
-        <div class="flex items-center gap-1 flex-shrink-0">
-          <RefreshButton
-            taskId={props.card.taskId}
-            busy={props.busy}
-            onClick={props.onRefresh}
-          />
+    <div class="flex items-center gap-2.5">
+      <StatusIcon status={status()} />
+      <span class="text-sm font-medium flex-1 min-w-0 truncate" style={{ color: "var(--octo-text-strong)" }}>
+        {statusLabel(status())}
+      </span>
+
+      {/* 进行中:刷新 + 终止 */}
+      <Show when={inProgress()}>
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <RefreshButton taskId={props.card.taskId} busy={props.busy} onClick={props.onRefresh} />
           <button
             type="button"
             onClick={props.onStop}
             disabled={props.busy}
-            class="px-2 py-1 text-xs rounded disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-secondary)" }}
+            class="flex items-center justify-center gap-1.5 h-7 rounded-[6px] text-[13px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+            style={{
+              "min-width": "74px",
+              padding: "0 12px",
+              border: "1px solid rgba(0,0,0,0.15)",
+              color: "var(--octo-text-secondary)",
+              background: "var(--octo-surface-page)",
+            }}
             title={props.busy ? "请等待当前任务完成后再操作" : "终止任务"}
           >
-            ⏹ 终止
+            <IconStop size={13} />
+            终止
           </button>
         </div>
+      </Show>
+
+      {/* 完成:查看结果 */}
+      <Show when={status() === "completed"}>
+        <button
+          type="button"
+          onClick={props.onOpenResult}
+          class="flex items-center justify-center gap-1.5 h-7 rounded-[6px] text-[13px] font-medium flex-shrink-0 transition-colors"
+          style={{ "min-width": "102px", padding: "0 14px", background: "var(--octo-brand)", color: "#FFFFFF" }}
+        >
+          <IconEye size={15} />
+          查看结果
+        </button>
       </Show>
     </div>
   )
 }
 
 function RefreshButton(props: { taskId: string; busy: boolean; onClick: () => void }): JSX.Element {
-  // remainingSeconds 是 reactive(订阅 task-refresh now signal)
+  // remainingSeconds 反应式(订阅 task-refresh now signal)
   const remaining = () => remainingSeconds(props.taskId)
   const cooling = () => remaining() > 0
   const disabled = () => props.busy || cooling()
@@ -135,119 +165,102 @@ function RefreshButton(props: { taskId: string; busy: boolean; onClick: () => vo
       type="button"
       onClick={props.onClick}
       disabled={disabled()}
-      class="px-2 py-1 text-xs rounded disabled:opacity-40 disabled:cursor-not-allowed"
+      class="flex items-center justify-center gap-1.5 h-7 rounded-[6px] text-[13px] font-medium transition-colors disabled:cursor-not-allowed flex-shrink-0"
       style={{
-        border: "1px solid var(--octo-border-default)",
-        color: cooling() ? "var(--octo-text-secondary)" : "var(--octo-brand)",
+        "min-width": "74px",
+        padding: "0 12px",
+        background: cooling() ? "var(--octo-brand-subtle)" : "var(--octo-brand)",
+        color: cooling() ? "var(--octo-brand)" : "#FFFFFF",
+        opacity: props.busy ? 0.5 : 1,
       }}
-      title={
-        props.busy
-          ? "请等待当前任务完成后再操作"
-          : cooling()
-            ? "请稍后再试"
-            : "查询任务进度"
-      }
+      title={props.busy ? "请等待当前任务完成后再操作" : cooling() ? "3 分钟内只能刷新一次" : "查询任务进度"}
     >
-      <Show when={cooling()} fallback={<>↻ 刷新</>}>
-        ↻ {formatCooldown(remaining())}
+      <IconRefresh size={14} />
+      <Show when={cooling()} fallback={<>刷新</>}>
+        {formatCooldown(remaining())}
       </Show>
     </button>
   )
 }
 
-// ── Body(状态消息 / completed 摘要 + 操作) ──
-function Body(props: {
-  card: TaskCardEntry
-  onOpenResult: () => void
-  onFollowup: () => void
-}): JSX.Element {
+// ── Body(副文案 / 完成提示 / 失败可展开) ──
+function Body(props: { card: TaskCardEntry; onFollowup: () => void }): JSX.Element {
+  const [expanded, setExpanded] = createSignal(false)
+
   return (
-    <Switch>
-      <Match when={props.card.status === "pending" || props.card.status === "processing"}>
-        <div class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>
-          {props.card.message ?? (props.card.status === "pending" ? "排队中…" : "分析进行中…")}
-        </div>
-      </Match>
-      <Match when={props.card.status === "completed"}>
-        <div class="flex flex-col gap-2">
-          <Show when={props.card.resultText}>
-            <div
-              class="text-xs leading-relaxed"
-              style={{ color: "var(--octo-text-primary)", "white-space": "pre-wrap" }}
-            >
-              {truncate(props.card.resultText!, 200)}
-            </div>
-          </Show>
-          {/* 多文件时列出每个文件名,让用户一眼看到产出 */}
-          <Show when={props.card.resourceLinks.length > 1}>
-            <ul class="flex flex-col gap-0.5 mt-1 mb-0.5 pl-3">
-              {props.card.resourceLinks.map((link) => (
-                <li
-                  class="text-xs leading-tight"
-                  style={{ color: "var(--octo-text-secondary)" }}
-                >
-                  • {link.name || link.uri}
-                  <Show when={link.description}>
-                    <span style={{ color: "var(--octo-text-disabled)" }}> — {link.description}</span>
-                  </Show>
-                </li>
-              ))}
-            </ul>
-          </Show>
-          <div class="flex items-center gap-2 mt-1">
-            <button
-              type="button"
-              onClick={props.onOpenResult}
-              class="px-3 py-1 text-xs rounded"
-              style={{
-                border: "1px solid var(--octo-brand)",
-                color: "var(--octo-brand)",
-                background: "var(--octo-surface-page)",
-              }}
-            >
-              <Show
-                when={props.card.resourceLinks.length > 1}
-                fallback={<>📄 查看完整结果 →</>}
-              >
-                📄 查看完整结果({props.card.resourceLinks.length} 份)→
-              </Show>
-            </button>
-            <button
-              type="button"
-              onClick={props.onFollowup}
-              class="px-3 py-1 text-xs rounded"
-              style={{
-                border: "1px solid var(--octo-border-default)",
-                color: "var(--octo-text-secondary)",
-              }}
-            >
-              💬 在对话里继续讨论
-            </button>
+    <div class="mt-2.5">
+      <Switch>
+        <Match when={props.card.status === "pending" || props.card.status === "processing"}>
+          <div class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>
+            {props.card.message ?? "请稍后点击刷新获取结果"}
           </div>
-        </div>
-      </Match>
-      <Match when={props.card.status === "failed"}>
-        <div class="text-xs" style={{ color: "var(--octo-danger)" }}>
-          {props.card.message ?? "分析失败"}
-        </div>
-      </Match>
-      <Match when={props.card.status === "stopped"}>
-        <div class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>
-          任务已被终止
-        </div>
-      </Match>
-    </Switch>
+        </Match>
+
+        <Match when={props.card.status === "completed"}>
+          <div class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>
+            {completedSummary(props.card.resourceLinks.length)}
+          </div>
+          {/* "继续讨论":保留但弱化收起(设计稿主入口只有"查看结果") */}
+          <button
+            type="button"
+            onClick={props.onFollowup}
+            class="mt-2 text-[12px] transition-colors"
+            style={{ color: "var(--octo-text-disabled)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--octo-brand)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--octo-text-disabled)")}
+          >
+            在对话里继续讨论 →
+          </button>
+        </Match>
+
+        <Match when={props.card.status === "failed"}>
+          <div class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>
+            请稍后重启客户端并重试
+          </div>
+          <Show when={props.card.message}>
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              class="mt-1.5 flex items-center gap-1 text-[12px] w-full text-left"
+              style={{ color: "var(--octo-text-disabled)" }}
+            >
+              <span class="flex-1 min-w-0 truncate">{firstLine(props.card.message!)}</span>
+              <IconChevron size={13} open={expanded()} />
+            </button>
+            <Show when={expanded()}>
+              <pre
+                class="mt-1.5 p-2.5 text-[12px] whitespace-pre-wrap break-all"
+                style={{
+                  color: "var(--octo-danger)",
+                  background: "var(--octo-danger-subtle)",
+                  "border-radius": "var(--octo-radius-md)",
+                  "font-family": "var(--octo-font-mono, ui-monospace, monospace)",
+                }}
+              >
+                {props.card.message}
+              </pre>
+            </Show>
+          </Show>
+        </Match>
+
+        <Match when={props.card.status === "stopped"}>
+          <div class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>
+            任务已被终止
+          </div>
+        </Match>
+      </Switch>
+    </div>
   )
 }
 
-// ── Footer(进行中:提交时间 + 最近更新) ──
+// ── Footer(提交时间 + ID,两端对齐) ──
 function Footer(props: { card: TaskCardEntry }): JSX.Element {
   return (
-    <div class="text-[11px] mt-2 pt-2" style={{ color: "var(--octo-text-disabled)", "border-top": "1px solid var(--octo-border-divider)" }}>
-      提交于 {formatTime(props.card.submittedAt)}
-      <Show when={props.card.lastUpdatedAt.getTime() !== props.card.submittedAt.getTime()}>
-        <> · 更新于 {formatTime(props.card.lastUpdatedAt)}</>
-      </Show>
+    <div class="flex items-center justify-between gap-3 mt-3 text-[12px]" style={{ color: "var(--octo-text-disabled)" }}>
+      <span class="truncate">提交时间: {formatFullTime(props.card.submittedAt)}</span>
+      <span class="truncate flex-shrink-0" title={props.card.taskId}>
+        ID: {props.card.taskId}
+      </span>
     </div>
   )
 }
@@ -255,15 +268,15 @@ function Footer(props: { card: TaskCardEntry }): JSX.Element {
 // ── 行内二次确认(终止) ──
 function StopConfirmRow(props: { onCancel: () => void; onConfirm: () => void }): JSX.Element {
   return (
-    <div class="flex flex-col gap-2">
-      <div class="text-xs" style={{ color: "var(--octo-text-primary)" }}>
+    <div class="flex flex-col gap-2.5">
+      <div class="text-[13px]" style={{ color: "var(--octo-text-primary)" }}>
         ⚠️ 确定终止该任务?已耗费的服务端资源不可恢复。
       </div>
       <div class="flex items-center gap-2">
         <button
           type="button"
           onClick={props.onCancel}
-          class="px-3 py-1 text-xs rounded"
+          class="px-3.5 h-8 text-[13px] rounded-lg"
           style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-secondary)" }}
         >
           取消
@@ -271,12 +284,8 @@ function StopConfirmRow(props: { onCancel: () => void; onConfirm: () => void }):
         <button
           type="button"
           onClick={props.onConfirm}
-          class="px-3 py-1 text-xs rounded"
-          style={{
-            border: "1px solid var(--octo-danger)",
-            color: "#FFFFFF",
-            background: "var(--octo-danger)",
-          }}
+          class="px-3.5 h-8 text-[13px] rounded-lg font-medium"
+          style={{ color: "#FFFFFF", background: "var(--octo-danger)" }}
         >
           确定终止
         </button>
@@ -285,61 +294,62 @@ function StopConfirmRow(props: { onCancel: () => void; onConfirm: () => void }):
   )
 }
 
-// ── 视觉态映射 ────────────────────────────────────
-
-function statusIcon(s: TaskStatus): string {
-  switch (s) {
-    case "pending": return "⏸"
-    case "processing": return "⏳"
-    case "completed": return "✓"
-    case "failed": return "⚠"
-    case "stopped": return "⏹"
-  }
+// ── 状态图标 ──
+function StatusIcon(props: { status: TaskStatus }): JSX.Element {
+  return (
+    <Switch>
+      <Match when={props.status === "processing"}>
+        <IconStatusProcessing size={20} />
+      </Match>
+      <Match when={props.status === "pending"}>
+        <span style={{ color: "var(--octo-text-disabled)" }} class="flex-shrink-0 flex">
+          <IconRefresh size={18} />
+        </span>
+      </Match>
+      <Match when={props.status === "completed"}>
+        <IconStatusCompleted size={20} />
+      </Match>
+      <Match when={props.status === "failed"}>
+        <IconStatusFailed size={20} />
+      </Match>
+      <Match when={props.status === "stopped"}>
+        <span style={{ color: "var(--octo-text-disabled)" }} class="flex-shrink-0 flex">
+          <IconStop size={18} />
+        </span>
+      </Match>
+    </Switch>
+  )
 }
+
+// ── 文案辅助 ──
 
 function statusLabel(s: TaskStatus): string {
   switch (s) {
-    case "pending": return "排队中"
-    case "processing": return "进行中"
-    case "completed": return "已完成"
-    case "failed": return "失败"
-    case "stopped": return "已终止"
+    case "pending": return "任务排队中"
+    case "processing": return "任务进行中"
+    case "completed": return "任务完成"
+    case "failed": return "任务失败"
+    case "stopped": return "任务已终止"
   }
 }
 
-function statusBgColor(s: TaskStatus): string {
-  switch (s) {
-    case "pending":
-    case "processing": return "var(--octo-brand-a3)"
-    case "completed": return "var(--octo-success-subtle)"
-    case "failed": return "var(--octo-danger-subtle)"
-    case "stopped": return "var(--octo-surface-hover)"
-  }
+function completedSummary(fileCount: number): string {
+  if (fileCount <= 0) return "分析已完成,请点击查看"
+  return `共生成${cnNum(fileCount)}份文件,请点击查看`
 }
 
-function statusBorderColor(s: TaskStatus): string {
-  switch (s) {
-    case "pending":
-    case "processing": return "var(--octo-brand-a25)"
-    case "completed": return "var(--octo-success)"
-    case "failed": return "var(--octo-danger)"
-    case "stopped": return "var(--octo-border-default)"
-  }
+/** 量词前小数字中文化(2 用"两");超出范围回落阿拉伯数字 */
+function cnNum(n: number): string {
+  const map = ["零", "一", "两", "三", "四", "五", "六", "七", "八", "九", "十"]
+  return map[n] ?? String(n)
 }
 
-function shortId(taskId: string): string {
-  return taskId.length > 12 ? `${taskId.slice(0, 8)}…` : taskId
+function firstLine(text: string): string {
+  const idx = text.indexOf("\n")
+  return idx === -1 ? text : text.slice(0, idx)
 }
 
-function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text
-}
-
-function formatTime(d: Date): string {
-  return d.toLocaleString("zh-CN", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+function formatFullTime(d: Date): string {
+  const p = (n: number) => n.toString().padStart(2, "0")
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }

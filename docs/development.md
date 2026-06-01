@@ -233,7 +233,119 @@ bun run --cwd packages/desktop-electron package:mac
 
 ---
 
-## 8. 进一步阅读
+## 8. 样式开发指南（dev-only 调试页）
+
+### 背景
+
+Octo Insight 的页面依赖 MCP 工具调用才能产生真实数据（任务卡片、文件结果卡片等）。  
+**本地开发时 MCP 不通，所以看不到任何卡片**；代码要部署到内网后才能跑完整流程。
+
+为了让样式在本地也能调试，我们引入 `/_dev/*` 路由作为"样式沙箱"：用 mock 数据渲染真实组件，纯本地，不连 SDK / Sync。
+
+> **重要**：dev-only 页与真实对话共用同一组件源文件（不是副本），所以 dev 页上改好的样式，内网流程中自动生效。
+
+---
+
+### 8.1 启动本地样式调试服务器
+
+```bash
+bun --cwd packages/app dev
+# 期望: VITE ready, Local: http://localhost:3000/
+```
+
+用浏览器打开即可，无需 Electron 环境，HMR 实时生效。
+
+> 注意区别：
+> | 服务 | 端口 | 依赖 | 用途 |
+> |---|---|---|---|
+> | `packages/app` web dev | **3000** | 无（纯前端） | 样式 / 组件开发 |
+> | Electron renderer (vite) | **5175** | Electron 主进程 + `window.api` | 完整 Electron 调试 |
+>
+> `localhost:5175` 在浏览器直接开会黑屏（缺少 Electron 预注入的 `window.api`），样式调试务必用 3000。
+
+---
+
+### 8.2 现有 dev-only 页
+
+| 路由 | 内容 | 源文件 |
+|---|---|---|
+| `/_dev/insight-cards` | 任务卡片（5 态）+ 文件结果卡片（6 类） | `packages/app/src/pages/insight/_dev/cards-preview.tsx` |
+
+---
+
+### 8.3 如何为新 UI 增加 dev-only 预览
+
+以"明天要做任务面板顶部 Tab 切换"为例，步骤如下：
+
+#### 第一步：新建预览页文件
+
+```
+packages/app/src/pages/insight/_dev/panel-tabs-preview.tsx
+```
+
+```tsx
+import "../octo-tokens.css"
+// 直接 import 要调试的真实组件
+import { TaskPanelTabs } from "../components/task-panel-tabs"
+
+export default function PanelTabsPreviewPage() {
+  return (
+    <div style={{ padding: "32px", background: "#f5f6f8", "min-height": "100vh" }}>
+      <h2 style={{ "font-size": "16px", "margin-bottom": "16px" }}>任务面板 Tab — dev preview</h2>
+      {/* mock 不同 tab 状态 */}
+      <TaskPanelTabs activeTab="tasks" tabs={["tasks", "results"]} onChange={() => {}} />
+      <TaskPanelTabs activeTab="results" tabs={["tasks", "results"]} onChange={() => {}} />
+    </div>
+  )
+}
+```
+
+规则：
+- **只 import 真实组件**，不另起新组件写样式
+- mock 数据写在文件内，不引外部状态
+- 用 `Frame` / `Section` 等 `_dev/cards-preview.tsx` 里已有的布局辅助组件（直接 copy 或抽共用）
+
+#### 第二步：在 `app.tsx` 注册路由（限改）
+
+`packages/app/src/app.tsx` 是"限改"文件，仅允许加 `/_dev/*` 路由。
+
+```tsx
+// 顶部 lazy import
+const PanelTabsPreviewPage = lazy(() => import("@/pages/insight/_dev/panel-tabs-preview"))
+
+// isOctoPage() 里确认已有 p.startsWith("/_dev/") 条件（已有，无需再改）
+
+// <Route> 列表里加一行
+<Route path="/_dev/panel-tabs" component={PanelTabsPreviewPage} />
+```
+
+#### 第三步：本地看效果
+
+浏览器打开 `http://localhost:3000/_dev/panel-tabs`，直接对照设计稿调样式，HMR 实时刷新。
+
+---
+
+### 8.4 内网验证（不可跳过）
+
+dev-only 页用 mock 数据，**不能替代内网的真实数据验证**。以下场景必须到内网走真实流程确认：
+
+| 验证点 | 原因 |
+|---|---|
+| 卡片在对话流中的位置 / 间距 | mock 页没有消息气泡上下文 |
+| 滚动行为 / 虚拟列表裁切 | mock 数量少，真实场景可能有几十条 |
+| 任务卡片状态流转动画 | mock 状态是静态的，真实流程有 pending → processing → completed 切换 |
+| 文件卡点击后 ResultViewer 联动 | dev 页点击只 `console.log`，右侧面板不打开 |
+
+内网验证流程：
+
+1. 推代码 → 内网拉分支
+2. `bun run --cwd packages/desktop-electron dev` 启动完整 Electron
+3. 在 Insight 对话里触发对应 MCP 工具（如 `key_findings`、`run_guide_analysis`）
+4. 对照设计稿确认真实卡片渲染
+
+---
+
+## 9. 进一步阅读
 
 - [架构总览](architecture.md)
 - [opencode 后端原理(深度)](learning/opencode-internals.md)

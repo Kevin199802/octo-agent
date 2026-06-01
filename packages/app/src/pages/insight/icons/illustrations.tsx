@@ -2,6 +2,7 @@ import type { JSX } from "solid-js"
 import insightEmptyUrl from "./IllustrationInsightEmpty.svg?url"
 import resultEmptyUrl from "./IllustrationResultEmpty.svg?url"
 import iconSendBlueUrl from "./IconSend.svg?url"
+import iconStopBlueUrl from "./IconStopBlue.svg?url"
 
 type IllustrationProps = { width?: number; height?: number; class?: string }
 
@@ -19,24 +20,17 @@ export function IconSendBlue(props: IllustrationProps): JSX.Element {
   )
 }
 
-/**
- * 停止按钮图标：蓝色圆 + 白色圆角方块（⏹）。
- * 圆直径 25 / 画布 40 ≈ 62.5%，与 IconSendBlue（圆 32 / 画布 51.5）留白比例一致。
- */
+/** 停止按钮图标：蓝色渐变圆 + 白色方块（设计稿成品 SVG）。*/
 export function IconStopBlue(props: IllustrationProps): JSX.Element {
   return (
-    <svg
+    <img
+      src={iconStopBlueUrl}
       width={props.width ?? 40}
       height={props.height ?? 40}
-      viewBox="0 0 40 40"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
+      alt=""
       aria-hidden="true"
       class={props.class}
-    >
-      <circle cx="20" cy="16" r="12.5" fill="#0067D1" />
-      <rect x="15.5" y="11.5" width="9" height="9" rx="1.5" fill="white" />
-    </svg>
+    />
   )
 }
 
