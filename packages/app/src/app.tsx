@@ -319,7 +319,10 @@ export function AppInterface(props: {
               >
                 <Route path="/" component={() => <Navigate href="/insight" />} />
                 <Route path="/insight/:id?" component={InsightPage} />
-                <Route path="/_dev/insight-cards" component={InsightCardsDevPage} />
+                {/* /_dev/* — 样式沙箱路由，仅 DEV 构建可访问。
+                    shell 隔离：走 OctoShell（无侧边栏），不进原生 AppShellProviders。
+                    新增 dev 页：仿照 InsightCardsDevPage，加 import.meta.env.DEV 守卫。 */}
+                {import.meta.env.DEV && <Route path="/_dev/insight-cards" component={InsightCardsDevPage} />}
                 <Route path="/chat" component={ChatPage} />
                 <Route path="/studio" component={StudioPage} />
                 <Route path="/:dir" component={DirectoryLayout}>

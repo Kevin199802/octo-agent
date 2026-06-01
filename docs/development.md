@@ -275,12 +275,15 @@ bun --cwd packages/app dev
 
 ### 8.3 如何为新 UI 增加 dev-only 预览
 
-以"明天要做任务面板顶部 Tab 切换"为例，步骤如下：
+以"明天要做任务面板顶部 Tab 切换"为例，步骤如下。
+
+> **注意**：下面的 `panel-tabs` / `panel-tabs-preview.tsx` 均为**示例名称**，不是已存在的路由。
+> 现有真实 dev 页见 §8.2。
 
 #### 第一步：新建预览页文件
 
 ```
-packages/app/src/pages/insight/_dev/panel-tabs-preview.tsx
+packages/app/src/pages/insight/_dev/panel-tabs-preview.tsx   ← 示例文件名，按实际组件命名
 ```
 
 ```tsx
@@ -315,13 +318,13 @@ const PanelTabsPreviewPage = lazy(() => import("@/pages/insight/_dev/panel-tabs-
 
 // isOctoPage() 里确认已有 p.startsWith("/_dev/") 条件（已有，无需再改）
 
-// <Route> 列表里加一行
-<Route path="/_dev/panel-tabs" component={PanelTabsPreviewPage} />
+// <Route> 列表里加一行（必须加 import.meta.env.DEV 守卫，避免进入生产包）
+{import.meta.env.DEV && <Route path="/_dev/panel-tabs" component={PanelTabsPreviewPage} />}
 ```
 
 #### 第三步：本地看效果
 
-浏览器打开 `http://localhost:3000/_dev/panel-tabs`，直接对照设计稿调样式，HMR 实时刷新。
+浏览器打开 `http://localhost:3000/_dev/panel-tabs`（示例路径，按实际替换），直接对照设计稿调样式，HMR 实时刷新。
 
 ---
 
