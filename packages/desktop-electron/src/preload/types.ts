@@ -57,8 +57,15 @@ export type ElectronAPI = {
   openLink: (url: string) => void
   openPath: (path: string, app?: string) => Promise<void>
   /**
+   * 在系统文件管理器(Finder / Explorer)中定位文件,选中并显示。
+   * 用途:Insight FileFallback「在文件夹中打开」按钮,让用户找到本地副本所在目录
+   * (例如点过「用本地应用打开」后在 Excel 里改了文件,需要定位以便手动 cp / 另存)。
+   * fire-and-forget,失败时主进程内部静默(shell.showItemInFolder 无返回值)。
+   */
+  showItemInFolder: (path: string) => void
+  /**
    * 下载远程 URL 到本地指定路径。主进程实现:node fetch → fs.writeFile,自动 mkdir -p。
-   * 用途:配合 saveFilePicker 的「下载到本地」按钮(用户已选具体路径)。
+   * 用途:配合 saveFilePicker 的「另存为」按钮(用户已选具体路径)。
    * 详见 docs/specs/ui/output-renderers.md §6.A + ADR-009。
    */
   downloadResource: (url: string, destPath: string) => Promise<void>
