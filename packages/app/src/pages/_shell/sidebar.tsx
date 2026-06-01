@@ -1,5 +1,5 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import { createResource, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -73,6 +73,54 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const [insightCollapsed, setInsightCollapsed] = createSignal(false)
   const [activeNav, setActiveNav] = createSignal<string | null>(null)
 
+  // ── 右键上下文菜单 ──────────────────────────────────────────
+  const [contextMenu, setContextMenu] = createSignal<{ id: string; x: number; y: number } | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null)
+  const [renamingId, setRenamingId] = createSignal<string | null>(null)
+  const [renameDraft, setRenameDraft] = createSignal("")
+
+  // Esc 关菜单
+  createEffect(() => {
+    if (!contextMenu()) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeContextMenu() }
+    document.addEventListener("keydown", onKey)
+    onCleanup(() => document.removeEventListener("keydown", onKey))
+  })
+
+  function closeContextMenu() {
+    setContextMenu(null)
+    setConfirmDeleteId(null)
+  }
+
+  function openRename(sessionId: string) {
+    closeContextMenu()
+    const session = sessions()?.find((s) => s.id === sessionId)
+    const raw = session?.title ?? ""
+    setRenameDraft(/^New session/.test(raw) ? "" : raw)
+    setRenamingId(sessionId)
+  }
+
+  async function handleRenameConfirm(sessionId: string) {
+    const next = renameDraft().trim()
+    setRenamingId(null)
+    if (!next) return
+    try {
+      await globalSDK.client.session.update({ sessionID: sessionId, title: next })
+    } catch (err) {
+      console.error("[sidebar] rename failed", err)
+    }
+  }
+
+  async function handleDelete(sessionId: string) {
+    closeContextMenu()
+    try {
+      await globalSDK.client.session.delete({ sessionID: sessionId })
+      if (activeSessionId() === sessionId) navigate("/insight")
+    } catch (err) {
+      console.error("[sidebar] delete failed", err)
+    }
+  }
+
   function newSession() {
     navigate("/insight")
   }
@@ -145,47 +193,85 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                       const isActive = () => activeSessionId() === session.id
                       const pending = () => isTitlePending(session.title)
                       return (
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/insight/${session.id}`)}
-                          classList={{
-                            "w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center relative": true,
-                          }}
-                          style={{
-                            height: "32px",
-                            background: isActive() ? "var(--octo-surface-selected, #EFF6FF)" : "transparent",
-                            color: isActive() ? "var(--octo-brand, #0067D1)" : "var(--octo-text-primary, #191919)",
-                            "font-weight": isActive() ? "500" : "400",
-                          }}
-                          onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
-                          onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.background = "transparent" }}
+                        <Show
+                          when={renamingId() === session.id}
+                          fallback={
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/insight/${session.id}`)}
+                              onContextMenu={(e) => {
+                                e.preventDefault()
+                                setConfirmDeleteId(null)
+                                setContextMenu({ id: session.id, x: e.clientX, y: e.clientY })
+                              }}
+                              classList={{
+                                "w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center relative": true,
+                              }}
+                              style={{
+                                height: "32px",
+                                background: isActive() ? "var(--octo-surface-selected, #EFF6FF)" : "transparent",
+                                color: isActive() ? "var(--octo-brand, #0067D1)" : "var(--octo-text-primary, #191919)",
+                                "font-weight": isActive() ? "500" : "400",
+                              }}
+                              onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
+                              onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.background = "transparent" }}
+                            >
+                              <Show when={isActive()}>
+                                <span
+                                  class="absolute left-0 top-1/2 rounded-r-[3px]"
+                                  style={{
+                                    height: "16px",
+                                    width: "3px",
+                                    background: "var(--octo-brand, #0067D1)",
+                                    transform: "translateY(-50%)",
+                                  }}
+                                />
+                              </Show>
+                              <Show
+                                when={pending()}
+                                fallback={<span class="truncate block w-full">{session.title || "无标题"}</span>}
+                              >
+                                {/* 标题生成中：骨架动效 */}
+                                <span
+                                  class="inline-block rounded-[3px] animate-pulse"
+                                  style={{
+                                    width: "72px",
+                                    height: "10px",
+                                    background: isActive() ? "var(--octo-brand-a20, rgba(0,103,209,0.2))" : "rgba(0,0,0,0.1)",
+                                  }}
+                                />
+                              </Show>
+                            </button>
+                          }
                         >
-                          <Show when={isActive()}>
-                            <span
-                              class="absolute left-0 top-1/2 rounded-r-[3px]"
-                              style={{
-                                height: "16px",
-                                width: "3px",
-                                background: "var(--octo-brand, #0067D1)",
-                                transform: "translateY(-50%)",
-                              }}
-                            />
-                          </Show>
-                          <Show
-                            when={pending()}
-                            fallback={<span class="truncate block w-full">{session.title || "无标题"}</span>}
+                          {/* 内联重命名输入框 */}
+                          <div
+                            class="w-full px-[8px] rounded-[4px] flex items-center"
+                            style={{
+                              height: "32px",
+                              background: "var(--octo-surface-selected, #EFF6FF)",
+                            }}
                           >
-                            {/* 标题生成中：骨架动效 */}
-                            <span
-                              class="inline-block rounded-[3px] animate-pulse"
+                            <input
+                              type="text"
+                              value={renameDraft()}
+                              onInput={(e) => setRenameDraft(e.currentTarget.value)}
+                              onKeyDown={(e) => {
+                                e.stopPropagation()
+                                if (e.key === "Enter") { e.preventDefault(); void handleRenameConfirm(session.id) }
+                                if (e.key === "Escape") { e.preventDefault(); setRenamingId(null) }
+                              }}
+                              onBlur={() => void handleRenameConfirm(session.id)}
+                              ref={(el) => requestAnimationFrame(() => { el.focus(); el.select() })}
+                              class="w-full bg-transparent text-[12px] outline-none"
                               style={{
-                                width: "72px",
-                                height: "10px",
-                                background: isActive() ? "var(--octo-brand-a20, rgba(0,103,209,0.2))" : "rgba(0,0,0,0.1)",
+                                color: "var(--octo-brand, #0067D1)",
+                                "font-weight": "500",
+                                border: "none",
                               }}
                             />
-                          </Show>
-                        </button>
+                          </div>
+                        </Show>
                       )
                     }}
                   </For>
@@ -291,6 +377,92 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
           <span class="text-[14px] leading-[22px]">设置</span>
         </button>
       </div>
+
+      {/* ── 右键上下文菜单 ───────────────────────────────────── */}
+      <Show when={contextMenu()}>
+        {(menu) => (
+          <>
+            {/* 全屏透明遮罩，点击关闭菜单 */}
+            <div
+              style={{ position: "fixed", inset: "0", "z-index": "9998" }}
+              onClick={closeContextMenu}
+              onContextMenu={(e) => { e.preventDefault(); closeContextMenu() }}
+            />
+            <div
+              style={{
+                position: "fixed",
+                top: `${menu().y}px`,
+                left: `${menu().x}px`,
+                "z-index": "9999",
+                background: "var(--octo-surface-page, #fff)",
+                border: "1px solid var(--octo-border-default, #E5E7EB)",
+                "border-radius": "6px",
+                "box-shadow": "0 4px 16px rgba(0,0,0,0.10)",
+                padding: "4px",
+                "min-width": "128px",
+              }}
+            >
+              <Show
+                when={confirmDeleteId() === menu().id}
+                fallback={
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openRename(menu().id)}
+                      class="w-full text-left px-[10px] py-[6px] text-[12px] rounded-[4px] transition-colors"
+                      style={{ color: "var(--octo-text-primary, #191919)" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "" }}
+                    >
+                      重命名
+                    </button>
+                    <div style={{ height: "1px", background: "var(--octo-border-default, #E5E7EB)", margin: "2px 0" }} />
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(menu().id)}
+                      class="w-full text-left px-[10px] py-[6px] text-[12px] rounded-[4px] transition-colors"
+                      style={{ color: "var(--octo-danger, #DC2626)" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(220,38,38,0.06)" }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "" }}
+                    >
+                      删除
+                    </button>
+                  </>
+                }
+              >
+                {/* 二次确认态 */}
+                <div class="px-[10px] py-[6px] text-[12px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
+                  确认删除？
+                </div>
+                <div class="flex gap-[4px] px-[6px] pb-[4px]">
+                  <button
+                    type="button"
+                    onClick={() => void handleDelete(menu().id)}
+                    class="flex-1 px-[8px] py-[4px] text-[12px] rounded-[4px] transition-colors"
+                    style={{
+                      background: "var(--octo-danger, #DC2626)",
+                      color: "#fff",
+                    }}
+                  >
+                    删除
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeContextMenu}
+                    class="flex-1 px-[8px] py-[4px] text-[12px] rounded-[4px] transition-colors"
+                    style={{
+                      background: "var(--octo-surface-hover, #F5F5F5)",
+                      color: "var(--octo-text-primary, #191919)",
+                    }}
+                  >
+                    取消
+                  </button>
+                </div>
+              </Show>
+            </div>
+          </>
+        )}
+      </Show>
     </div>
   )
 }
