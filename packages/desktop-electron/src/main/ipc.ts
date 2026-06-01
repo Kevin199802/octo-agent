@@ -139,6 +139,12 @@ export function registerIpcHandlers(deps: Deps) {
     })
   })
 
+  // 在系统文件管理器(Finder / Explorer)中定位文件,常用于 Insight FileFallback
+  // "在文件夹中打开":让用户看到刚才本地应用打开 / 修改过的临时副本所在目录。
+  ipcMain.on("show-item-in-folder", (_event: IpcMainEvent, path: string) => {
+    shell.showItemInFolder(path)
+  })
+
   // Octo Insight FileFallback: 下载远程 resource_link 到本地落地点。通用底层能力(任意 URL → 任意路径)。
   // mkdir -p 兼容多级目录。详见 docs/specs/ui/output-renderers.md §6.A、ADR-009、architecture.md §5.4。
   ipcMain.handle("download-resource", async (_event: IpcMainInvokeEvent, url: string, destPath: string) => {

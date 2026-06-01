@@ -7,6 +7,7 @@
 export type DesktopApi = {
   setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
   openPath?: (path: string, app?: string) => Promise<unknown>
+  showItemInFolder?: (path: string) => void
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   downloadResource?: (url: string, destPath: string) => Promise<void>
   downloadResourceToTemp?: (url: string, namespace: string, filename: string) => Promise<string>

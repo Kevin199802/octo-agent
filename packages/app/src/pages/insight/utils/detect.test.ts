@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { isMarkdownTable, isMindmapJSON, isHTML, stripCodeFence, scanFencedHtml } from "./detect"
-import { uxrJsonToMarkdown } from "./mindmap-adapter"
+import { isMarkdownTable, isHTML, stripCodeFence, scanFencedHtml } from "./detect"
+import { isMindmapJSON, uxrJsonToMarkdown } from "./mindmap-adapter"
 import { parseMarkdownTable, tableToCSV } from "./markdown-table"
 
 describe("isMarkdownTable", () => {

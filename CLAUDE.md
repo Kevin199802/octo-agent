@@ -67,6 +67,8 @@
 
 `docs/intranet-handoff.md` 是给内网集成者的对外操作手册。**里程碑前或对外契约变化时** review + 更新，平时不需要每次改动同步（diff/rsync 自然带过去）。
 
+**强制同步触发点**：改 `packages/app/src/pages/*/lib/electron-api.ts` 的 `DesktopApi` 类型（新增 / 删除 / 改签名 `window.api` 方法）时，**同步更新** [intranet-handoff.md §1.6](docs/intranet-handoff.md) 桌面壳 API 依赖清单——避免内网壳缺方法导致按钮失效。
+
 ---
 
 ## 设计素材清单（强制）
