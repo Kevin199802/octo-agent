@@ -267,7 +267,7 @@ export function InsightTurn(props: {
   // 历史 ADR-010 路线 A(CSS suppress)已作废,详见 docs/specs/ui/output-renderers.md §0。
 
   return (
-    <div class="flex flex-col">
+    <div class="flex flex-col mb-4">
       {/* 用户上传的文件卡片(贴合用户气泡上方,右对齐)——替代在气泡里暴露 S3 URL */}
       <Show when={inputAttachments().length > 0}>
         <div class="octo-input-attachments">

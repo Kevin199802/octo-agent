@@ -43,7 +43,7 @@ export function OctoShell(props: ParentProps<{ withSidebar?: boolean }>) {
             }}
             onMouseDown={handleSidebarResize}
           >
-            <div
+            {/* <div
               class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
               style={{
                 width: "12px",
@@ -58,7 +58,7 @@ export function OctoShell(props: ParentProps<{ withSidebar?: boolean }>) {
                 class="w-[2px] h-[14px] rounded-full ml-[2px]"
                 style={{ background: "var(--octo-border-input, #c9c9c9)" }}
               />
-            </div>
+            </div> */}
           </div>
           <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
             {props.children}

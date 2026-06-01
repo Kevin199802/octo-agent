@@ -83,11 +83,19 @@
   border-radius: var(--octo-radius-md) !important;
 }
 
+/* session-turn 错误 card 文字颜色修复：
+   [data-page="insight"] 把 --text-on-critical-base 钉为 #fff，
+   导致 session-turn.css 的 .error-card 文字变白色看不见，这里强制回黑色。 */
+[data-component="session-turn"] .error-card {
+  color: var(--octo-text-primary) !important;
+}
+
 /* 用户消息气泡 */
-[data-component="session-turn"] [data-component="user-message"] {
-  background: var(--octo-brand-subtle);
-  padding: 12px;
-  border-radius: var(--octo-radius-lg);
+[data-component="user-message"] [data-slot="user-message-text"] {
+  border-radius: 16px 16px 2px 16px;
+  background-color: rgba(10, 89, 247, 0.08);
+  font-size: 14px;
+  border: none;
 }
 [data-component="session-turn"] [data-slot="user-message-attachment"] {
   background: var(--octo-surface-page) !important;
@@ -161,7 +169,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  padding: 0 2px 8px 2px;       /* 输入框外:不要左右内缩 + 给输入框留间距 */
+  padding: 0 2px 16px 2px;      /* 输入框外:不要左右内缩 + 给输入框留 16px 间距 */
 }
 
 .octo-preset-scroll {
@@ -181,8 +189,8 @@
   flex-shrink: 0;
   padding: 4px 12px;
   border-radius: 999px;
-  border: 1px solid var(--octo-border-default);
-  background: var(--octo-surface-page);
+  border: none;
+  background: rgba(44, 46, 52, 0.05);
   color: var(--octo-text-primary);
   font-size: 12px;
   font-family: var(--octo-font);
@@ -195,7 +203,6 @@
 .octo-preset-chip:hover:not(:disabled) {
   background: var(--octo-brand-a8);
   color: var(--octo-brand);
-  border-color: var(--octo-brand-a25);
 }
 .octo-preset-chip:disabled {
   opacity: 0.5;
@@ -271,11 +278,11 @@
 
 
 
-/* ── 防止 opencode 深色主题污染 Insight ───────────────────────────
-   Insight 不做深色模式。opencode ThemeProvider 把上游 token 写到 :root，
-   系统切深色时这些变量会变为暗值。
-   在 [data-page="insight"] 作用域内把用到的上游 token 钉死为 OC-2 亮色值：
-   CSS 自定义属性在子元素上声明会覆盖从 :root 继承的值。               */
+/* ── 防止 opencode 深色主题污染 Insight (FOUC 初屏保护层) ──────────
+   主要防护：InsightContent.onMount 注入 html[data-color-scheme="dark"] 全局覆盖，
+   含所有 oc-2 亮色 token，覆盖 portal 弹窗（模型选择等），cleanup 时移除。
+   这里的静态规则仅覆盖 JS 尚未执行时的初次渲染闪烁（FOUC）场景，
+   scoped 在 [data-page="insight"]，不影响其他页面的 portal。        */
 [data-page="insight"] {
   --background-base:              #ffffff;
   --background-stronger:          #f7f7f7;

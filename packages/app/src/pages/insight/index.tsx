@@ -9,6 +9,8 @@ import {
   createSignal,
   For,
   on,
+  onCleanup,
+  onMount,
   Show,
 } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
@@ -18,6 +20,8 @@ import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { Icon } from "@opencode-ai/ui/icon"
+import { useTheme } from "@opencode-ai/ui/theme/context"
+import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { ModelsProvider } from "@/context/models"
 import { LocalProvider } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
@@ -26,12 +30,13 @@ import {
   useInsightModelSelection,
 } from "./store/model-selection"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
+import { ConversationHeader } from "./components/conversation-header"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
-import { IllustrationInsightEmpty, IconSendBlue } from "./icons/illustrations"
+import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
@@ -94,6 +99,28 @@ function InsightContent() {
   const globalSync = useGlobalSync()
   const sync = useSync()
   const selection = useInsightModelSelection()
+  const themeCtx = useTheme()
+
+  // Insight 暂不适配暗色模式：mount 时注入全局亮色 token 覆盖（selector 为 html 自身），
+  // 使 portal（模型选择弹窗等）也能被覆盖到；insight 是全屏页，不影响其他页面。
+  // html[data-color-scheme="dark"] 比 :root 优先级高（attribute selector），可覆盖 ThemeProvider。
+  // 覆盖 token 来自 oc-2 light variant，与 ThemeProvider 写入 :root 的来源一致。
+  onMount(() => {
+    const oc2 = themeCtx.themes()["oc-2"]
+    if (!oc2) return
+    const css = themeToCss(resolveThemeVariant(oc2.light, false))
+    const style = document.createElement("style")
+    style.id = "oc-insight-force-light"
+    style.textContent = [
+      `html[data-color-scheme="dark"] {`,
+      `  color-scheme: light;`,
+      `  --text-mix-blend-mode: multiply;`,
+      `  ${css}`,
+      `}`,
+    ].join("\n")
+    document.head.appendChild(style)
+    onCleanup(() => { document.getElementById("oc-insight-force-light")?.remove() })
+  })
 
   const homeDir = () => globalSync.data.path.home
 
@@ -553,6 +580,21 @@ function InsightContent() {
     console.log("[octo:queue] canceled, restored to input")
   }
 
+  async function handleAbort() {
+    const sid = params.id
+    if (!sid) return
+    // 先取消排队消息，避免 abort 完成后 idle 触发器自动 flush
+    if (queuedText()) cancelQueued()
+    try {
+      await globalSDK.client.session.abort({ sessionID: sid })
+    } catch {
+      // session_status 事件自动同步状态，忽略网络错误
+    }
+  }
+
+  // 输入框空 + AI 忙 → 发送键变为停止键
+  const stopping = createMemo(() => isBusy() && !prompt().trim() && !hasUploadingAttachments())
+
   function handlePresetClick(preset: PresetPrompt) {
     setPrompt(preset.text)
     console.log("[octo:preset] click", { id: preset.id, expectedTool: preset.expectedTool })
@@ -856,7 +898,7 @@ function InsightContent() {
             flex: "0 0 auto",
             "min-width": "0",
             transition: panelAnimating() ? `width ${PANEL_ANIM_MS}ms ease` : "none",
-            background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-shell-bg)",
+            background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-surface-page)",
             outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
           }}
           onDragOver={handleDragOver}
@@ -996,16 +1038,18 @@ function InsightContent() {
 
                         <button
                           type="button"
-                          onClick={() => void handleSubmit()}
-                          disabled={!prompt().trim() || hasUploadingAttachments()}
-                          title={hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)}
+                          onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
+                          disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
+                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
                           class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                           style={{
-                            opacity: (!prompt().trim() || hasUploadingAttachments()) ? 0.4 : 1,
-                            filter: (!prompt().trim() || hasUploadingAttachments()) ? "grayscale(0.5)" : "none",
+                            opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
+                            filter: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
                           }}
                         >
-                          <IconSendBlue width={40} height={40} />
+                          <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
+                            <IconStopBlue width={40} height={40} />
+                          </Show>
                         </button>
                       </div>
                     </div>
@@ -1014,6 +1058,9 @@ function InsightContent() {
                 </Show>
               }
             >
+              {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
+              <ConversationHeader />
+
               {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
               <div
                 class="flex-1 overflow-y-auto min-h-0"
@@ -1072,7 +1119,7 @@ function InsightContent() {
                 />
 
                 <div
-                  class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group overflow-hidden"
+                  class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group flex flex-col overflow-hidden"
                   style={{
                     border: "1px solid transparent",
                     background: `
@@ -1086,6 +1133,8 @@ function InsightContent() {
                         rgba(61, 93, 255, 0.7) 87%,
                         rgba(206, 7, 232, 0.7) 92%) border-box`,
                     "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
+                    height: "150px",
+                    "margin-top": attachments().length > 0 ? "6px" : "0",
                   }}
                 >
                   {/* 附件条在胶囊内部顶部:单行横向滚动,不撑开胶囊 */}
@@ -1100,12 +1149,10 @@ function InsightContent() {
                     onInput={(e) => setPrompt(e.currentTarget.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="上传评估任务书、逐字稿，智能整理问题和观点"
-                    rows={3}
-                    class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
+                    class="w-full flex-1 resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
                       "font-family": "var(--octo-font)",
-                      "max-height": "120px",
                       "overflow-y": "auto",
                     }}
                   />
@@ -1154,16 +1201,18 @@ function InsightContent() {
 
                     <button
                       type="button"
-                      onClick={() => void handleSubmit()}
-                      disabled={!prompt().trim() || hasUploadingAttachments()}
-                      title={hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)}
+                      onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
+                      disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
+                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
                       class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                       style={{
-                        opacity: (!prompt().trim() || hasUploadingAttachments()) ? 0.4 : 1,
-                        filter: (!prompt().trim() || hasUploadingAttachments()) ? "grayscale(0.5)" : "none",
+                        opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
+                        filter: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
                       }}
                     >
-                      <IconSendBlue width={40} height={40} />
+                      <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
+                        <IconStopBlue width={40} height={40} />
+                      </Show>
                     </button>
                   </div>
                 </div>
@@ -1182,6 +1231,7 @@ function InsightContent() {
             style={{ top: "20px", bottom: "20px", left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
             onPointerDown={handleDividerPointerDown}
           >
+            {/* 拖拽手柄视觉胶囊已隐藏(dev-yfy d8bc3d4):保留热区与拖拽手感,仅去掉胶囊视觉
             <div
               class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
               style={{
@@ -1197,7 +1247,7 @@ function InsightContent() {
                 class="w-[2px] h-[14px] rounded-full mr-[2px]"
                 style={{ background: "var(--octo-border-input, #c9c9c9)" }}
               />
-            </div>
+            </div> */}
           </div>
           </Show>
 
