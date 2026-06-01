@@ -93,6 +93,24 @@ cp .env.example .env.local
 - 客户端有全链路 console 日志（前缀 `[octo:upload]`），隔空联调时让客户端同学截 Console 给你
 - ADR-006 已明确：本上传服务**与 UXR 团队的 MCP 工具产物上传互不相关**
 
+### 1.6 桌面壳 API 依赖
+
+业务代码运行时依赖 `window.api` 暴露的若干桌面能力，rsync 同步业务代码后，**你方内网 Electron 壳必须暴露下列同名同签名方法**，否则按钮点击会走 "桌面 API 不可用" toast。
+
+`packages/app/src/pages/insight/lib/electron-api.ts` 的 `DesktopApi` 类型是 **SOT**——下表与该文件保持一致；外网代码改动若新增 / 修改字段，须同步本节。
+
+| `window.api` 方法 | 触发位置（业务侧） | 用途 | 实现要点 |
+|---|---|---|---|
+| `openPath(path, app?)` | `result-viewer/FileFallback`「用本地应用打开」 | 唤起系统默认应用打开本地文件 | `shell.openPath(path)`；可选 `app` 指定打开方式（mac: `open -a <app> <path>` / win: 直接 exec） |
+| `saveFilePicker({ title?, defaultPath? })` | `FileFallback`「另存为」 | 弹原生保存对话框，返回用户选择路径或 `null`（取消） | `dialog.showSaveDialog` |
+| `downloadResource(url, destPath)` | `FileFallback`「另存为」第二步 | 远程 URL → 落本地指定路径 | node `fetch` → `mkdir -p` → `fs.writeFile`；通用底层能力，不限二进制 |
+| `downloadResourceToTemp(url, namespace, filename)` | `FileFallback`「用本地应用打开」/「在文件夹中打开」前置 | 远程 URL → 落 OS 临时目录 `<tmp>/octo/<namespace>/<filename>`，返回最终本地路径 | sanitize filename 防路径穿越；namespace 通常传 tabID/sessionID 隔离 |
+| `showItemInFolder(path)` | `FileFallback`「在文件夹中打开」 | 在 Finder / Explorer 中定位并选中文件 | `shell.showItemInFolder(path)`，fire-and-forget |
+
+**合入流程**：合入 PR 前对照本表 vs 内网 Electron 壳已暴露的方法，缺失项需对应补 IPC handler + preload exposure；新增依赖在 PR description 显式列出。
+
+**外网参考实现**：[architecture.md §5.4](architecture.md#54-上游接线壳改动清单) 的 `preload/types.ts` / `preload/index.ts` / `main/ipc.ts` 三个子节（可读不可抄；内网壳代码自行组织）。
+
 ---
 
 ## 2. 一次性配置（首次集成时做一次）
