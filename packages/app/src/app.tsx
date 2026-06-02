@@ -48,7 +48,9 @@ import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
 
 const InsightPage = lazy(() => import("@/pages/insight"))
+const DevIndexPage = lazy(() => import("@/pages/insight/_dev/index-preview"))
 const InsightCardsDevPage = lazy(() => import("@/pages/insight/_dev/cards-preview"))
+const TypographyDevPage = lazy(() => import("@/pages/insight/_dev/typography-preview"))
 const ChatPage = lazy(() => import("@/pages/chat"))
 const StudioPage = lazy(() => import("@/pages/studio"))
 const loadSession = () => import("@/pages/session")
@@ -130,7 +132,8 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   }
   const isOctoPage = () => {
     const p = location.pathname
-    return p === "/chat" || p === "/studio" || p.startsWith("/_dev/")
+    // /_dev（索引页，无斜杠）与 /_dev/*（子页）都要命中，否则索引页会掉进原生 AppShellProviders
+    return p === "/chat" || p === "/studio" || p === "/_dev" || p.startsWith("/_dev/")
   }
   return (
     <Show
@@ -319,10 +322,15 @@ export function AppInterface(props: {
               >
                 <Route path="/" component={() => <Navigate href="/insight" />} />
                 <Route path="/insight/:id?" component={InsightPage} />
-                {/* /_dev/* — 样式沙箱路由，仅 DEV 构建可访问。
-                    shell 隔离：走 OctoShell（无侧边栏），不进原生 AppShellProviders。
-                    新增 dev 页：仿照 InsightCardsDevPage，加 import.meta.env.DEV 守卫。 */}
+                {/* /_dev、/_dev/* — 样式沙箱路由，与原生路由完全隔离：
+                    ① 构建隔离：import.meta.env.DEV 守卫，生产包里整段不存在（不会与原生路由共存）。
+                    ② shell 隔离：RouterRoot.isOctoPage() 命中 /_dev → 走 OctoShell（无侧边栏），
+                       绕开原生 AppShellProviders / Layout / Session providers，dev 页崩了也不影响原生。
+                    ③ 路径隔离：显式 /_dev 路由优先于通配 /:dir（session 那套），不会被当成目录。
+                    新增 dev 页：加 import.meta.env.DEV 守卫，并登记 index-preview.tsx 的 DEV_PAGES。 */}
+                {import.meta.env.DEV && <Route path="/_dev" component={DevIndexPage} />}
                 {import.meta.env.DEV && <Route path="/_dev/insight-cards" component={InsightCardsDevPage} />}
+                {import.meta.env.DEV && <Route path="/_dev/typography" component={TypographyDevPage} />}
                 <Route path="/chat" component={ChatPage} />
                 <Route path="/studio" component={StudioPage} />
                 <Route path="/:dir" component={DirectoryLayout}>

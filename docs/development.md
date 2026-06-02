@@ -269,7 +269,23 @@ bun --cwd packages/app dev
 
 | 路由 | 内容 | 源文件 |
 |---|---|---|
+| `/_dev` | **预览索引页**（所有 dev 沙箱的统一入口，互相跳转） | `packages/app/src/pages/insight/_dev/index-preview.tsx` |
 | `/_dev/insight-cards` | 任务卡片（5 态）+ 文件结果卡片（6 类） | `packages/app/src/pages/insight/_dev/cards-preview.tsx` |
+| `/_dev/typography` | 对话区正文 / 思维链排版样张（取证用，含思维链容器提案粗 UI） | `packages/app/src/pages/insight/_dev/typography-preview.tsx` |
+
+> 各 dev 页保持**独立路由 + 独立 chunk**（懒加载、故障隔离、可深链截图）；`/_dev` 索引页只做导航，不揉内容。每个子页顶部有「← Dev 索引」回链。
+
+#### 与原生路由的隔离（三层）
+
+`/_dev` 系列与 opencode 原生路由**完全隔离**，互不影响（见 [app.tsx](../packages/app/src/app.tsx) 路由注释）：
+
+| 层 | 机制 | 效果 |
+|---|---|---|
+| **构建隔离** | 每条 `/_dev*` 路由用 `import.meta.env.DEV` 守卫 | 生产包里整段不存在，永远不会与原生路由共存或被用户访问 |
+| **Shell 隔离** | `RouterRoot.isOctoPage()` 命中 `/_dev` → 走 `OctoShell`（无侧边栏） | 绕开原生 `AppShellProviders` / `Layout` / Session providers；dev 页报错只崩自己，不波及原生页 |
+| **路径隔离** | 显式 `/_dev` 路由优先于通配 `/:dir`（session 那套） | `/_dev` 不会被当成目录名落进 `DirectoryLayout` |
+
+> ⚠️ 新增 `/_dev` 下的**精确路径**（如索引页 `/_dev` 本身，不带尾斜杠）时，注意 `isOctoPage()` 需同时覆盖 `p === "/_dev"` 与 `p.startsWith("/_dev/")`，否则精确路径会掉进原生 shell。
 
 ---
 
@@ -322,9 +338,13 @@ const PanelTabsPreviewPage = lazy(() => import("@/pages/insight/_dev/panel-tabs-
 {import.meta.env.DEV && <Route path="/_dev/panel-tabs" component={PanelTabsPreviewPage} />}
 ```
 
-#### 第三步：本地看效果
+#### 第三步：登记到索引页
 
-浏览器打开 `http://localhost:3000/_dev/panel-tabs`（示例路径，按实际替换），直接对照设计稿调样式，HMR 实时刷新。
+在 `packages/app/src/pages/insight/_dev/index-preview.tsx` 的 `DEV_PAGES` 数组加一条（`path` / `title` / `desc`），让新页出现在 `/_dev` 索引里。
+
+#### 第四步：本地看效果
+
+浏览器打开 `http://localhost:3000/_dev`（索引页）或 `http://localhost:3000/_dev/panel-tabs`（示例路径，按实际替换），直接对照设计稿调样式，HMR 实时刷新。
 
 ---
 
