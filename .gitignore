@@ -27,6 +27,9 @@ target
 
 # Local dev files
 opencode-dev
+
+# octo-sync 本地 UX AI 项目路径配置(各人机器不同,不入库)
+script/.octo-sync.local.json
 UPCOMING_CHANGELOG.md
 logs/
 *.bun-build

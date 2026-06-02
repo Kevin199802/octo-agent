@@ -20,6 +20,58 @@
 
 ## 1. 合入物（每次合入做的事）
 
+### 1.0 合入方式：跑 `octo-sync` 脚本（先读这个）
+
+外网侧用 [`script/octo-sync.ts`](../script/octo-sync.ts) 把改动合入 UX AI 项目，无需手动逐步操作。
+
+**一次性配置**：复制 `script/.octo-sync.local.json.example` → `script/.octo-sync.local.json`，填 UX AI 项目仓库绝对路径。若两仓同级放置（同一父目录），可不配，脚本自动 fallback 到 `../UXAI`。
+
+**每次合入**：
+
+```bash
+bun script/octo-sync.ts            # 正式合入
+bun script/octo-sync.ts --dry-run  # 只判范围 + 演练 rsync，不写 UX AI 项目
+```
+
+> **首次启用脚本**（或 UX AI 项目结构重构后）先跑一次 `bun script/octo-sync.ts --init`：把“基线锚点”设为外网当前版本，告诉脚本“UX AI 项目已对齐到这一版”，之后增量才算得对。日常合入用不到它。
+
+脚本按改动范围给两种结果：
+
+**🟢 绿灯 —— 改动只落在 `pages/insight/` + agent prompt**
+脚本全自动：rsync 业务代码（排除 `_dev`）→ 原样 cp prompt → UX AI 项目 `packages/app` 跑 **typecheck + build 双门禁** → 推进锚点。你只需到 UX AI 项目 review + `git commit`（脚本**不自动提交**）。下面 §1.1–§1.6 是脚本已封装的细节，绿灯时无需手动。
+
+**🔴 非绿灯 —— 改动越界（碰 `app.tsx` / 桌面壳 / 依赖等）**
+脚本**不动任何文件**，打印越界清单，例如：
+
+```
+🔴 非绿灯 —— 改动越出 pages/insight + prompt 范围，未做任何同步。
+   越界文件(贴给 AI 起对话合入):
+     - packages/app/src/app.tsx
+     - packages/desktop-electron/src/preload/index.ts
+     ...
+```
+
+这时开对话让 AI 合入，提示词模板（让 AI 做**完整合入**，因为非绿灯时业务代码也还没同步）：
+
+> 基于 `docs/intranet-handoff.md` 的合入规则，以及下面 octo-sync 的输出，帮我把外网改动**完整**合入 UX AI 项目（业务代码 §1.1 也一并 rsync，越界文件按 §1.6 / §2.1 处理对应的 UX AI 项目改动）：
+>
+> ```
+> <粘贴 octo-sync 的完整 console 输出>
+> ```
+
+AI 会按本文档 §1.1–§1.6 做业务 rsync + 越界文件对应的 UX AI 项目改动（壳 API 补齐 / 路由注册 / 依赖）。
+
+**判定规则速查**：
+
+| 改动落点 | 结果 |
+|---|---|
+| `packages/app/src/pages/insight/**`（除 `_dev/`） | 🟢 自动同步 |
+| `packages/agent/insight/agents/insight.md` | 🟢 自动同步（原样 → `octo_insight.md`） |
+| `_dev/`、`docs/`、`CLAUDE.md`、`script/` 等纯外网文件 | ⚪ 忽略（不同步也不报警） |
+| `app.tsx` / `packages/desktop-electron/` / 依赖 / 其他 | 🔴 非绿灯，交 AI |
+
+范围判定靠 `git diff <锚点>..HEAD`，锚点存 UX AI 项目 `.insight-sync-state.json`（记 UX AI 项目合到外网哪个 sha）。
+
 ### 1.1 同步 `pages/insight/` 目录
 
 ```bash
