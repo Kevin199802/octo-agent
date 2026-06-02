@@ -1,5 +1,6 @@
 import "../octo-tokens.css"
-import { createSignal, type JSX } from "solid-js"
+import "./typography-token-preview.css"
+import { createSignal, For, type JSX } from "solid-js"
 import { A } from "@solidjs/router"
 import { Markdown } from "@opencode-ai/ui/markdown"
 
@@ -74,6 +75,27 @@ export default function TypographyPreviewPage(): JSX.Element {
           <Frame label="不返回思维链的模型:无任何思考 UI,只有正文(不应出现空容器 / 孤标签)">
             <div style={{ padding: "16px 20px" }}>
               <Markdown text={"根据访谈数据,Top 3 痛点集中在登录流程、算子配置与报表导出。建议优先优化登录流程。"} streaming={false} />
+            </div>
+          </Frame>
+        </Section>
+
+        <Section title="⑤ tokens.md 映射表" subtitle="docs/tokens.md → 18 元素;⚠️ = tokens.md 未覆盖,需设计师补">
+          <Frame label="每个元素可参照的 tokens.md token(字号规格 / 颜色 / 间距 / 圆角)">
+            <MappingTable />
+          </Frame>
+        </Section>
+
+        <Section title="⑥ token 应用预览(套 tokens.md,对照 ① 现状)" subtitle=".octo-md-token-preview · 草稿覆盖层,真实实现将迁 insight 层">
+          <Frame label="正文 — 套 tokens.md(注意 H1–H6 出现字号分级,对比 ① 全 14px)">
+            <div class="octo-md-token-preview" style={{ padding: "16px 20px" }}>
+              <Markdown text={CONTENT_SAMPLE} streaming={false} />
+            </div>
+          </Frame>
+          <Frame label="思维链 — 套 tokens.md(辅助说明 12/20 · text.secondary)">
+            <div class="octo-md-token-preview" style={{ padding: "16px 20px" }}>
+              <div data-component="reasoning-part">
+                <Markdown text={REASONING_SAMPLE} streaming={false} />
+              </div>
             </div>
           </Frame>
         </Section>
@@ -216,6 +238,103 @@ function Frame(props: { label: string; children: JSX.Element }): JSX.Element {
         {props.children}
       </div>
     </div>
+  )
+}
+
+// ── tokens.md 映射表 ──────────────────────────────────
+
+type MapRow = { el: string; font: string; color: string; other: string; gap?: boolean }
+
+const MAPPING: { group: string; rows: MapRow[] }[] = [
+  {
+    group: "正文(15)",
+    rows: [
+      { el: "H1", font: "24/32/Semibold", color: "text.strong", other: "标题层级·H1" },
+      { el: "H2", font: "20/28/Semibold", color: "text.strong", other: "标题层级·H2" },
+      { el: "H3", font: "16/24/Medium", color: "text.strong", other: "标题层级·H3" },
+      { el: "H4", font: "14/22/Medium", color: "text.strong", other: "标题层级·H4" },
+      { el: "H5 / H6", font: "13 / 12（外推）", color: "text.strong / secondary", other: "tokens.md 仅到 H4,需补", gap: true },
+      { el: "段落", font: "14/22/Regular", color: "text.primary", other: "主文本" },
+      { el: "加粗", font: "+Semibold", color: "text.strong", other: "—" },
+      { el: "斜体", font: "italic", color: "text.primary", other: "无专门 token" },
+      { el: "链接", font: "14/22", color: "brand.primary / hover brand.primary.hover", other: "—" },
+      { el: "有序/无序列表", font: "14/22", color: "text.primary;marker text.secondary", other: "缩进 space.8" },
+      { el: "嵌套列表", font: "—", color: "—", other: "缩进 space.4" },
+      { el: "引用块", font: "14/22", color: "text.secondary", other: "左边框 border.default;内距 space.3" },
+      { el: "分割线", font: "—", color: "border.default", other: "间距 space.8" },
+      { el: "行内代码", font: "13", color: "text.tertiary（近似）", other: "tokens.md 无 mono 字体/语义色", gap: true },
+      { el: "代码块", font: "13", color: "text.tertiary（近似）", other: "边框 border.default;圆角 radius.lg;内距 space.3;⚠️无语法高亮色", gap: true },
+      { el: "表格", font: "14/22;表头 Medium", color: "text.primary;表头 text.strong", other: "线 border.default;内距 space.3" },
+      { el: "图片", font: "—", color: "—", other: "圆角 radius.sm" },
+      { el: "数学公式", font: "（KaTeX）", color: "text.primary", other: "tokens.md 无,需设计师定", gap: true },
+    ],
+  },
+  {
+    group: "思维链(3)",
+    rows: [
+      { el: "思维链正文", font: "12/20/Regular", color: "text.secondary", other: "辅助说明" },
+      { el: "思考指示器", font: "12–14", color: "text.secondary", other: "动效 duration.normal" },
+      { el: "单行摘要", font: "12/20", color: "text.tertiary / Disabled #BFBFBF", other: "easing" },
+    ],
+  },
+  {
+    group: "思维链新增三件套(本期做,tokens.md 可复用)",
+    rows: [
+      { el: "容器", font: "—", color: "边框 border.default", other: "圆角 radius.lg;左竖线 border.default" },
+      { el: "标签", font: "12/20/Medium", color: "text.secondary", other: "间距 space.2" },
+      { el: "折叠", font: "箭头 14px", color: "text.secondary", other: "动效 duration.normal + easing" },
+    ],
+  },
+]
+
+function MappingTable(): JSX.Element {
+  const cell: JSX.CSSProperties = {
+    padding: "7px 10px",
+    "border-bottom": "1px solid var(--octo-border-divider, #eee)",
+    "vertical-align": "top",
+    "text-align": "left",
+  }
+  const head: JSX.CSSProperties = { ...cell, "font-weight": 600, color: "var(--octo-text-strong)", background: "#fafafa" }
+  return (
+    <table style={{ width: "100%", "border-collapse": "collapse", "font-size": "12px", "line-height": "1.5" }}>
+      <thead>
+        <tr>
+          <th style={head}>元素</th>
+          <th style={head}>字号/行高/字重</th>
+          <th style={head}>颜色 token</th>
+          <th style={head}>间距/圆角/边框 / 备注</th>
+        </tr>
+      </thead>
+      <tbody>
+        <For each={MAPPING}>
+          {(g) => (
+            <>
+              <tr>
+                <td
+                  colspan={4}
+                  style={{ ...cell, "font-weight": 600, color: "var(--octo-text-secondary)", background: "#f5f6f8" }}
+                >
+                  {g.group}
+                </td>
+              </tr>
+              <For each={g.rows}>
+                {(r) => (
+                  <tr style={r.gap ? { background: "#fffbe6" } : undefined}>
+                    <td style={{ ...cell, "font-weight": 500, color: "var(--octo-text-strong)" }}>
+                      {r.gap ? "⚠️ " : ""}
+                      {r.el}
+                    </td>
+                    <td style={cell}>{r.font}</td>
+                    <td style={cell}>{r.color}</td>
+                    <td style={cell}>{r.other}</td>
+                  </tr>
+                )}
+              </For>
+            </>
+          )}
+        </For>
+      </tbody>
+    </table>
   )
 }
 
