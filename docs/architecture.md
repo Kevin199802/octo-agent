@@ -248,9 +248,7 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 | 新增 `InsightPage`、`ChatPage`、`StudioPage` lazy import | 页面注册 |
 | `RouterRoot` 加 `isInsight()` / `isOctoPage()` 分支，insight 走 `OctoShell`，chat/studio 走 `OctoPageShell`，其余走原版 `AppShellProviders` | 路由分叉核心逻辑 |
 | 新增 `/`、`/insight/:id?`、`/chat`、`/studio` 路由声明 | 路由注册 |
-| 新增 `InsightCardsDevPage` lazy import 和 `/_dev/insight-cards` 路由；`isOctoPage()` 加 `/_dev/` 前缀判断，让 dev 预览页走 `OctoPageShell`（无 sidebar） | dev 预览页注册 — 用于 review 任务卡片/文件结果卡片 UI 改版（见 [pages/insight/_dev/cards-preview.tsx](../packages/app/src/pages/insight/_dev/cards-preview.tsx)） |
-| 新增 `TypographyDevPage` lazy import 和 `/_dev/typography` 路由（`import.meta.env.DEV` 守卫） | dev 预览页注册 — 对话区正文/思维链排版现状取证（见 [pages/insight/_dev/typography-preview.tsx](../packages/app/src/pages/insight/_dev/typography-preview.tsx)、[specs/ui/reasoning-content-typography.md](specs/ui/reasoning-content-typography.md)） |
-| 新增 `DevIndexPage` lazy import 和 `/_dev` 路由（`import.meta.env.DEV` 守卫） | dev 预览索引页注册 — 所有 `/_dev/*` 沙箱的统一入口（见 [pages/insight/_dev/index-preview.tsx](../packages/app/src/pages/insight/_dev/index-preview.tsx)） |
+| 新增 `import { devRoutes, isDevPath } from "@/pages/insight/_dev/dev-routes"`；`isOctoPage()` 调 `isDevPath(p)`；路由列表加一行 `{import.meta.env.DEV && devRoutes()}` | dev 预览页接入 — **所有 `/_dev` 路由声明与隔离判断集中在 [_dev/dev-routes.tsx](../packages/app/src/pages/insight/_dev/dev-routes.tsx)**，app.tsx 仅引用,以后新增 dev 页**不再改 app.tsx**。当前 dev 页:`/_dev`（索引）、`/_dev/insight-cards`、`/_dev/typography`（见 [development.md §8](development.md)） |
 
 #### `packages/desktop-electron/package.json`
 

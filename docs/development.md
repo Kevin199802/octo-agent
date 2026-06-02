@@ -324,19 +324,22 @@ export default function PanelTabsPreviewPage() {
 - mock 数据写在文件内，不引外部状态
 - 用 `Frame` / `Section` 等 `_dev/cards-preview.tsx` 里已有的布局辅助组件（直接 copy 或抽共用）
 
-#### 第二步：在 `app.tsx` 注册路由（限改）
+#### 第二步：在 `_dev/dev-routes.tsx` 注册路由（**不碰 app.tsx**）
 
-`packages/app/src/app.tsx` 是"限改"文件，仅允许加 `/_dev/*` 路由。
+所有 `/_dev` 路由声明与隔离判断都集中在 `packages/app/src/pages/insight/_dev/dev-routes.tsx`，
+app.tsx 只 `import { devRoutes, isDevPath }` 引用一次。新增页**只改 dev-routes.tsx**：
 
 ```tsx
-// 顶部 lazy import
-const PanelTabsPreviewPage = lazy(() => import("@/pages/insight/_dev/panel-tabs-preview"))
+// dev-routes.tsx —— 加 lazy import + 在 PAGES 数组加一条
+const PanelTabsPreviewPage = lazy(() => import("./panel-tabs-preview"))
 
-// isOctoPage() 里确认已有 p.startsWith("/_dev/") 条件（已有，无需再改）
-
-// <Route> 列表里加一行（必须加 import.meta.env.DEV 守卫，避免进入生产包）
-{import.meta.env.DEV && <Route path="/_dev/panel-tabs" component={PanelTabsPreviewPage} />}
+const PAGES = [
+  // …已有项…
+  { path: "/_dev/panel-tabs", component: PanelTabsPreviewPage },
+] as const
 ```
+
+> app.tsx 已通过 `{import.meta.env.DEV && devRoutes()}` 挂载全部 dev 路由、`isOctoPage()` 已调 `isDevPath()`，新增页无需改动它。
 
 #### 第三步：登记到索引页
 
