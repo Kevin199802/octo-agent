@@ -1,0 +1,157 @@
+/* tokens.md → 对话区组件级 token 映射(草稿 / 预览)
+ *
+ * 作用域:.octo-md-token-preview —— 仅用于 dev 样张页「token 应用预览」对照现状。
+ * 真实实现将迁到 insight 作用域覆盖层(conversation-typography.css),不在此处。
+ *
+ * 值全部来自 docs/tokens.md。用更高优先级选择器覆盖上游 [data-component="markdown"]
+ * / [data-component="reasoning-part"],只在本作用域生效,不动全局 theme.css。
+ *
+ * ⚠️ tokens.md 未覆盖、下面为合理外推、需设计师确认的项:
+ *   - H5 / H6(tokens.md 仅定义 H1–H4)
+ *   - 行内代码 / 代码块的 mono 字体 + 语法高亮色(tokens.md 无)
+ *   - 数学公式(tokens.md 无)
+ */
+
+.octo-md-token-preview {
+  /* 组件级 token 命名空间(--octo-md-*) */
+  --octo-md-font: "HarmonyOS Sans", Inter, "Noto Sans JP", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --octo-md-text: #191919; /* text.primary */
+  --octo-md-strong: #101828; /* text.strong */
+  --octo-md-secondary: #777777; /* text.secondary */
+  --octo-md-tertiary: #364153; /* text.tertiary */
+  --octo-md-link: #0067d1; /* brand.primary */
+  --octo-md-link-hover: #2e86de; /* brand.primary.hover */
+  --octo-md-border: #e5e7eb; /* border.default */
+  --octo-md-space-3: 12px; /* space.3 */
+  --octo-md-space-4: 16px; /* space.4 */
+  --octo-md-space-8: 32px; /* space.8 */
+  --octo-md-radius-sm: 4px; /* radius.sm */
+  --octo-md-radius-lg: 8px; /* radius.lg */
+}
+
+/* ── 正文 ───────────────────────────────────────────── */
+
+.octo-md-token-preview [data-component="markdown"] {
+  font-family: var(--octo-md-font);
+  font-size: 14px; /* 主文本 14/22/Regular */
+  line-height: 22px;
+  color: var(--octo-md-text);
+}
+
+/* 标题层级(tokens.md 字号规格) */
+.octo-md-token-preview [data-component="markdown"] h1 {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+  color: var(--octo-md-strong);
+}
+.octo-md-token-preview [data-component="markdown"] h2 {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  color: var(--octo-md-strong);
+}
+.octo-md-token-preview [data-component="markdown"] h3 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--octo-md-strong);
+}
+.octo-md-token-preview [data-component="markdown"] h4 {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--octo-md-strong);
+}
+/* ⚠️ tokens.md 无 H5/H6,以下为外推,待设计师确认 */
+.octo-md-token-preview [data-component="markdown"] h5 {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--octo-md-strong);
+}
+.octo-md-token-preview [data-component="markdown"] h6 {
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--octo-md-secondary);
+}
+
+.octo-md-token-preview [data-component="markdown"] strong,
+.octo-md-token-preview [data-component="markdown"] b {
+  font-weight: 600;
+  color: var(--octo-md-strong);
+}
+
+.octo-md-token-preview [data-component="markdown"] a {
+  color: var(--octo-md-link);
+}
+.octo-md-token-preview [data-component="markdown"] a:hover {
+  color: var(--octo-md-link-hover);
+}
+
+.octo-md-token-preview [data-component="markdown"] ul,
+.octo-md-token-preview [data-component="markdown"] ol {
+  padding-left: var(--octo-md-space-8);
+}
+.octo-md-token-preview [data-component="markdown"] li > ul,
+.octo-md-token-preview [data-component="markdown"] li > ol {
+  padding-left: var(--octo-md-space-4);
+}
+.octo-md-token-preview [data-component="markdown"] li::marker {
+  color: var(--octo-md-secondary);
+}
+
+.octo-md-token-preview [data-component="markdown"] blockquote {
+  border-left: 2px solid var(--octo-md-border);
+  padding-left: var(--octo-md-space-3);
+  color: var(--octo-md-secondary);
+}
+
+.octo-md-token-preview [data-component="markdown"] hr {
+  margin: var(--octo-md-space-8) 0;
+  border: none;
+  border-top: 1px solid var(--octo-md-border);
+  height: 0;
+}
+
+/* ⚠️ tokens.md 无 mono 字体 / 代码语义色,沿用等宽栈 + text.tertiary */
+.octo-md-token-preview [data-component="markdown"] :not(pre) > code {
+  font-size: 13px;
+  color: var(--octo-md-tertiary);
+}
+.octo-md-token-preview [data-component="markdown"] pre,
+.octo-md-token-preview [data-component="markdown"] .shiki {
+  font-size: 13px;
+  border: 1px solid var(--octo-md-border);
+  border-radius: var(--octo-md-radius-lg);
+  padding: var(--octo-md-space-3);
+}
+
+.octo-md-token-preview [data-component="markdown"] th {
+  color: var(--octo-md-strong);
+  font-weight: 500;
+  border-bottom: 1px solid var(--octo-md-border);
+  padding: var(--octo-md-space-3);
+}
+.octo-md-token-preview [data-component="markdown"] td {
+  border-bottom: 1px solid var(--octo-md-border);
+  padding: var(--octo-md-space-3);
+}
+
+.octo-md-token-preview [data-component="markdown"] img {
+  border-radius: var(--octo-md-radius-sm);
+}
+
+/* ── 思维链(辅助说明 12/20,text.secondary) ──────────── */
+
+.octo-md-token-preview [data-component="reasoning-part"] [data-component="markdown"] {
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--octo-md-secondary);
+}
+.octo-md-token-preview [data-component="reasoning-part"] [data-component="markdown"] strong,
+.octo-md-token-preview [data-component="reasoning-part"] [data-component="markdown"] b {
+  color: var(--octo-md-secondary);
+  font-weight: 600;
+}

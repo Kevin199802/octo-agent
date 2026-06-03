@@ -15,11 +15,18 @@ type Props = {
  */
 export function PresetPrompts(props: Props): JSX.Element {
   let scrollRef!: HTMLDivElement
+  const [canScrollLeft, setCanScrollLeft] = createSignal(false)
   const [canScrollRight, setCanScrollRight] = createSignal(false)
 
   const updateScrollState = () => {
     if (!scrollRef) return
+    setCanScrollLeft(scrollRef.scrollLeft > 1)
     setCanScrollRight(scrollRef.scrollLeft + scrollRef.clientWidth < scrollRef.scrollWidth - 1)
+  }
+
+  const scrollLeft = () => {
+    if (!scrollRef) return
+    scrollRef.scrollBy({ left: -scrollRef.clientWidth * 0.6, behavior: "smooth" })
   }
 
   const scrollRight = () => {
@@ -36,6 +43,16 @@ export function PresetPrompts(props: Props): JSX.Element {
 
   return (
     <div class="octo-preset-bar">
+      <Show when={canScrollLeft()}>
+        <button
+          type="button"
+          onClick={scrollLeft}
+          class="octo-preset-scroll-left"
+          aria-label="向左滚动"
+        >
+          ←
+        </button>
+      </Show>
       <div
         ref={scrollRef!}
         class="octo-preset-scroll"

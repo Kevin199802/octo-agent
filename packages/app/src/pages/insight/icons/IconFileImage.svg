@@ -1,0 +1,76 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="24.000000" height="24.000000" fill="none">
+	<defs>
+		<linearGradient id="paint_linear_82" x1="12.0893354" x2="12.0893354" y1="0" y2="24.0000038" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(249,250,251)" offset="0.00095607515" stop-opacity="1" />
+			<stop stop-color="rgb(249,250,251)" offset="1" stop-opacity="1" />
+		</linearGradient>
+		<linearGradient id="paint_linear_83" x1="12.1014433" x2="12.1014433" y1="9.04821777" y2="17.2713547" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(87,194,78)" offset="0" stop-opacity="1" />
+			<stop stop-color="rgb(138,224,130)" offset="1" stop-opacity="1" />
+		</linearGradient>
+		<linearGradient id="paint_linear_84" x1="12" x2="12" y1="0" y2="24" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(87,194,78)" offset="0" stop-opacity="1" />
+			<stop stop-color="rgb(138,224,130)" offset="1" stop-opacity="1" />
+		</linearGradient>
+		<linearGradient id="paint_linear_85" x1="18.6774826" x2="13.2918606" y1="2.89534044" y2="10.1117392" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(73,182,64)" offset="0" stop-opacity="0.800000012" />
+			<stop stop-color="rgb(73,182,64)" offset="0.450137377" stop-opacity="0.301960796" />
+			<stop stop-color="rgb(122,215,114)" offset="1" stop-opacity="0" />
+		</linearGradient>
+		<linearGradient id="paint_linear_86" x1="16.0814686" x2="18.1908188" y1="4.87006807" y2="2.81096172" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(136,224,129)" offset="0" stop-opacity="1" />
+			<stop stop-color="rgb(135,223,128)" offset="1" stop-opacity="0.400000006" />
+		</linearGradient>
+		<g id="pixso_custom_effect_18">
+			<effect x="0.000000" y="0.000000" visibility="visible" fill="rgb(0,0,0)" fill-opacity="0.101960786" effectType="dropShadow" stdDeviation="2.4000001" radius="0" />
+		</g>
+		<filter id="filter_18" width="15.169922" height="10.308472" x="4.435791" y="9.460083" filterUnits="userSpaceOnUse" customEffect="url(#pixso_custom_effect_18)" color-interpolation-filters="sRGB">
+			<feFlood flood-opacity="0" result="BackgroundImageFix" />
+			<feOffset dx="0.000000" dy="0.000000" in="SourceAlpha" />
+			<feGaussianBlur stdDeviation="0.800000012" />
+			<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.101961 0 " />
+			<feBlend result="effect_dropShadow_1" in2="BackgroundImageFix" mode="normal" />
+			<feBlend result="shape" in="SourceGraphic" in2="effect_dropShadow_1" mode="normal" />
+		</filter>
+		<g id="pixso_custom_effect_19">
+			<effect x="0.000000" y="0.000000" visibility="visible" fill="rgb(0,0,0)" fill-opacity="0.101960786" effectType="dropShadow" stdDeviation="2.4000001" radius="0" />
+		</g>
+		<filter id="filter_19" width="6.659668" height="6.720520" x="5.229492" y="7.389526" filterUnits="userSpaceOnUse" customEffect="url(#pixso_custom_effect_19)" color-interpolation-filters="sRGB">
+			<feFlood flood-opacity="0" result="BackgroundImageFix" />
+			<feOffset dx="0.000000" dy="0.000000" in="SourceAlpha" />
+			<feGaussianBlur stdDeviation="0.800000012" />
+			<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.101961 0 " />
+			<feBlend result="effect_dropShadow_1" in2="BackgroundImageFix" mode="normal" />
+			<feBlend result="shape" in="SourceGraphic" in2="effect_dropShadow_1" mode="normal" />
+		</filter>
+	</defs>
+	<rect id="图片" width="24.000000" height="24.000000" x="0.000000" y="0.000000" />
+	<g id="doc备份 23" opacity="0">
+		<rect id="矩形" width="24.000000" height="24.000000" x="0.000000" y="0.000000" fill="rgb(216,216,216)" fill-opacity="0" />
+		<rect id="矩形" width="23.400000" height="23.400000" x="0.300000" y="0.300000" stroke="rgb(151,151,151)" stroke-opacity="0" stroke-width="0.600000" />
+		<g id="word备份 4">
+			<path id="矩形备份 113" d="M4.62522 0L15.2465 0C15.4814 0 15.707 0.0918635 15.8752 0.255969L20.5453 4.81469C20.7188 4.98405 20.8166 5.21626 20.8166 5.45872L20.8166 22.7368C20.8166 23.4345 20.2511 24 19.5534 24L4.62522 24C3.9276 24 3.36206 23.4345 3.36206 22.7368L3.36206 1.26316C3.36206 0.565535 3.9276 0 4.62522 0Z" fill="url(#paint_linear_82)" fill-rule="evenodd" />
+			<path id="矩形备份 113" d="M4.62522 0L15.2465 0C15.4814 0 15.707 0.0918635 15.8752 0.255969L20.5453 4.81469C20.7188 4.98405 20.8166 5.21626 20.8166 5.45872L20.8166 22.7368C20.8166 23.4345 20.2511 24 19.5534 24L4.62522 24C3.9276 24 3.36206 23.4345 3.36206 22.7368L3.36206 1.26316C3.36206 0.565535 3.9276 0 4.62522 0ZM15.2465 0.3L4.62522 0.3Q4.42574 0.3 4.25548 0.370524L4.25548 0.370525L4.25547 0.370529Q4.08521 0.441055 3.94416 0.582102Q3.80311 0.723152 3.73259 0.893414L3.73259 0.893418L3.73259 0.893419Q3.66206 1.06368 3.66206 1.26316L3.66206 22.7368C3.66206 22.8698 3.68557 22.9931 3.73259 23.1066C3.7796 23.2201 3.85013 23.3239 3.94416 23.4179Q4.08516 23.5589 4.25536 23.6294L4.25548 23.6295Q4.42574 23.7 4.62522 23.7L19.5534 23.7C19.6864 23.7 19.8097 23.6765 19.9232 23.6295C20.0367 23.5825 20.1405 23.5119 20.2345 23.4179C20.3285 23.3239 20.3991 23.2201 20.4461 23.1066C20.4931 22.9931 20.5166 22.8698 20.5166 22.7368L20.5166 5.45872Q20.5166 5.33237 20.4714 5.22505L20.4714 5.22499C20.4412 5.15343 20.396 5.08822 20.3357 5.02936L15.6656 0.470646C15.6073 0.413766 15.5433 0.371105 15.4734 0.342664C15.4036 0.314221 15.3279 0.3 15.2465 0.3Z" fill="rgb(227,228,230)" fill-rule="evenodd" />
+			<path id="路径" d="M20.6407 5.24712C20.4927 5.0501 20.2572 4.92254 19.9919 4.92254L17.0474 4.92254C16.4352 4.92254 15.9389 4.42585 15.9389 3.81315L15.9393 0.87333C15.9395 0.867002 15.9395 0.860657 15.9395 0.854294C15.9395 0.649193 15.8635 0.461869 15.738 0.319031" fill="rgb(227,228,230)" fill-opacity="0.200000003" fill-rule="evenodd" />
+			<path id="路径" d="M20.6407 5.24712C20.4927 5.0501 20.2572 4.92254 19.9919 4.92254L17.0474 4.92254C16.4352 4.92254 15.9389 4.42585 15.9389 3.81315L15.9393 0.87333C15.9395 0.867002 15.9395 0.860657 15.9395 0.854294C15.9395 0.649193 15.8635 0.461869 15.738 0.319031" fill-rule="evenodd" stroke="rgb(227,228,230)" stroke-linecap="round" stroke-linejoin="round" stroke-width="0.300000" />
+			<path id="形状结合" d="M9.82984 9.24993C9.6195 9.01554 9.26077 8.97908 9.00666 9.17396C8.73985 9.37857 8.68943 9.76073 8.89405 10.0275L11.3481 13.2276L8.99805 16.292L8.97055 16.3309C8.79873 16.5948 8.85656 16.9507 9.11067 17.1456C9.37747 17.3502 9.75964 17.2998 9.96425 17.033L12.1154 14.228L14.2386 16.9967L14.269 17.0333C14.4794 17.2677 14.8381 17.3042 15.0922 17.1093C15.359 16.9047 15.4094 16.5225 15.2048 16.2557L12.8826 13.2276L15.3088 10.0639L15.3363 10.025C15.5082 9.76107 15.4503 9.40516 15.1962 9.21028C14.9294 9.00567 14.5473 9.05609 14.3426 9.3229L12.1154 12.2272L9.86025 9.28657L9.82984 9.24993Z" fill="url(#paint_linear_83)" fill-rule="evenodd" />
+		</g>
+	</g>
+	<g id="doc备份 36">
+		<rect id="矩形" width="24.000000" height="24.000000" x="0.000000" y="0.000000" fill="rgb(216,216,216)" fill-opacity="0" />
+		<rect id="矩形" width="23.400000" height="23.400000" x="0.300000" y="0.300000" stroke="rgb(151,151,151)" stroke-opacity="0" stroke-width="0.600000" />
+		<g id="word备份 8">
+			<path id="矩形备份 113" d="M4.26316 0L14.9947 0C15.2332 0 15.4619 0.0946478 15.6306 0.263157L20.7359 5.36132C20.905 5.53014 21 5.75925 21 5.99816L21 22.7368C21 23.4345 20.4345 24 19.7368 24L4.26316 24C3.56554 24 3 23.4345 3 22.7368L3 1.26316C3 0.565535 3.56554 0 4.26316 0Z" fill="url(#paint_linear_84)" fill-rule="evenodd" />
+			<path id="矩形备份 136" d="M4.26316 0L14.9947 0C15.2332 0 15.4619 0.0946478 15.6306 0.263157L20.7359 5.36132C20.905 5.53014 21 5.75925 21 5.99816L21 22.7368C21 23.4345 20.4345 24 19.7368 24L4.26316 24C3.56554 24 3 23.4345 3 22.7368L3 1.26316C3 0.565535 3.56554 0 4.26316 0Z" fill="url(#paint_linear_85)" fill-rule="evenodd" />
+			<path id="形状结合" d="M15.4935 0.101896L15.4958 0.104186C15.4949 0.10335 15.4939 0.102516 15.4929 0.101685L15.4935 0.101896ZM15.7992 3.96927L15.7992 0.803213C15.7996 0.791657 15.7999 0.780043 15.7999 0.768377C15.7999 0.548415 15.7189 0.347356 15.5852 0.193357L20.7389 5.33485C20.7958 5.39153 20.8459 5.45376 20.8888 5.52031C20.7287 5.30702 20.4737 5.16903 20.1865 5.16903C20.1796 5.16903 20.1727 5.16911 20.1658 5.16927L16.9992 5.16927C16.3364 5.16927 15.7992 4.63202 15.7992 3.96927Z" fill="url(#paint_linear_86)" fill-rule="evenodd" />
+			<g id="编组备份 4">
+				<g filter="url(#filter_18)">
+					<path id="路径 8" d="M6.90865 16.7809L9.16492 13.7331C9.31323 13.5328 9.61353 13.5345 9.75958 13.7365L10.9869 15.4338L13.3428 12.0193C13.4906 11.8052 13.8077 11.8075 13.9523 12.0237L17.143 16.7953C17.3067 17.0401 17.1312 17.3685 16.8367 17.3685L7.20476 17.3685C6.90223 17.3685 6.72864 17.0241 6.90865 16.7809Z" fill="rgb(255,255,255)" fill-rule="evenodd" />
+				</g>
+				<g filter="url(#filter_19)">
+					<ellipse id="椭圆形" rx="0.929909" ry="0.960229" cx="8.55930328" cy="10.7497797" fill="rgb(255,255,255)" />
+				</g>
+			</g>
+		</g>
+	</g>
+</svg>

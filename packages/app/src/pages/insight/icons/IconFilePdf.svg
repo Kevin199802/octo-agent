@@ -1,0 +1,41 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="24.000000" height="24.000000" fill="none">
+	<defs>
+		<linearGradient id="paint_linear_62" x1="12" x2="12" y1="0" y2="24" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(235,84,61)" offset="0" stop-opacity="1" />
+			<stop stop-color="rgb(255,114,77)" offset="1" stop-opacity="1" />
+		</linearGradient>
+		<linearGradient id="paint_linear_63" x1="18.027441" x2="15.6763973" y1="3.64933872" y2="6.80208778" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(230,62,36)" offset="0" stop-opacity="0.800000012" />
+			<stop stop-color="rgb(230,62,36)" offset="1" stop-opacity="0" />
+		</linearGradient>
+		<linearGradient id="paint_linear_64" x1="16.3003693" x2="18.1917629" y1="4.84364939" y2="2.81284022" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(255,134,102)" offset="0" stop-opacity="1" />
+			<stop stop-color="rgb(255,123,89)" offset="1" stop-opacity="0.501960814" />
+		</linearGradient>
+		<g id="pixso_custom_effect_13">
+			<effect x="0.000000" y="0.000000" visibility="visible" fill="rgb(0,0,0)" fill-opacity="0.101960786" effectType="dropShadow" stdDeviation="1.57894683" radius="0" />
+		</g>
+		<filter id="filter_13" width="12.011963" height="11.105103" x="5.993652" y="8.197266" filterUnits="userSpaceOnUse" customEffect="url(#pixso_custom_effect_13)" color-interpolation-filters="sRGB">
+			<feFlood flood-opacity="0" result="BackgroundImageFix" />
+			<feColorMatrix result="hardAlpha" in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0 " />
+			<feOffset dx="0.000000" dy="0.000000" in="hardAlpha" />
+			<feGaussianBlur stdDeviation="0.526315629" />
+			<feComposite k2="-1" k3="1" in2="hardAlpha" operator="out" />
+			<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.101961 0 " />
+			<feBlend result="effect_dropShadow_1" in2="BackgroundImageFix" mode="normal" />
+			<feBlend result="shape" in="SourceGraphic" in2="effect_dropShadow_1" mode="normal" />
+		</filter>
+	</defs>
+	<rect id="PDF" width="24.000000" height="24.000000" x="0.000000" y="0.000000" />
+	<rect id="ic_grid_pdf" width="24.000000" height="24.000000" x="0.000000" y="0.000000" fill="rgb(255,255,255)" fill-opacity="0" />
+	<path id="矩形备份 113" d="M4.263 0L14.994 0C15.2325 0 15.4612 0.0945 15.63 0.2625L20.7353 5.361C20.9048 5.52975 21 5.75925 21 5.99775L21 22.7362C21 23.4338 20.4338 24 19.7362 24L4.263 24C3.5655 24 3 23.4338 3 22.7362L3 1.263C3 0.5655 3.5655 0 4.263 0Z" fill="url(#paint_linear_62)" fill-rule="evenodd" />
+	<path id="矩形备份 137" d="M4.263 0L14.994 0C15.2325 0 15.4612 0.0945 15.63 0.2625L20.7353 5.361C20.9048 5.52975 21 5.75925 21 5.99775L21 22.7362C21 23.4338 20.4338 24 19.7362 24L4.263 24C3.5655 24 3 23.4338 3 22.7362L3 1.263C3 0.5655 3.5655 0 4.263 0Z" fill="url(#paint_linear_63)" fill-rule="evenodd" />
+	<path id="形状结合" d="M15.4937 0.101751L15.5014 0.109497C15.4982 0.106659 15.497 0.104535 15.4937 0.101751ZM15.8 0.768622C15.8 0.780247 15.7998 0.791842 15.7993 0.803355L15.7993 3.96912C15.7993 4.63187 16.3366 5.16912 16.9993 5.16912L20.1867 5.16912C20.4754 5.16912 20.7318 5.309 20.8918 5.52461C20.8483 5.45638 20.7972 5.39264 20.7391 5.33471L15.5803 0.188122C15.717 0.342883 15.8 0.546167 15.8 0.768622Z" fill="url(#paint_linear_64)" fill-rule="evenodd" />
+	<g id="g" filter="url(#filter_13)">
+		<path id="多边形" d="M10.0986 15.7987L13.9004 15.7987L11.9999 12.5055L10.0986 15.7987Z" fill="rgb(0,0,0)" fill-opacity="0" fill-rule="nonzero" />
+		<path id="多边形" d="M13.9004 15.7987L11.9999 12.5055L10.0986 15.7987L13.9004 15.7987Z" fill-rule="nonzero" stroke="rgb(255,255,255)" stroke-linejoin="round" stroke-width="0.816057" />
+		<path id="路径" d="M12.0555 12.2107C12.525 11.6602 12.7598 11.2462 12.7598 10.9687C12.7598 10.5352 12.4193 10.1842 12 10.1842C11.58 10.1842 11.2395 10.5352 11.2395 10.9687C11.2395 11.2462 11.4743 11.6602 11.9438 12.21" stroke="rgb(255,255,255)" stroke-linejoin="round" stroke-width="0.816057" />
+		<path id="路径备份" d="M14.1338 15.9735C14.3753 16.6553 14.6168 17.0655 14.8575 17.205C15.2325 17.421 15.7065 17.3025 15.9165 16.9388C16.1265 16.575 15.9923 16.1055 15.6173 15.8888C15.3765 15.75 14.901 15.7463 14.19 15.8775" stroke="rgb(255,255,255)" stroke-linejoin="round" stroke-width="0.816057" />
+		<path id="路径备份 2" d="M9.80989 15.8775C9.09814 15.7463 8.62264 15.75 8.38189 15.8888C8.00689 16.1055 7.87264 16.575 8.08264 16.9388C8.29264 17.3025 8.76664 17.421 9.14164 17.205C9.38239 17.0663 9.62314 16.656 9.86539 15.975" stroke="rgb(255,255,255)" stroke-linejoin="round" stroke-width="0.816057" />
+	</g>
+</svg>

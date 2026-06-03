@@ -298,13 +298,8 @@ function StopConfirmRow(props: { onCancel: () => void; onConfirm: () => void }):
 function StatusIcon(props: { status: TaskStatus }): JSX.Element {
   return (
     <Switch>
-      <Match when={props.status === "processing"}>
+      <Match when={props.status === "processing" || props.status === "pending"}>
         <IconStatusProcessing size={20} />
-      </Match>
-      <Match when={props.status === "pending"}>
-        <span style={{ color: "var(--octo-text-disabled)" }} class="flex-shrink-0 flex">
-          <IconRefresh size={18} />
-        </span>
       </Match>
       <Match when={props.status === "completed"}>
         <IconStatusCompleted size={20} />

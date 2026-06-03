@@ -1,6 +1,7 @@
 import "../octo-tokens.css"
 import { For } from "solid-js"
 import type { JSX } from "solid-js"
+import { A } from "@solidjs/router"
 import { TaskCardView } from "../components/task-card"
 import { type TaskCardEntry, type TaskStatus } from "../utils/task-detect"
 import type { OutputCard, OutputCardType } from "../components/insight-turn"
@@ -57,12 +58,15 @@ export default function CardsPreviewPage(): JSX.Element {
 function Header(): JSX.Element {
   return (
     <div style={{ "margin-bottom": "24px" }}>
+      <A href="/_dev" style={{ "font-size": "12px", color: "var(--octo-text-secondary)", "text-decoration": "none" }}>
+        ← Dev 索引
+      </A>
       <div
         style={{
           "font-size": "20px",
           "font-weight": 600,
           color: "var(--octo-text-strong)",
-          "margin-bottom": "4px",
+          "margin": "8px 0 4px",
         }}
       >
         Insight 卡片预览(dev only)

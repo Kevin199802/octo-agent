@@ -1,0 +1,36 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="24.000000" height="24.000000" fill="none">
+	<defs>
+		<linearGradient id="paint_linear_59" x1="12" x2="12" y1="0" y2="24" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(242,108,24)" offset="0" stop-opacity="1" />
+			<stop stop-color="rgb(250,147,45)" offset="1" stop-opacity="1" />
+		</linearGradient>
+		<linearGradient id="paint_linear_60" x1="18.0274391" x2="15.6763935" y1="3.64934063" y2="6.80208874" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(229,102,23)" offset="0" stop-opacity="0.90196079" />
+			<stop stop-color="rgb(242,108,24)" offset="1" stop-opacity="0" />
+		</linearGradient>
+		<linearGradient id="paint_linear_61" x1="16.3766479" x2="18.2356205" y1="4.85183859" y2="2.85554886" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(255,192,122)" offset="0" stop-opacity="0.90196079" />
+			<stop stop-color="rgb(255,171,87)" offset="0.999562979" stop-opacity="0.501960814" />
+		</linearGradient>
+		<g id="pixso_custom_effect_12">
+			<effect x="0.000000" y="0.000000" visibility="visible" fill="rgb(0,0,0)" fill-opacity="0.101960786" effectType="dropShadow" stdDeviation="1.0625006" radius="0" />
+		</g>
+		<filter id="filter_12" width="8.814209" height="10.564697" x="7.593018" y="8.564453" filterUnits="userSpaceOnUse" customEffect="url(#pixso_custom_effect_12)" color-interpolation-filters="sRGB">
+			<feFlood flood-opacity="0" result="BackgroundImageFix" />
+			<feColorMatrix result="hardAlpha" in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0 " />
+			<feOffset dx="0.000000" dy="0.000000" in="hardAlpha" />
+			<feGaussianBlur stdDeviation="0.354166865" />
+			<feComposite k2="-1" k3="1" in2="hardAlpha" operator="out" />
+			<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.101961 0 " />
+			<feBlend result="effect_dropShadow_1" in2="BackgroundImageFix" mode="normal" />
+			<feBlend result="shape" in="SourceGraphic" in2="effect_dropShadow_1" mode="normal" />
+		</filter>
+	</defs>
+	<rect id="ppt" width="24.000000" height="24.000000" x="0.000000" y="0.000000" />
+	<path id="矩形备份 113" d="M4.263 0L14.994 0C15.2325 0 15.4612 0.0945 15.63 0.2625L20.7353 5.361C20.9048 5.52975 21 5.75925 21 5.99775L21 22.7362C21 23.4338 20.4338 24 19.7362 24L4.263 24C3.5655 24 3 23.4338 3 22.7362L3 1.263C3 0.5655 3.5655 0 4.263 0Z" fill="url(#paint_linear_59)" fill-rule="evenodd" />
+	<path id="矩形备份 137" d="M4.263 0L14.994 0C15.2325 0 15.4612 0.0945 15.63 0.2625L20.7353 5.361C20.9048 5.52975 21 5.75925 21 5.99775L21 22.7362C21 23.4338 20.4338 24 19.7362 24L4.263 24C3.5655 24 3 23.4338 3 22.7362L3 1.263C3 0.5655 3.5655 0 4.263 0Z" fill="url(#paint_linear_60)" fill-rule="evenodd" />
+	<path id="形状结合" d="M15.4934 0.101751L15.5012 0.109533C15.498 0.106695 15.4967 0.104553 15.4934 0.101751ZM15.7998 0.768622C15.7998 0.780337 15.7996 0.791985 15.7991 0.80358L15.7991 3.96912C15.7991 4.63187 16.3363 5.16912 16.9991 5.16912L20.1865 5.16912C20.4751 5.16912 20.7315 5.30896 20.8915 5.52449C20.848 5.45633 20.7969 5.39262 20.7388 5.33471L15.58 0.188122C15.7168 0.342883 15.7998 0.546167 15.7998 0.768622Z" fill="url(#paint_linear_61)" fill-rule="evenodd" />
+	<g id="g" filter="url(#filter_12)">
+		<path id="形状结合" d="M12.4216 9.62778C12.4107 9.62718 12.3998 9.62695 12.3888 9.62695L9.63164 9.62695L9.57427 9.6286C9.06187 9.6583 8.65552 10.0832 8.65552 10.6031L8.65552 17.4291L8.65747 17.4789C8.68289 17.8077 8.95769 18.0666 9.29302 18.0666L9.34282 18.0647C9.67162 18.0393 9.93052 17.7645 9.93052 17.4291L9.93044 15.4974L12.4216 15.4974L12.5077 15.4961C14.0823 15.4505 15.3448 14.1597 15.3448 12.5741C15.3448 10.9571 14.0335 9.62778 12.4216 9.62778ZM9.93044 14.2224L12.4216 14.2224C13.3318 14.2224 14.0698 13.4844 14.0698 12.5741C14.0698 11.6814 13.3639 10.9418 12.4925 10.9035L12.4216 10.902L12.3888 10.902L9.93037 10.9017L9.93044 14.2224Z" fill="rgb(255,255,255)" fill-rule="evenodd" />
+	</g>
+</svg>

@@ -44,11 +44,11 @@ import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
 import { OctoPageShell, OctoShell } from "@/pages/_shell"
+import { devRoutes, isDevPath } from "@/pages/insight/_dev/dev-routes"
 import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
 
 const InsightPage = lazy(() => import("@/pages/insight"))
-const InsightCardsDevPage = lazy(() => import("@/pages/insight/_dev/cards-preview"))
 const ChatPage = lazy(() => import("@/pages/chat"))
 const StudioPage = lazy(() => import("@/pages/studio"))
 const loadSession = () => import("@/pages/session")
@@ -130,7 +130,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   }
   const isOctoPage = () => {
     const p = location.pathname
-    return p === "/chat" || p === "/studio" || p.startsWith("/_dev/")
+    return p === "/chat" || p === "/studio" || isDevPath(p)
   }
   return (
     <Show
@@ -319,7 +319,8 @@ export function AppInterface(props: {
               >
                 <Route path="/" component={() => <Navigate href="/insight" />} />
                 <Route path="/insight/:id?" component={InsightPage} />
-                <Route path="/_dev/insight-cards" component={InsightCardsDevPage} />
+                {/* /_dev 样式沙箱路由：声明与隔离逻辑集中在 _dev/dev-routes.tsx，此处仅按 DEV 守卫挂载。 */}
+                {import.meta.env.DEV && devRoutes()}
                 <Route path="/chat" component={ChatPage} />
                 <Route path="/studio" component={StudioPage} />
                 <Route path="/:dir" component={DirectoryLayout}>
