@@ -25,6 +25,11 @@ const DEV_PAGES: { path: string; title: string; desc: string }[] = [
     title: "ResultViewer TabBar 溢出",
     desc: "产出 tab 较多时横向溢出现状:能滚但无滚动条 / 无左右箭头",
   },
+  {
+    path: "/_dev/file-fallback",
+    title: "FileFallback 新 UI",
+    desc: "不可预览文件兜底面板新设计:渐变背景 + 大图标 + 三按钮(图标占位待替换)",
+  },
 ]
 
 export default function DevIndexPage(): JSX.Element {
