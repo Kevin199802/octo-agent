@@ -454,3 +454,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── 附件 chip 上传中：旋转光芒动画 ─────────────────────────────
+   用于 dev 预览(attachment-bar-preview)及后续落地的新版 AttachmentBar。 */
+@keyframes octo-att-spin-kf {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.octo-att-spin {
+  animation: octo-att-spin-kf 1s linear infinite;
+  transform-origin: center;
+}

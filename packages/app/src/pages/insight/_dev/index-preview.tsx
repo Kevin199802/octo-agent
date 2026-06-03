@@ -30,6 +30,11 @@ const DEV_PAGES: { path: string; title: string; desc: string }[] = [
     title: "FileFallback 新 UI",
     desc: "不可预览文件兜底面板新设计:渐变背景 + 大图标 + 三按钮(图标占位待替换)",
   },
+  {
+    path: "/_dev/attachment-bar",
+    title: "上传文件 Chip 新 UI",
+    desc: "输入框上方附件条三态:上传成功(40px)、上传中(旋转光芒)、上传失败(56px 红色提示行)",
+  },
 ]
 
 export default function DevIndexPage(): JSX.Element {
