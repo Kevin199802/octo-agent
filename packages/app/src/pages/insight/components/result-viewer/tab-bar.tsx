@@ -20,11 +20,9 @@ export function TabBar(props: {
         "min-height": "48px",
       }}
     >
-      {/* tab 列表横向滚动;收起按钮固定在右侧不随滚动 */}
-      <div
-        class="flex items-center gap-[8px] overflow-x-auto flex-1 min-w-0"
-        style={{ "scrollbar-width": "none" }}
-      >
+      {/* tab 列表横向滚动:tab 多了溢出,octo-result-tabs-scroll 提供细横向滚动条作可视提示;
+          收起按钮固定在右侧不随滚动 */}
+      <div class="octo-result-tabs-scroll flex items-center gap-[8px] flex-1 min-w-0">
       <For each={props.tabs}>
         {(tab) => {
           const isActive = () => tab.id === props.activeId

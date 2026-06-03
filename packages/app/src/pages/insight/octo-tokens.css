@@ -209,9 +209,9 @@
   cursor: not-allowed;
 }
 
+.octo-preset-scroll-left,
 .octo-preset-scroll-right {
   flex-shrink: 0;
-  margin-left: 4px;
   width: 22px;
   height: 22px;
   display: flex;
@@ -223,9 +223,16 @@
   color: var(--octo-text-secondary);
   font-size: 12px;
   cursor: pointer;
-  /* 左侧渐变遮罩,暗示更多内容 */
+}
+.octo-preset-scroll-left {
+  margin-right: 4px;
+  box-shadow: 6px 0 8px -4px rgba(255, 255, 255, 0.9);
+}
+.octo-preset-scroll-right {
+  margin-left: 4px;
   box-shadow: -6px 0 8px -4px rgba(255, 255, 255, 0.9);
 }
+.octo-preset-scroll-left:hover,
 .octo-preset-scroll-right:hover {
   color: var(--octo-brand);
   border-color: var(--octo-brand-a25);
@@ -388,6 +395,26 @@
   background: transparent;
 }
 
+/* ── ResultViewer 顶部产出 tab 条:tab 多了横向滚动 ──────────────
+   产出较多时 tab 溢出,补一条细横向滚动条作可视提示(同附件条样式),
+   避免溢出 tab"看不见也够不到"。tab 垂直居中,滚动条贴底不挤压 tab。 */
+.octo-result-tabs-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+.octo-result-tabs-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+.octo-result-tabs-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 3px;
+}
+.octo-result-tabs-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 /* ── 用户气泡上方的输入文件卡片(替代暴露 S3 URL,见 file-upload spec)──
    右对齐贴合用户气泡;卡片显示文件名 + 扩展名徽标。 */
 .octo-input-attachments {
@@ -426,4 +453,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── 附件 chip 上传中：旋转光芒动画 ─────────────────────────────
+   用于 dev 预览(attachment-bar-preview)及后续落地的新版 AttachmentBar。 */
+@keyframes octo-att-spin-kf {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.octo-att-spin {
+  animation: octo-att-spin-kf 1s linear infinite;
+  transform-origin: center;
 }

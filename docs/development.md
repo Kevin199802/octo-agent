@@ -269,18 +269,37 @@ bun --cwd packages/app dev
 
 | 路由 | 内容 | 源文件 |
 |---|---|---|
+| `/_dev` | **预览索引页**（所有 dev 沙箱的统一入口，互相跳转） | `packages/app/src/pages/insight/_dev/index-preview.tsx` |
 | `/_dev/insight-cards` | 任务卡片（5 态）+ 文件结果卡片（6 类） | `packages/app/src/pages/insight/_dev/cards-preview.tsx` |
+| `/_dev/typography` | 对话区正文 / 思维链排版样张（取证用，含思维链容器提案粗 UI） | `packages/app/src/pages/insight/_dev/typography-preview.tsx` |
+
+> 各 dev 页保持**独立路由 + 独立 chunk**（懒加载、故障隔离、可深链截图）；`/_dev` 索引页只做导航，不揉内容。每个子页顶部有「← Dev 索引」回链。
+
+#### 与原生路由的隔离（三层）
+
+`/_dev` 系列与 opencode 原生路由**完全隔离**，互不影响（见 [app.tsx](../packages/app/src/app.tsx) 路由注释）：
+
+| 层 | 机制 | 效果 |
+|---|---|---|
+| **构建隔离** | 每条 `/_dev*` 路由用 `import.meta.env.DEV` 守卫 | 生产包里整段不存在，永远不会与原生路由共存或被用户访问 |
+| **Shell 隔离** | `RouterRoot.isOctoPage()` 命中 `/_dev` → 走 `OctoShell`（无侧边栏） | 绕开原生 `AppShellProviders` / `Layout` / Session providers；dev 页报错只崩自己，不波及原生页 |
+| **路径隔离** | 显式 `/_dev` 路由优先于通配 `/:dir`（session 那套） | `/_dev` 不会被当成目录名落进 `DirectoryLayout` |
+
+> ⚠️ 新增 `/_dev` 下的**精确路径**（如索引页 `/_dev` 本身，不带尾斜杠）时，注意 `isOctoPage()` 需同时覆盖 `p === "/_dev"` 与 `p.startsWith("/_dev/")`，否则精确路径会掉进原生 shell。
 
 ---
 
 ### 8.3 如何为新 UI 增加 dev-only 预览
 
-以"明天要做任务面板顶部 Tab 切换"为例，步骤如下：
+以"明天要做任务面板顶部 Tab 切换"为例，步骤如下。
+
+> **注意**：下面的 `panel-tabs` / `panel-tabs-preview.tsx` 均为**示例名称**，不是已存在的路由。
+> 现有真实 dev 页见 §8.2。
 
 #### 第一步：新建预览页文件
 
 ```
-packages/app/src/pages/insight/_dev/panel-tabs-preview.tsx
+packages/app/src/pages/insight/_dev/panel-tabs-preview.tsx   ← 示例文件名，按实际组件命名
 ```
 
 ```tsx
@@ -305,23 +324,30 @@ export default function PanelTabsPreviewPage() {
 - mock 数据写在文件内，不引外部状态
 - 用 `Frame` / `Section` 等 `_dev/cards-preview.tsx` 里已有的布局辅助组件（直接 copy 或抽共用）
 
-#### 第二步：在 `app.tsx` 注册路由（限改）
+#### 第二步：在 `_dev/dev-routes.tsx` 注册路由（**不碰 app.tsx**）
 
-`packages/app/src/app.tsx` 是"限改"文件，仅允许加 `/_dev/*` 路由。
+所有 `/_dev` 路由声明与隔离判断都集中在 `packages/app/src/pages/insight/_dev/dev-routes.tsx`，
+app.tsx 只 `import { devRoutes, isDevPath }` 引用一次。新增页**只改 dev-routes.tsx**：
 
 ```tsx
-// 顶部 lazy import
-const PanelTabsPreviewPage = lazy(() => import("@/pages/insight/_dev/panel-tabs-preview"))
+// dev-routes.tsx —— 加 lazy import + 在 PAGES 数组加一条
+const PanelTabsPreviewPage = lazy(() => import("./panel-tabs-preview"))
 
-// isOctoPage() 里确认已有 p.startsWith("/_dev/") 条件（已有，无需再改）
-
-// <Route> 列表里加一行
-<Route path="/_dev/panel-tabs" component={PanelTabsPreviewPage} />
+const PAGES = [
+  // …已有项…
+  { path: "/_dev/panel-tabs", component: PanelTabsPreviewPage },
+] as const
 ```
 
-#### 第三步：本地看效果
+> app.tsx 已通过 `{import.meta.env.DEV && devRoutes()}` 挂载全部 dev 路由、`isOctoPage()` 已调 `isDevPath()`，新增页无需改动它。
 
-浏览器打开 `http://localhost:3000/_dev/panel-tabs`，直接对照设计稿调样式，HMR 实时刷新。
+#### 第三步：登记到索引页
+
+在 `packages/app/src/pages/insight/_dev/index-preview.tsx` 的 `DEV_PAGES` 数组加一条（`path` / `title` / `desc`），让新页出现在 `/_dev` 索引里。
+
+#### 第四步：本地看效果
+
+浏览器打开 `http://localhost:3000/_dev`（索引页）或 `http://localhost:3000/_dev/panel-tabs`（示例路径，按实际替换），直接对照设计稿调样式，HMR 实时刷新。
 
 ---
 
