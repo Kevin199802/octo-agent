@@ -23,12 +23,8 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { ModelsProvider } from "@/context/models"
-import { LocalProvider } from "@/context/local"
+import { LocalProvider, useLocal } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
-import {
-  InsightModelSelectionProvider,
-  useInsightModelSelection,
-} from "./store/model-selection"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
@@ -66,13 +62,11 @@ export default function InsightPage() {
         <SDKProvider directory={() => dir}>
           <SyncProvider>
             <ModelsProvider>
-              {/* LocalProvider:为 ModelSelectorPopover 内懒加载的 dialog-manage-models /
-                  dialog-select-provider 提供 useLocal()(用于全局模型可见性管理 UI)。
-                  我们在主流程里读的是 useInsightModelSelection,跟 useLocal 隔离。 */}
+              {/* 模型选择统一走 useLocal().model(SPEC-INS-010 D2):自带
+                  会话级→agent 默认→全局兜底 回退链,初次进入不再"显示未选却可发送"。
+                  原 InsightModelSelectionProvider/隔离 store 已删除。 */}
               <LocalProvider>
-                <InsightModelSelectionProvider>
-                  <InsightContent />
-                </InsightModelSelectionProvider>
+                <InsightContent />
               </LocalProvider>
             </ModelsProvider>
           </SyncProvider>
@@ -98,7 +92,7 @@ function InsightContent() {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const sync = useSync()
-  const selection = useInsightModelSelection()
+  const local = useLocal()
   const themeCtx = useTheme()
 
   // Insight 暂不适配暗色模式：mount 时注入全局亮色 token 覆盖（selector 为 html 自身），
@@ -480,8 +474,8 @@ function InsightContent() {
     const messageID = Identifier.ascending("message")
     const agent = "insight"
 
-    // 当前 insight 选中的模型(来自 useInsightModelSelection,workspace 级持久化)
-    const currentModel = selection.model.current()
+    // 当前选中模型(useLocal().model.current():会话级→agent 默认→全局兜底 回退链)
+    const currentModel = local.model.current()
     const model = currentModel ? {
       modelID: currentModel.id,
       providerID: currentModel.provider.id,
@@ -1074,7 +1068,7 @@ function InsightContent() {
                         </Tooltip>
 
                         <ModelSelectorPopover
-                          model={selection.model}
+                          model={local.model}
                           triggerAs="button"
                           triggerProps={{
                             class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
@@ -1085,7 +1079,7 @@ function InsightContent() {
                           {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
                               synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
                           <span class="truncate">
-                            {selection.model.label() ?? "选择模型"}
+                            {local.model.current()?.name ?? "选择模型"}
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
                         </ModelSelectorPopover>
@@ -1237,7 +1231,7 @@ function InsightContent() {
                     </Tooltip>
 
                     <ModelSelectorPopover
-                      model={selection.model}
+                      model={local.model}
                       triggerAs="button"
                       triggerProps={{
                         class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
@@ -1248,7 +1242,7 @@ function InsightContent() {
                       {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
                           synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
                       <span class="truncate">
-                        {selection.model.label() ?? "选择模型"}
+                        {local.model.current()?.name ?? "选择模型"}
                       </span>
                       <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
                     </ModelSelectorPopover>

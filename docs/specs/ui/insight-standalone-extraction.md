@@ -34,7 +34,7 @@ insight 第一版的路由 / shell 层被 UX AI 项目直接参考,拆分(insigh
 | D5 | 项目/产品选择器(PYPTO / ICT-CANN)**本期忽略**:由同事拆为 `components/` 共享组件 + 全局 Store,需要时再引用 | 锁定 |
 | D6 | cowork fork 整体废弃,`/insight` 路由回指我方维护的 insight 模块 | 锁定 |
 | D7 | 底部导航(技能库/资产库/设置)同 D5:由另一同事拆为共享组件,**本期不归我方**,需要时引用 | 锁定 |
-| D8 | 会话列表按 `agent === "octo_insight"` 过滤(产品里会话本就每 Agent 独立);建会话补 `agent: "octo_insight"` 配套 | 锁定 |
+| D8 | ~~会话列表按 `agent === "octo_insight"` 过滤;建会话补 `agent` 配套~~ **本期降级:不过滤,列目录下全部会话**。原因:v2 `session.create` 不收 `agent`、v2 `Session` 类型不暴露 `agent`;外网 opencode 为 Zod schema、`Session.Info` 无 `agent` 字段([session.ts:118](../../../packages/opencode/src/session/session.ts#L118)),写了也是 no-op。agent 过滤推迟为**单独工作项**(参考 UXAI [sidebar.tsx:147](../../../../UXAI/packages/app/octoapp/pages/_shell/sidebar.tsx#L147) 已实现),见 §10 | 调整 |
 | D9 | 其余 UI 细节参考 UX AI | 锁定 |
 
 ---
@@ -80,12 +80,14 @@ insight 第一版的路由 / shell 层被 UX AI 项目直接参考,拆分(insigh
 
 **现状**:[insight/index.tsx:68-77](../../../packages/app/src/pages/insight/index.tsx#L68-L77) 自挂 `ModelsProvider + LocalProvider + InsightModelSelectionProvider`,主流程读 [store/model-selection.tsx](../../../packages/app/src/pages/insight/store/model-selection.tsx) 的隔离 store。该 store 的 `current()` 只认 `saved.model`、**无回退链**,是"初次用户显示未选却已可发送"偶现 bug 的根因。
 
-**改法**(对齐 UX AI make 的 [a9cf53f](#) 做法):
+**改法**(对齐 UX AI make 的 [a9cf53f](#) 做法)—— ✅ **PR1 已完成**:
 - 删除 `store/model-selection.tsx` 及 `InsightModelSelectionProvider`
 - 主流程改用 `useLocal().model`(已有 `LocalProvider`);`current()` 自带 会话级→agent 默认→全局兜底 回退链,初次进入不再空
 - 标签处直接 `useLocal().model.current()?.name`;[971d9ed](#) 临时加的 `label()` / 持久化 name 随隔离 store 一并删除(它本就是过渡补丁)
-- 发送链路 [index.tsx:449](../../../packages/app/src/pages/insight/index.tsx#L449) 同步改读 `useLocal().model.current()`
+- 发送链路同步改读 `useLocal().model.current()`
 
+> **"默认取模型清单第一项"已自动满足**:`current()` 兜底链末级 `defaultModel()`([local.tsx:156](../../../packages/app/src/context/local.tsx#L156))= "provider 配置的默认 → 否则该 provider 第一个模型",切到 useLocal 即免费获得"什么都没选时落到第一个可用模型",无需额外代码。
+>
 > 残留:冷刷新、providers 未连接的那一帧两种方案都可能短暂空 → 属于 provider 连接窗口,非本 bug,不在本期处理。
 
 ---
@@ -126,8 +128,8 @@ insight 第一版的路由 / shell 层被 UX AI 项目直接参考,拆分(insigh
 
 ## 9. 实施步骤(建议 PR 拆分)
 
-1. **PR1 模型切 useLocal**:删隔离 store + `InsightModelSelectionProvider`,主流程/标签/发送改 `useLocal().model`;`createAndNavigate` 建会话补 `agent: "octo_insight"`(D8 配套,让 agent 默认模型回退生效);本地验初次进入不空、发送正常
-2. **PR2 抽会话段**:Insight 会话段 → `pages/insight/components/session-list/`(自包含、零参数);列表按 `agent === "octo_insight"` 过滤(D8);`_shell/sidebar.tsx` 改为 `import` 该组件摆位(底部导航现状保留);验收 `_shell` 无 `/insight` 字面量
+1. **PR1 模型切 useLocal** ✅ **已完成**:删隔离 store + `InsightModelSelectionProvider`,主流程/标签/发送改 `useLocal().model`(初次进入不空靠兜底链 `defaultModel()` 取第一个可用模型,见 §4)。~~`createAndNavigate` 建会话补 `agent`~~ **已取消**:v2 `session.create` 不收 `agent` 且对模型回退无收益(insight.md frontmatter 无 `model` 字段,agent 默认层本就为空)。typecheck(tsgo)+ build(vite)双门禁通过
+2. **PR2 抽会话段**:Insight 会话段 → `pages/insight/components/session-list/`(自包含、零参数);**列表列目录下全部会话,本期不按 agent 过滤**(D8 调整);`_shell/sidebar.tsx` 改为 `import` 该组件摆位(底部导航现状保留);验收 `_shell` 无 `/insight` 字面量
 3. **PR3(待依赖)** 接入同事的 `SharedSidebar` / 选择器共享组件,`_shell/sidebar.tsx` 退场——等共享组件就绪再做
 4. 各 PR 自动验证(typecheck + build)后合入 dev,里程碑级再触发 octo-sync
 
@@ -140,3 +142,12 @@ insight 第一版的路由 / shell 层被 UX AI 项目直接参考,拆分(insigh
 1. **项目/产品选择器组件**(D5):依赖同事拆出的 `components/` 共享组件 + 全局 Store,就绪后引入
 2. **底部导航 / SharedSidebar 框架组件**(D7):依赖另一同事拆出,就绪后 PR3 接入,`_shell/sidebar.tsx` 退场
 3. 两者的对外接口(props / children 约定)定形后,回填本 spec §3 与 §7
+4. **会话按 agent 过滤**(D8 降级项):**单独工作项,本期不做**。背景:外网 octo-agent 与内网 UXAI 的 opencode 是**两套架构**——外网为上游 Zod schema、`Session` 无 `agent` 字段;内网为 fork 后的 Effect `Schema` + SQLite + category 系统,`Session.agent` 为一等字段,UXAI 已实现 `create({ agent })` + `filter(s => s.agent === "octo_insight")`([sidebar.tsx](../../../../UXAI/packages/app/octoapp/pages/_shell/sidebar.tsx))。
+   - **不为此升级 opencode**:该能力是内网 fork 定制,非上游;搬进外网会破坏 `main = 纯 opencode` 治理前提与 `packages/opencode/ 不动` 政策,且当前无功能在等它。
+   - **实现建议(将来做时)**:写成对版本差异**优雅降级**的过滤,同一份源码 rsync 两边都正确——
+     ```ts
+     // 外网老版 server 不返回 agent → s.agent 为 undefined → 不被过滤掉(列全部)
+     // 内网新版 server 带 agent → 精确匹配
+     sessions.filter((s) => !s.agent || s.agent === "octo_insight")
+     ```
+   - **agent 命名**:外网注册名 `insight`、内网 `octo_insight`。因本期不在源码里写 agent 过滤/打标签字面量,**无需改名**;将来做过滤时若需统一,再单独评估(改 [insight.md](../../../packages/agent/insight/agents/insight.md) frontmatter `name` + 发送链路 `const agent` 共两处)。
