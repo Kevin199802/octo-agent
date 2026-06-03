@@ -209,9 +209,9 @@
   cursor: not-allowed;
 }
 
+.octo-preset-scroll-left,
 .octo-preset-scroll-right {
   flex-shrink: 0;
-  margin-left: 4px;
   width: 22px;
   height: 22px;
   display: flex;
@@ -223,9 +223,16 @@
   color: var(--octo-text-secondary);
   font-size: 12px;
   cursor: pointer;
-  /* 左侧渐变遮罩,暗示更多内容 */
+}
+.octo-preset-scroll-left {
+  margin-right: 4px;
+  box-shadow: 6px 0 8px -4px rgba(255, 255, 255, 0.9);
+}
+.octo-preset-scroll-right {
+  margin-left: 4px;
   box-shadow: -6px 0 8px -4px rgba(255, 255, 255, 0.9);
 }
+.octo-preset-scroll-left:hover,
 .octo-preset-scroll-right:hover {
   color: var(--octo-brand);
   border-color: var(--octo-brand-a25);
