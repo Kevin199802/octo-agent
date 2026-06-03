@@ -15,11 +15,13 @@ import { Route } from "@solidjs/router"
 const DevIndexPage = lazy(() => import("./index-preview"))
 const InsightCardsDevPage = lazy(() => import("./cards-preview"))
 const TypographyDevPage = lazy(() => import("./typography-preview"))
+const ResultTabsDevPage = lazy(() => import("./result-tabs-preview"))
 
 const PAGES = [
   { path: "/_dev", component: DevIndexPage },
   { path: "/_dev/insight-cards", component: InsightCardsDevPage },
   { path: "/_dev/typography", component: TypographyDevPage },
+  { path: "/_dev/result-tabs", component: ResultTabsDevPage },
 ] as const
 
 /** 是否为 /_dev 沙箱路径(含索引页本身,无尾斜杠)。app.tsx 用它决定走 OctoShell。 */

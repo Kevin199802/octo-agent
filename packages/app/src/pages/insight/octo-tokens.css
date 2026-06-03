@@ -395,6 +395,26 @@
   background: transparent;
 }
 
+/* ── ResultViewer 顶部产出 tab 条:tab 多了横向滚动 ──────────────
+   产出较多时 tab 溢出,补一条细横向滚动条作可视提示(同附件条样式),
+   避免溢出 tab"看不见也够不到"。tab 垂直居中,滚动条贴底不挤压 tab。 */
+.octo-result-tabs-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+.octo-result-tabs-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+.octo-result-tabs-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 3px;
+}
+.octo-result-tabs-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 /* ── 用户气泡上方的输入文件卡片(替代暴露 S3 URL,见 file-upload spec)──
    右对齐贴合用户气泡;卡片显示文件名 + 扩展名徽标。 */
 .octo-input-attachments {

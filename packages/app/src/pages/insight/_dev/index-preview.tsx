@@ -20,6 +20,11 @@ const DEV_PAGES: { path: string; title: string; desc: string }[] = [
     title: "对话区排版样张",
     desc: "正文 / 思维链每个元素的现状取证,含思维链容器提案粗 UI",
   },
+  {
+    path: "/_dev/result-tabs",
+    title: "ResultViewer TabBar 溢出",
+    desc: "产出 tab 较多时横向溢出现状:能滚但无滚动条 / 无左右箭头",
+  },
 ]
 
 export default function DevIndexPage(): JSX.Element {
