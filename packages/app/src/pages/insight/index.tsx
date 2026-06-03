@@ -126,11 +126,17 @@ function InsightContent() {
 
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
   // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
+  //
+  // 依赖同时取 params.id 和「message[id] 是否缺失」：
+  // - 切到新 id → message[id] 为 undefined → 触发 sync
+  // - 放置一段时间后 sync 缓存被清（连接重置/驱逐），message[id] 变回 undefined 但 id 未变
+  //   → 这里仍会重新触发 sync，避免中间聊天区永久空白（白屏 bug）。
+  //   sync.session.sync 自带 inflight 去重，重复调用安全；加载完 message[id] 有值后不再触发。
   createEffect(
     on(
-      () => params.id,
-      (id) => {
-        if (!id) return
+      () => [params.id, sync.data.message[params.id ?? ""] === undefined] as const,
+      ([id, missing]) => {
+        if (!id || !missing) return
         console.log("[octo:sync] session.sync", { sessionID: id })
         void sync.session.sync(id)
       },
@@ -926,7 +932,16 @@ function InsightContent() {
             <Show
               when={params.id && userMessages().length > 0}
               fallback={
-                <Show when={sessionMessagesLoaded()}>
+                <Show
+                  when={sessionMessagesLoaded()}
+                  fallback={
+                    /* 已有 id 但消息缓存未就绪：显示加载占位,绝不渲染空白。
+                       否则切回已存在会话、缓存被清时中间区会整块空白(白屏 bug)。 */
+                    <div class="size-full flex items-center justify-center">
+                      <div class="octo-spinner" />
+                    </div>
+                  }
+                >
                 <div class="size-full flex flex-col items-center justify-center px-8 py-10 overflow-y-auto">
                   <IllustrationInsightEmpty width={166} height={166} />
                   <div
@@ -1031,7 +1046,7 @@ function InsightContent() {
                           {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
                               synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
                           <span class="truncate">
-                            {selection.model.current()?.name ?? "选择模型"}
+                            {selection.model.label() ?? "选择模型"}
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
                         </ModelSelectorPopover>
@@ -1194,7 +1209,7 @@ function InsightContent() {
                       {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
                           synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
                       <span class="truncate">
-                        {selection.model.current()?.name ?? "选择模型"}
+                        {selection.model.label() ?? "选择模型"}
                       </span>
                       <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
                     </ModelSelectorPopover>

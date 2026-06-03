@@ -24,7 +24,9 @@ import { Persist, persisted } from "@/utils/persist"
 export type ModelKey = { providerID: string; modelID: string }
 
 type Saved = {
-  model?: ModelKey
+  // 除 id 外额外存一份 name:首次进入时 providers 尚未连接、find() 还解析不出模型对象,
+  // 用持久化的 name 立即显示已选项,消除"已有选中却显示未选"的首屏闪烁(模型标签 bug)。
+  model?: ModelKey & { name?: string }
 }
 
 export const { use: useInsightModelSelection, provider: InsightModelSelectionProvider } =
@@ -46,6 +48,10 @@ export const { use: useInsightModelSelection, provider: InsightModelSelectionPro
         return models.find(key)
       }
 
+      // 标签文案:优先用解析出的真实模型对象(权威,能反映改名),
+      // providers 未连接时回退到持久化的 name,保证有选中项就不会显示"未选"。
+      const label = () => current()?.name ?? (savedReady() ? saved.model?.name : undefined)
+
       const recent = createMemo(() => models.recent.list().map(models.find).filter(Boolean))
 
       const set = (item: ModelKey | undefined, options?: { recent?: boolean }) => {
@@ -54,7 +60,12 @@ export const { use: useInsightModelSelection, provider: InsightModelSelectionPro
             setSaved("model", undefined)
             return
           }
-          setSaved("model", { providerID: item.providerID, modelID: item.modelID })
+          // 选择发生在 providers 已连接时,此刻 find() 能解析出 name,顺手存下供下次首屏显示。
+          setSaved("model", {
+            providerID: item.providerID,
+            modelID: item.modelID,
+            name: models.find(item)?.name,
+          })
           models.setVisibility(item, true)
           if (options?.recent) models.recent.push(item)
         })
@@ -79,6 +90,7 @@ export const { use: useInsightModelSelection, provider: InsightModelSelectionPro
         // savedReady() 守卫已经在 current() 内做,异步未就绪时返回 undefined,不会泄漏错误模型。
         ready: models.ready,
         current,
+        label,
         recent,
         list: models.list,
         cycle,

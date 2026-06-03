@@ -427,3 +427,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── 会话消息加载中占位 spinner ──────────────────────────────
+   切回已存在会话、消息缓存尚未就绪时显示,避免中间区渲染空白(白屏)。 */
+@keyframes octo-spin {
+  to { transform: rotate(360deg); }
+}
+.octo-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2.5px solid var(--octo-brand-a20);
+  border-top-color: var(--octo-brand);
+  border-radius: 50%;
+  animation: octo-spin 0.7s linear infinite;
+}
