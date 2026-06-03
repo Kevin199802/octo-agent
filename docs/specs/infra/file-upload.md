@@ -152,15 +152,15 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 ### S3 路径策略
 
 ```
-<bucket>/files/<agent>/<yyyy-mm-dd>/<uuid>_<sanitized_filename>
+<bucket>/files/<agent>/<yyyy-mm-dd>/<uuid>/<sanitized_filename>
 ```
 
 具体示例：
 
 ```
-<bucket>/files/insight/2026-05-20/a1b2c3d4e5f6_interview-zhang.docx
-<bucket>/files/insight/2026-05-20/f7g8h9i0j1k2_outline.pdf
-<bucket>/files/make/2026-06-01/m3n4o5p6q7r8_brief.docx
+<bucket>/files/insight/2026-05-20/a1b2c3d4e5f6/interview-zhang.docx
+<bucket>/files/insight/2026-05-20/f7g8h9i0j1k2/outline.pdf
+<bucket>/files/make/2026-06-01/m3n4o5p6q7r8/brief.docx
 ```
 
 各层职责：
@@ -170,7 +170,8 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 | `files/` | agent 项目文件命名空间 | 与同 bucket 下其他用途（如 UXR 分析产物）prefix 隔离 |
 | `<agent>/` | 按 agent 隔离 | 未来 make 加入直接挂；按 agent 配 IAM/lifecycle 方便 |
 | `<yyyy-mm-dd>/` | 日期分区 | lifecycle rule 按 prefix 配 TTL 最简单；调试按时间窗口查 |
-| `<uuid>_<filename>` | 防冲突 + 可读 | UUID 防覆盖 + 防猜测；保留 filename 便于控制台肉眼调试与浏览器下载 |
+| `<uuid>/` | 防冲突隔离层 | UUID 防覆盖 + 防猜测。**独立一层而不是拼进文件名**，这样 URL 末段就是原文件名，下游（浏览器下载、LLM 截 URL basename、CDN 缓存 key、MCP 工具引用文件）天然拿到干净名字，无需"过滤 hash"这种脆弱适配。对标 Discord CDN（`/attachments/<channel>/<file_id>/<filename>`）、GitHub user-attachments（`/assets/<uuid>/<filename>`）、Notion（`/<uuid>/<filename>`）主流形态；AWS 官方建议 `/` 用作 hierarchy 分隔符，`_` 仅用作同层段内分隔 |
+| `<filename>` | 末段 | sanitize 后的原文件名（保留可读性，便于控制台肉眼调试与浏览器下载） |
 
 **不引入的维度**（避免空架子）：
 
@@ -238,8 +239,8 @@ Body:
 ```json
 {
   "content": {
-    "url": "https://<obs-host>/<bucket>/files/insight/2026-05-21/<uuid>_iconGroup-1.txt",
-    "fileId": "files/insight/2026-05-21/<uuid>_iconGroup-1.txt",
+    "url": "https://<obs-host>/<bucket>/files/insight/2026-05-21/<uuid>/iconGroup-1.txt",
+    "fileId": "files/insight/2026-05-21/<uuid>/iconGroup-1.txt",
     "fileName": "iconGroup-1.txt",
     "size": 1004138,
     "mime": "text/plain"
@@ -408,7 +409,7 @@ bun run dev
 - [ ] 响应体所有出口都符合 `{ content, success, errorCode, errorMessage }` 4 字段封装（成功/失败均如此）
 - [ ] `errorCode` 是**整数**不是字符串
 - [ ] 成功时 `content.url` 是**可直接访问的完整 URL**（注入 LLM 后能被 MCP 工具拿来发请求）
-- [ ] S3 路径符合 `<bucket>/files/<agent>/<yyyy-mm-dd>/<uuid>_<filename>` 形态
+- [ ] S3 路径符合 `<bucket>/files/<agent>/<yyyy-mm-dd>/<uuid>/<filename>` 形态——UUID 独立一层而非拼进文件名（确保 URL basename 是干净的原文件名，避免下游引用文件时带 hash）
 - [ ] DB 表写入：每次成功上传应在表里出现一行新记录（`upload_status=success`）
 - [ ] 大文件（接近 500MB）能成功上传且 stream 不爆服务端内存
 - [ ] lifecycle rule 已配置（`files/` prefix，365 天 expire）

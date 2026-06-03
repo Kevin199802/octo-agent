@@ -383,6 +383,14 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 |---|---|
 | 追加内部协作者登录名 `yuziyuan` / `yuanfayu`（2026-05-29） | PR 治理 — 上游 `pr-standards` / 合规检查对名单内作者跳过 conventional 标题、关联 issue、模板合规等检查（名单从 `dev` 分支读）。内部成员加入后,其 PR 不再被当外部贡献者拦(`needs:title` / `needs:issue` / `needs:compliance` / 2h 自动关)。owner `Kevin199802` 及后续成员按同格式自行追加。协作规则见 [collab-pr-protocol.md](collab-pr-protocol.md) |
 
+#### `script/octo-sync.ts`（新增）+ `.gitignore`
+
+| 改了什么 | 性质 |
+|---|---|
+| 新增 `script/octo-sync.ts`：外网→UX AI 项目合入工具（bun+TS，放上游 `script/` 目录复用 bun tsconfig）。**绿灯**（改动只落在 `pages/insight` + agent prompt）自动 `rsync`（exclude `_dev`）+ prompt 原样 `cp` + UX AI 项目 `packages/app` typecheck/build **双门禁** + 推进锚点；**非绿灯**（越界 `app.tsx`/壳/依赖）停手列清单交 AI。**不自动 commit** | 合入工作流自动化 |
+| 锚点状态写 UX AI 项目 `.insight-sync-state.json`（`lastSyncedExtSha`，记 UX AI 项目合到外网哪个 sha），范围判定靠 `git diff 锚点..HEAD`；忽略范围 `docs/` `CLAUDE.md` `script/` 等纯外网文件 | 合入工具状态 / 范围判定 |
+| `.gitignore` 新增 `script/.octo-sync.local.json`（各人 UX AI 项目绝对路径，配置优先 + 同级 `../UXAI` fallback） | 合入工具本地配置 |
+
 **撤回到纯上游**（合入内网最坏情况）：
 
 1. 上面所有改动逆向回滚

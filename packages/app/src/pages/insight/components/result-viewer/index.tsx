@@ -240,8 +240,25 @@ function ResourceErrorFallback(props: {
   )
 }
 
-// 二进制 / 未识别 mimeType:不在内嵌渲染,提供「用本地应用打开 + 下载到本地」双按钮。
+// 二进制 / 未识别 mimeType:不在内嵌渲染,提供三按钮(用本地应用打开 / 在文件夹中打开 / 另存为)。
 // spec: docs/specs/ui/output-renderers.md §6.A,决策: ADR-009。
+//
+// 返回桌面壳缺失的 API 方法名列表(便于 toast 给用户精确报错 + 知会开发团队补壳)。
+// SOT: packages/app/src/pages/insight/lib/electron-api.ts;handoff 同步清单见 docs/intranet-handoff.md §1.6。
+type ApiKey = "openPath" | "saveFilePicker" | "downloadResource" | "downloadResourceToTemp" | "showItemInFolder"
+function missingDesktopApi(required: ApiKey[]): string[] {
+  const api = getDesktopApi()
+  if (!api) return required.slice()
+  return required.filter((k) => typeof (api as Record<string, unknown>)[k] !== "function")
+}
+function notifyMissingApi(missing: string[]): void {
+  showToast({
+    title: "桌面端能力缺失",
+    description: `缺少 window.api.${missing.join(" / ")},请联系开发团队补齐桌面壳`,
+    variant: "error",
+  })
+}
+
 function FileFallback(props: { tab: ResultTab }): JSX.Element {
   const [openBusy, setOpenBusy] = createSignal(false)
   const [downloadBusy, setDownloadBusy] = createSignal(false)
@@ -265,11 +282,12 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
 
   async function handleOpenInApp() {
     if (!props.tab.uri || openBusy()) return
-    const api = getDesktopApi()
-    if (!api || !api.downloadResourceToTemp || !api.openPath || !api.downloadResource || !api.saveFilePicker) {
-      showToast({ description: "桌面 API 不可用(非 Electron 环境)", variant: "error" })
+    const missing = missingDesktopApi(["downloadResourceToTemp", "openPath"])
+    if (missing.length > 0) {
+      notifyMissingApi(missing)
       return
     }
+    const api = getDesktopApi()!
     setOpenBusy(true)
     const fname = defaultFilename()
     console.log("[octo:office] download-start", {
@@ -280,12 +298,12 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
       mode: "to-temp",
     })
     try {
-      const localPath = await api.downloadResourceToTemp(props.tab.uri, props.tab.id, fname)
+      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname)
       console.log("[octo:office] download-ok", { localPath })
       console.log("[octo:office] open-path", { localPath })
       // shell.openPath 返回值约定: 空字符串 = 成功,非空 = 错误说明。
       // preload types 声明为 Promise<void>,但实际透传 string;运行时按 string 处理。
-      const openResult = (await api.openPath(localPath)) as unknown as string | undefined
+      const openResult = (await api.openPath!(localPath)) as unknown as string | undefined
       if (typeof openResult === "string" && openResult.length > 0) {
         console.error("[octo:office] open-failed", { localPath, reason: openResult })
         showToast({
@@ -308,20 +326,21 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
 
   async function handleSaveAs() {
     if (!props.tab.uri || downloadBusy()) return
-    const api = getDesktopApi()
-    if (!api || !api.downloadResourceToTemp || !api.openPath || !api.downloadResource || !api.saveFilePicker) {
-      showToast({ description: "桌面 API 不可用(非 Electron 环境)", variant: "error" })
+    const missing = missingDesktopApi(["saveFilePicker", "downloadResource"])
+    if (missing.length > 0) {
+      notifyMissingApi(missing)
       return
     }
+    const api = getDesktopApi()!
     setDownloadBusy(true)
     try {
-      const chosen = await api.saveFilePicker({ defaultPath: defaultFilename() })
+      const chosen = await api.saveFilePicker!({ defaultPath: defaultFilename() })
       if (!chosen) {
         setDownloadBusy(false)
         return
       }
       console.log("[octo:office] saveas-start", { uri: props.tab.uri, destPath: chosen })
-      await api.downloadResource(props.tab.uri, chosen)
+      await api.downloadResource!(props.tab.uri, chosen)
       console.log("[octo:office] saveas-ok", { destPath: chosen })
       showToast({ description: "已另存", variant: "success", duration: 2000 })
     } catch (err) {
@@ -340,18 +359,19 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
   // 微信桌面端模式:让用户能找到打开过 / 改过的本地文件,自己 cp 到正式位置。
   async function handleRevealInFolder() {
     if (!props.tab.uri || revealBusy()) return
-    const api = getDesktopApi()
-    if (!api || !api.downloadResourceToTemp || !api.showItemInFolder) {
-      showToast({ description: "桌面 API 不可用(非 Electron 环境)", variant: "error" })
+    const missing = missingDesktopApi(["downloadResourceToTemp", "showItemInFolder"])
+    if (missing.length > 0) {
+      notifyMissingApi(missing)
       return
     }
+    const api = getDesktopApi()!
     setRevealBusy(true)
     const fname = defaultFilename()
     console.log("[octo:office] reveal-start", { uri: props.tab.uri, namespace: props.tab.id, filename: fname })
     try {
-      const localPath = await api.downloadResourceToTemp(props.tab.uri, props.tab.id, fname)
+      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname)
       console.log("[octo:office] reveal-show", { localPath })
-      api.showItemInFolder(localPath)
+      api.showItemInFolder!(localPath)
     } catch (err) {
       console.error("[octo:office] reveal-failed", { uri: props.tab.uri, err })
       showToast({
@@ -391,7 +411,6 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
             disabled={revealBusy()}
             class="px-3 py-1 text-xs rounded disabled:opacity-50"
             style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
-            title="在 Finder / Explorer 中定位本地副本(可手动 cp 或保留编辑后内容)"
           >
             {revealBusy() ? "定位中…" : "在文件夹中打开"}
           </button>
@@ -401,7 +420,6 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
             disabled={downloadBusy()}
             class="px-3 py-1 text-xs rounded disabled:opacity-50"
             style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
-            title="重新从源 URL 下载一份到你选择的位置(不含本地编辑改动)"
           >
             {downloadBusy() ? "保存中…" : "另存为"}
           </button>
