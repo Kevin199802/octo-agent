@@ -430,6 +430,35 @@ function InsightContent() {
     return "请稍后重试"
   }
 
+  // 发送后"无反馈"探测:promptAsync 成功返回后启动,NO_FEEDBACK_WATCHDOG_MS 内若 session
+  // 既未进入 busy、也无新 assistant 响应,打一条显眼 warning —— 专门定位"发消息后既无思考中、
+  // 也无回复"的现象。状态没翻 busy 多半是 SSE/event 没到或 server 未启动该轮,据此分流排查。
+  const NO_FEEDBACK_WATCHDOG_MS = 8000
+  function armNoFeedbackWatchdog(sessionId: string, messageID: string) {
+    const assistantBefore = ((sync.data.message[sessionId] ?? []) as Message[]).filter((m) => m.role === "assistant").length
+    window.setTimeout(() => {
+      const status = sync.data.session_status[sessionId]?.type ?? "idle"
+      const msgs = (sync.data.message[sessionId] ?? []) as Message[]
+      const assistantNow = msgs.filter((m) => m.role === "assistant").length
+      if (status !== "busy" && assistantNow <= assistantBefore) {
+        console.warn(
+          `[octo:prompt] no-feedback ⚠️ 发送后 ${NO_FEEDBACK_WATCHDOG_MS}ms 内 session 未进入 busy 且无新 assistant 响应`,
+          {
+            sessionID: sessionId,
+            messageID,
+            status,
+            messageCount: msgs.length,
+            assistantBefore,
+            assistantNow,
+            hint: "status 没翻 busy → 查 globalSync 事件流(SSE)是否在收 / server 是否启动了该轮;若 model 为 undefined 且 agent 无默认模型也可能不启动",
+          },
+        )
+      } else {
+        console.log("[octo:prompt] feedback-ok", { sessionID: sessionId, messageID, status, assistantBefore, assistantNow })
+      }
+    }, NO_FEEDBACK_WATCHDOG_MS)
+  }
+
   /**
    * 共享的 prompt 调用底层(SPEC-INS-007 §3.2 改用 promptAsync + optimistic)
    *   - consumeAttachments=true(用户手动发送):附件随消息发送,发送后清空附件状态
@@ -494,6 +523,9 @@ function InsightContent() {
       sessionID: sessionId,
       messageID,
       agent,
+      model,                          // undefined ⇒ 服务端按 agent 默认配置;无默认时可能不启动该轮
+      modelResolved: !!model,
+      statusAtSend: sync.data.session_status[sessionId]?.type ?? "idle",
       text: text.length > 120 ? `${text.slice(0, 120)}…` : text,
       textLen: text.length,
       attachmentsCount: doneAttachments.length,
@@ -520,14 +552,21 @@ function InsightContent() {
     }
 
     try {
-      await globalSDK.client.session.promptAsync({
+      const result = await globalSDK.client.session.promptAsync({
         sessionID: sessionId,
         agent,
         model,
         parts,
         messageID,
       })
-      console.log("[octo:prompt] sent (async)", { messageID, sessionID: sessionId })
+      console.log("[octo:prompt] sent (async)", {
+        messageID,
+        sessionID: sessionId,
+        statusAfterSend: sync.data.session_status[sessionId]?.type ?? "idle",
+        response: (result as { data?: unknown })?.data ?? result,
+      })
+      // server 已受理,启动无反馈探测(8s 内未 busy 且无 assistant 响应 → warn)
+      armNoFeedbackWatchdog(sessionId, messageID)
     } catch (err) {
       console.error("[octo:prompt] failed", { source: opts.source, messageID, err })
       sync.session.optimistic.remove({ sessionID: sessionId, messageID })
