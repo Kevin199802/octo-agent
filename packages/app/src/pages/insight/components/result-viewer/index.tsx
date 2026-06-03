@@ -60,7 +60,7 @@ export function ResultViewer(props: {
   return (
     <div
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
-      style={{ background: "var(--octo-surface-result)" }}
+      style={{ background: "var(--octo-surface-result)", "border-left": "1px solid var(--octo-border-divider)" }}
     >
       <Show when={props.tabs.length > 0} fallback={<ResultViewerEmpty />}>
         <TabBar
