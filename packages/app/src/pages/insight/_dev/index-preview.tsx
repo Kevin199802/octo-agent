@@ -35,6 +35,11 @@ const DEV_PAGES: { path: string; title: string; desc: string }[] = [
     title: "上传文件 Chip 新 UI",
     desc: "输入框上方附件条三态:上传成功(40px)、上传中(旋转光芒)、上传失败(56px 红色提示行)",
   },
+  {
+    path: "/_dev/panel-header",
+    title: "ConversationHeader 布局验证",
+    desc: "复现「产出(N)按钮遮挡三点菜单」bug，验证 badge 移入 header flex 行后三点始终可点",
+  },
 ]
 
 export default function DevIndexPage(): JSX.Element {

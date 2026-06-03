@@ -1,4 +1,5 @@
 import { createMemo, createSignal, Show } from "solid-js"
+import type { JSX } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
@@ -33,7 +34,7 @@ function errorDescription(err: unknown): string {
   return "请稍后重试"
 }
 
-export function ConversationHeader() {
+export function ConversationHeader(props: { panelBadge?: JSX.Element } = {}) {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sync = useSync()
@@ -193,6 +194,8 @@ export function ConversationHeader() {
               />
             </Show>
           </div>
+
+          {props.panelBadge}
 
           <DropdownMenu
             gutter={4}

@@ -905,24 +905,6 @@ function InsightContent() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          {/* 收起态唤回浮标:有产物但面板被收起时,右上角浮「产出 (N)」(待收起动画结束再现,避免与滑出重叠) */}
-          <Show when={tabStore.tabs().length > 0 && panelCollapsed() && !panelAnimating()}>
-            <button
-              type="button"
-              onClick={() => setPanelCollapsed(false)}
-              title="展开产出面板"
-              class="absolute top-3 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors"
-              style={{
-                background: "var(--octo-surface-page)",
-                color: "var(--octo-text-secondary)",
-                border: "1px solid var(--octo-border-divider)",
-                "box-shadow": "0 1px 4px rgba(0,0,0,0.06)",
-              }}
-            >
-              <Icon name="chevron-left" class="size-3.5 opacity-70" />
-              产出 ({tabStore.tabs().length})
-            </button>
-          </Show>
             <Show
               when={params.id && userMessages().length > 0}
               fallback={
@@ -1059,7 +1041,30 @@ function InsightContent() {
               }
             >
               {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
-              <ConversationHeader />
+              {/* 收起态唤回浮标：放进 header 行内，与三点菜单同行，避免绝对定位遮挡三点按钮 */}
+              <ConversationHeader
+                panelBadge={
+                  tabStore.tabs().length > 0 && panelCollapsed() && !panelAnimating()
+                    ? (
+                      <button
+                        type="button"
+                        onClick={() => setPanelCollapsed(false)}
+                        title="展开产出面板"
+                        class="flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors"
+                        style={{
+                          background: "var(--octo-surface-page)",
+                          color: "var(--octo-text-secondary)",
+                          border: "1px solid var(--octo-border-divider)",
+                          "box-shadow": "0 1px 3px rgba(0,0,0,0.06)",
+                        }}
+                      >
+                        <Icon name="chevron-left" class="size-3 opacity-70" />
+                        产出 ({tabStore.tabs().length})
+                      </button>
+                    )
+                    : undefined
+                }
+              />
 
               {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
               <div
