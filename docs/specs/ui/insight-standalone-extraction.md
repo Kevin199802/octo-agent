@@ -36,6 +36,8 @@ insight 第一版的路由 / shell 层被 UX AI 项目直接参考,拆分(insigh
 | D7 | 底部导航(技能库/资产库/设置)同 D5:由另一同事拆为共享组件,**本期不归我方**,需要时引用 | 锁定 |
 | D8 | ~~会话列表按 `agent === "octo_insight"` 过滤;建会话补 `agent` 配套~~ **本期降级:不过滤,列目录下全部会话**。原因:v2 `session.create` 不收 `agent`、v2 `Session` 类型不暴露 `agent`;外网 opencode 为 Zod schema、`Session.Info` 无 `agent` 字段([session.ts:118](../../../packages/opencode/src/session/session.ts#L118)),写了也是 no-op。agent 过滤推迟为**单独工作项**(参考 UXAI [sidebar.tsx:147](../../../../UXAI/packages/app/octoapp/pages/_shell/sidebar.tsx#L147) 已实现),见 §10 | 调整 |
 | D9 | 其余 UI 细节参考 UX AI | 锁定 |
+| D10 | 两仓 agent 名统一为 `octo_insight`(详见 §11.2);取代 §10.4 "无需改名" | 锁定 |
+| D11 | InsightSessionList 与 UX AI 会话列表 **1:1**(移植完整版状态点,经同源 opencode 子系统驱动,详见 §11.3);取代 §3"简版自包含" + D8"不过滤" | 锁定 |
 
 ---
 
@@ -129,7 +131,7 @@ insight 第一版的路由 / shell 层被 UX AI 项目直接参考,拆分(insigh
 ## 9. 实施步骤(建议 PR 拆分)
 
 1. **PR1 模型切 useLocal** ✅ **已完成**:删隔离 store + `InsightModelSelectionProvider`,主流程/标签/发送改 `useLocal().model`(初次进入不空靠兜底链 `defaultModel()` 取第一个可用模型,见 §4)。~~`createAndNavigate` 建会话补 `agent`~~ **已取消**:v2 `session.create` 不收 `agent` 且对模型回退无收益(insight.md frontmatter 无 `model` 字段,agent 默认层本就为空)。typecheck(tsgo)+ build(vite)双门禁通过
-2. **PR2 抽会话段**:Insight 会话段 → `pages/insight/components/session-list/`(自包含、零参数);**列表列目录下全部会话,本期不按 agent 过滤**(D8 调整);`_shell/sidebar.tsx` 改为 `import` 该组件摆位(底部导航现状保留);验收 `_shell` 无 `/insight` 字面量
+2. **PR2 抽会话段** ✅ **已完成(简版)**:Insight 会话段 → `pages/insight/components/session-list/`(自包含、零参数);`_shell/sidebar.tsx` 改为 `import` 该组件摆位;验收 `_shell` 无 `/insight` 字面量。⚠️ **D11 要把它升级为与 UX AI 1:1(完整状态点 + agent 过滤),见 §11.3**
 3. **PR3(待依赖)** 接入同事的 `SharedSidebar` / 选择器共享组件,`_shell/sidebar.tsx` 退场——等共享组件就绪再做
 4. 各 PR 自动验证(typecheck + build)后合入 dev,里程碑级再触发 octo-sync
 
@@ -150,4 +152,29 @@ insight 第一版的路由 / shell 层被 UX AI 项目直接参考,拆分(insigh
      // 内网新版 server 带 agent → 精确匹配
      sessions.filter((s) => !s.agent || s.agent === "octo_insight")
      ```
-   - **agent 命名**:外网注册名 `insight`、内网 `octo_insight`。因本期不在源码里写 agent 过滤/打标签字面量,**无需改名**;将来做过滤时若需统一,再单独评估(改 [insight.md](../../../packages/agent/insight/agents/insight.md) frontmatter `name` + 发送链路 `const agent` 共两处)。
+   - **agent 命名**:~~因本期不写 agent 过滤,无需改名~~ → **已改:见 §11.2(D10 决定统一为 `octo_insight`)**。
+
+---
+
+## 11. 本轮 review 修订(覆盖上文相关条目)
+
+> review PR1/PR2 后与作者确认的调整。**与上文冲突处,以本节为准。**
+
+### 11.1 壳清理(已做)
+topbar tab `Cowork`→`Insight`([topbar.tsx](../../../packages/app/src/pages/_shell/topbar.tsx));删 sidebar `Octo Make` 段及其专用 `PlusIcon`([sidebar.tsx](../../../packages/app/src/pages/_shell/sidebar.tsx))。
+**关键认识**:`_shell`(topbar/sidebar 框架)是**本地开发壳,不同步给 UXAI**——UXAI 用自己的 shell,我方仅 `pages/insight/**` 同步。故壳子改动只为本地 dev 观感,非合入物。
+
+### 11.2 D10 — agent 名两仓统一 `octo_insight`(取代 §10.4 末"无需改名")
+- 改 2 处:[insight.md](../../../packages/agent/insight/agents/insight.md) frontmatter `name: insight`→`octo_insight`;[index.tsx:475](../../../packages/app/src/pages/insight/index.tsx#L475) `const agent = "insight"`→`"octo_insight"`。(`[data-page="insight"]` CSS 属性与 agent 无关,**不动**。)
+- 本地 opencode **按 frontmatter `name` 注册**([agent.ts:269](../../../packages/opencode/src/agent/agent.ts#L269)),改即生效。
+- **不写 octo-sync transform**(改写源码字符串脆弱);统一字面量后 rsync 天然一致。消除"发的 agent 名 ≠ server 注册名 → server 不起轮 → 发送无反馈"的合入隐患。
+
+### 11.3 D11 — InsightSessionList 与 UX AI 会话列表 1:1(取代 §3"简版" + PR2 现状)
+目标:本地调试即内网形态。移植 UX AI 完整会话列表——新建行、状态点(工作中 `Spinner` / 未读 / 权限 / 错误)。
+- **依赖全部已在我方仓库(同源 opencode,非 fork 专属)**:[notification.tsx](../../../packages/app/src/context/notification.tsx)(`session.unseenCount/unseenHasError`)、[permission.tsx](../../../packages/app/src/context/permission.tsx)、[global-sync.tsx](../../../packages/app/src/context/global-sync.tsx)(`children.child()`)、[ui Spinner](../../../packages/ui/src/components/spinner.tsx)、[sessionTitle](../../../packages/app/src/utils/session-title.ts)。
+- **1:1 同步的前提 = 两 fork 的 context/SDK API 表面一致**(否则"逐字 rsync 两边都对"不成立)。差异两类:① 数据层 `Session.agent`(下面优雅降级吸收,真 1:1);② context API 可能不同名(例 UX AI `permission.autoResponds(...)` ↔ 我方 [`autoRespondsPermission(...)`](../../../packages/app/src/context/permission.tsx))。**实施第一步:逐个 context 调用核对两仓是否同名同签**——同名→真 1:1 同步;不同名→对齐 API,或把该调用收进 `pages/insight/lib/` 薄适配层。目标是「1:1 源码 + 极小受控适配面」,**不是天真逐字拷贝**(会在另一仓跑不起来)。
+- **agent 过滤(取代 D8"不过滤")**:用 §10.4 的优雅降级 `sessions.filter(s => !s.agent || s.agent === "octo_insight")`——统一名后两边都正确。
+- **UI 素材**:缺 `/insightIcon.svg`,补任意占位图标即可(设计师后改),不阻塞。
+
+### 11.4 执行
+D10 + D11 改动集中在 `pages/insight/`,**新开对话实施**(本 review 对话不动业务码,避免与实现线冲突)。新对话入口:"实施 SPEC-INS-010 §11:agent 改名 octo_insight + InsightSessionList 升级到与 UXAI 1:1"。
