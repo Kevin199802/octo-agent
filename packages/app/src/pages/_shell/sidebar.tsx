@@ -7,14 +7,6 @@ import {
   IconSettings,
 } from "./icons"
 
-function PlusIcon(): JSX.Element {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M6 2V10M2 6H10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-    </svg>
-  )
-}
-
 const NAV_ITEMS = [
   { key: "skill_market", label: "技能库", Icon: IconSkill, IconActive: IconSkill1 },
   { key: "knowledge_base", label: "资产库", Icon: IconAsset, IconActive: IconAsset1 },
@@ -24,8 +16,8 @@ const NAV_ITEMS = [
  * OctoSidebar —— 宿主 shell 侧栏框架(SPEC-INS-010 后退化为纯壳)
  *
  * 已不再持有任何 insight 会话逻辑:Insight 会话段抽到 pages/insight/components/session-list,
- * 这里仅 import 摆位。底部导航(技能库/资产库/设置)与 Octo Make 占位为产品级 chrome(D7),
- * 暂保留现状,待同事的 SharedSidebar 落地后整体退场(PR3)。
+ * 这里仅 import 摆位。底部导航(技能库/资产库/设置)为产品级 chrome(D7),暂保留现状,
+ * 待同事的 SharedSidebar 落地后整体退场(PR3)。
  *
  * 验收红线:本文件内不应再出现任何 /insight 字面量或 insight 会话逻辑。
  */
@@ -41,46 +33,13 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         "border-right": "1px solid var(--octo-border-default, #E5E7EB)",
       }}
     >
-      {/* Scrollable: Insight + Make sessions */}
+      {/* Scrollable: Insight 会话列表 */}
       <div
         class="flex-1 min-h-0 overflow-y-auto px-[12px] py-[6px]"
         style={{ "scrollbar-width": "none" }}
       >
         {/* Insight 会话段(自包含组件,内部自取 globalSDK/globalSync) */}
         <InsightSessionList />
-
-        {/* ─── Octo Make ─── */}
-        <div class="mb-[2px]">
-          <div class="flex items-center h-[32px] px-[4px]">
-            <div
-              class="flex items-center gap-[4px] flex-1 min-w-0"
-              style={{ color: "var(--octo-text-secondary, #777777)" }}
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ "flex-shrink": "0" }}>
-                <path d="M4.5 2.5L7.5 6L4.5 9.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <span
-                class="text-[12px] font-medium select-none leading-[20px]"
-                style={{ color: "var(--octo-text-tertiary, #364153)" }}
-              >
-                Octo Make
-              </span>
-            </div>
-            <button
-              type="button"
-              title="新建 Make 对话"
-              class="w-[24px] h-[24px] flex items-center justify-center rounded-[4px] transition-colors"
-              style={{ color: "var(--octo-text-secondary, #777777)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-brand-a8, rgba(0,103,209,0.08))"; e.currentTarget.style.color = "var(--octo-brand, #0067D1)" }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = ""; e.currentTarget.style.color = "var(--octo-text-secondary, #777777)" }}
-            >
-              <PlusIcon />
-            </button>
-          </div>
-          <div class="px-[8px] py-[2px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-            即将上线
-          </div>
-        </div>
       </div>
 
       {/* Fixed bottom: 技能库 / 资产库 */}

@@ -17,7 +17,7 @@ type TabDef = {
 
 const TABS: TabDef[] = [
   { label: "Chat", href: "/chat", Icon: IconChat, IconActive: IconChat1 },
-  { label: "Cowork", href: "/insight", Icon: IconCowork, IconActive: IconCowork1 },
+  { label: "Insight", href: "/insight", Icon: IconCowork, IconActive: IconCowork1 },
   { label: "Studio", href: "/studio", Icon: IconStudio, IconActive: IconStudio1 },
 ]
 
