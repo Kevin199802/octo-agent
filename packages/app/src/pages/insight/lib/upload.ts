@@ -119,8 +119,9 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   try {
     res = await fetch(UPLOAD_ENDPOINT, { method: "POST", body: form })
   } catch (e) {
-    const err = new UploadError("NETWORK", e instanceof Error ? e.message : "网络异常")
-    console.error(`${LOG} network failed`, { ...meta, error: err.message })
+    // fetch 抛出的原生 Error.message 是英文（如 "Failed to fetch"），固定用中文文案
+    const err = new UploadError("NETWORK", "网络异常，请检查连接后重试")
+    console.error(`${LOG} network failed`, { ...meta, nativeError: e instanceof Error ? e.message : String(e) })
     throw err
   }
 
