@@ -197,7 +197,7 @@ function Body(props: { card: TaskCardEntry }): JSX.Element {
 
         <Match when={props.card.status === "failed"}>
           <div class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>
-            请稍后重启客户端并重试
+            请稍后重试
           </div>
           <Show when={props.card.message}>
             <button
