@@ -433,6 +433,48 @@ function InsightContent() {
     console.log("[octo:task] session switched, refresh state cleared", { sessionID: params.id })
   }, { defer: true }))
 
+  // 切换 / 打开 session 后把对话区滚到底部：消息异步加载(message[id] 先 undefined),
+  // 必须等 sessionMessagesLoaded 翻真、InsightTurn 的 parts 渲染撑开高度后再定位,
+  // 否则会滚到尚为空的容器。
+  //
+  // 单次 rAF 不够:切到"已完成会话"时任务卡片/各类 part renderer(图表/mermaid/html)
+  // 渐进撑高,高度在首帧之后还在涨;而 session 非 busy → autoScroll 的 ResizeObserver
+  // 不会再补滚(它只在 active() 时跟随)。所以这里自己盯一个 settle 窗口:每帧强制贴底,
+  // 直到 scrollHeight 连续两帧不再变化(高度稳定),或超时兜底。切换/卸载时取消上一轮。
+  let scrollContainerEl: HTMLElement | undefined
+  let settleScrollRAF: number | undefined
+  const cancelSettleScroll = () => {
+    if (settleScrollRAF !== undefined) {
+      cancelAnimationFrame(settleScrollRAF)
+      settleScrollRAF = undefined
+    }
+  }
+  onCleanup(cancelSettleScroll)
+  createEffect(on(
+    () => [params.id, sessionMessagesLoaded()] as const,
+    ([id, loaded]) => {
+      cancelSettleScroll()
+      if (!id || !loaded) return
+      const SETTLE_MS = 600
+      const start = performance.now()
+      let lastHeight = -1
+      let stableFrames = 0
+      const step = () => {
+        const height = scrollContainerEl?.scrollHeight ?? 0
+        autoScroll.forceScrollToBottom()
+        stableFrames = height === lastHeight ? stableFrames + 1 : 0
+        lastHeight = height
+        // 连续两帧高度不变 = 内容已稳定;或超时兜底,停止盯防
+        if (stableFrames >= 2 || performance.now() - start > SETTLE_MS) {
+          settleScrollRAF = undefined
+          return
+        }
+        settleScrollRAF = requestAnimationFrame(step)
+      }
+      settleScrollRAF = requestAnimationFrame(step)
+    },
+  ))
+
   // ── session 操作 ──────────────────────────────────────────
 
   async function createAndNavigate(): Promise<string | undefined> {
@@ -1172,7 +1214,10 @@ function InsightContent() {
               {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
               <div
                 class="flex-1 overflow-y-auto min-h-0"
-                ref={autoScroll.scrollRef}
+                ref={(el) => {
+                  scrollContainerEl = el
+                  autoScroll.scrollRef(el)
+                }}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
