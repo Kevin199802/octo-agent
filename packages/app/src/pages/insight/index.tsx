@@ -281,6 +281,10 @@ function InsightContent() {
   const [queuedText, setQueuedText] = createSignal<string | null>(null)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
+  // 首次带附件发送会 createAndNavigate 改 params.id,触发下方 session 切换 effect 清空附件草稿。
+  // 但首次发送的这批附件要留给 doSendPrompt consume,不能被 effect 抢清 → 用此 flag 标记
+  // "发送导致的导航",effect 消费一次后跳过清空(其余新建/切换 session 正常清)。
+  let sendingNavigation = false
   let textareaRef!: HTMLTextAreaElement
 
   // 聊天区宽度：从 localStorage 恢复，无存储值时取约 50% 可用宽（扣除侧边栏约 240px）
@@ -377,8 +381,10 @@ function InsightContent() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // 切换 session 时重置 ResultViewer tabs / 任务卡片防抖 / 自动 openTab 记录 / queue
+  // 切换 session 时重置 ResultViewer tabs / 任务卡片防抖 / 自动 openTab 记录 / queue / 未发送附件
   // queue 必须清:在 session A 排队的 text 不能错发到 session B(SPEC-INS-007 §3.3.5)
+  // 附件草稿必须清:在 session A 上传未发送的文件,新建/切换 session 后不应残留(设计确认)。
+  //   例外:首次发送触发的导航(sendingNavigation)——那批附件留给 doSendPrompt consume,跳过一次。
   createEffect(on(() => params.id, () => {
     tabStore.reset()
     setPanelCollapsed(false)
@@ -386,6 +392,12 @@ function InsightContent() {
     clearRefreshState()
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
+    if (sendingNavigation) {
+      sendingNavigation = false
+    } else {
+      filesById.clear()
+      setAttachments([])
+    }
     console.log("[octo:task] session switched, refresh state cleared", { sessionID: params.id })
   }, { defer: true }))
 
@@ -555,8 +567,10 @@ function InsightContent() {
 
     let sid = params.id
     if (!sid) {
+      // 首次发送:navigate 会触发 session 切换 effect,标记一下让它别抢清这批待发送附件
+      sendingNavigation = true
       sid = await createAndNavigate()
-      if (!sid) return
+      if (!sid) { sendingNavigation = false; return }
     }
     await sendMessage(sid, text)
   }
