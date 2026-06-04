@@ -434,16 +434,12 @@
   border: 1px solid var(--octo-border-default);
   border-radius: var(--octo-radius-md);
 }
-.octo-input-attachment-card__badge {
+/* 文件类型图标(24×24,跟 attachment-bar / 结果卡同源 fileTypeIconUrl) */
+.octo-input-attachment-card__icon {
   flex: 0 0 auto;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  color: var(--octo-brand);
-  border: 1px solid var(--octo-brand-a25);
-  border-radius: 4px;
-  padding: 3px 4px;
+  display: block;
+  width: 24px;
+  height: 24px;
 }
 .octo-input-attachment-card__name {
   min-width: 0;
