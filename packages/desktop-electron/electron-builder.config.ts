@@ -37,8 +37,8 @@ const getBase = (): Configuration => ({
   files: ["out/**/*", "resources/**/*"],
   extraResources: [
     {
-      from: "../../packages/agent/insight/agents/insight.md",
-      to: "agents/insight.md",
+      from: "../../packages/agent/octo_insight/agents/octo_insight.md",
+      to: "agents/octo_insight.md",
     },
   ],
   mac: {

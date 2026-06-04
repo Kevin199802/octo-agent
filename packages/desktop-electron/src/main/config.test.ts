@@ -67,11 +67,11 @@ describe("buildRuntimeConfig — 读真实源文件", () => {
 
     // runtime 含 insight prompt（来自真实 insight.md）
     const runtime = JSON.parse(fs.readFileSync(runtimePath, "utf8"))
-    const prompt: string = runtime?.agent?.insight?.prompt ?? ""
+    const prompt: string = runtime?.agent?.octo_insight?.prompt ?? ""
     expect(prompt.length).toBeGreaterThan(0)
 
-    // runtime 也含 insight.md 里的关键词
-    const insightSrc = fs.readFileSync(devPromptPath("insight"), "utf8")
+    // runtime 也含 octo_insight.md 里的关键词
+    const insightSrc = fs.readFileSync(devPromptPath("octo_insight"), "utf8")
     expect(prompt).toContain(insightSrc.slice(0, 50).trim())
 
     // MCP url 来自 default-config.json
@@ -93,13 +93,13 @@ describe("buildRuntimeConfig — 读真实源文件", () => {
     // 模拟"改了 insight.md"：用一个修改版本的 getPromptPath
     const altDir = path.join(tmpDir, "alt-agents")
     fs.mkdirSync(altDir, { recursive: true })
-    fs.writeFileSync(path.join(altDir, "insight.md"), "# UPDATED PROMPT v2")
+    fs.writeFileSync(path.join(altDir, "octo_insight.md"), "# UPDATED PROMPT v2")
     const altPromptPath = (name: string) => path.join(altDir, `${name}.md`)
 
     buildRuntimeConfig(DEFAULT_CONFIG, altPromptPath, userConfigPath, runtimePath)
     const runtime2 = JSON.parse(fs.readFileSync(runtimePath, "utf8"))
 
-    expect(runtime2.agent?.insight?.prompt).toBe("# UPDATED PROMPT v2")
+    expect(runtime2.agent?.octo_insight?.prompt).toBe("# UPDATED PROMPT v2")
     // 用户文件不变
     const stub = JSON.parse(fs.readFileSync(userConfigPath, "utf8"))
     expect(stub.provider?.deepseek?.options?.apiKey).toBe("REPLACE_ME")
@@ -116,13 +116,13 @@ describe("buildRuntimeConfig — 读真实源文件", () => {
     // 用户手动改了 prompt
     fs.writeFileSync(
       userConfigPath,
-      JSON.stringify({ agent: { insight: { prompt: "我的自定义 prompt" } } }, null, 2),
+      JSON.stringify({ agent: { octo_insight: { prompt: "我的自定义 prompt" } } }, null, 2),
     )
 
     buildRuntimeConfig(DEFAULT_CONFIG, devPromptPath, userConfigPath, runtimePath)
     const runtime = JSON.parse(fs.readFileSync(runtimePath, "utf8"))
 
-    expect(runtime.agent?.insight?.prompt).toBe("我的自定义 prompt")
+    expect(runtime.agent?.octo_insight?.prompt).toBe("我的自定义 prompt")
     // 其余 A 类字段仍然存在
     expect(runtime.default_agent).toBeDefined()
   })

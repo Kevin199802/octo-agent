@@ -11,9 +11,9 @@
 | 维度 | 外网（我方）| 内网（你方）|
 |---|---|---|
 | pages 路径 | `packages/app/src/pages/` | `packages/app/octoapp/pages/` |
-| Agent 配置目录 | `packages/agent/insight/agents/` | `packages/opencode/src/agent/prompt/` |
-| Agent 文件名 | `insight.md`（含 frontmatter）| `octo_insight.md`（待你方落地 P1）|
-| Agent 名 | `insight` | `octo_insight` |
+| Agent 配置目录 | `packages/agent/octo_insight/agents/` | `packages/opencode/src/agent/prompt/` |
+| Agent 文件名 | `octo_insight.md`（含 frontmatter）| `octo_insight.md` |
+| Agent 名 | `octo_insight`（SPEC-INS-010 D10 起两仓统一）| `octo_insight` |
 | 用户配置文件 | `~/.config/octo/octo.json` | `~/.config/octo/octo.json` |
 
 ---
@@ -66,7 +66,7 @@ AI 会按本文档 §1.1–§1.6 做业务 rsync + 越界文件对应的 UX AI �
 | 改动落点 | 结果 |
 |---|---|
 | `packages/app/src/pages/insight/**`（除 `_dev/`） | 🟢 自动同步 |
-| `packages/agent/insight/agents/insight.md` | 🟢 自动同步（原样 → `octo_insight.md`） |
+| `packages/agent/octo_insight/agents/octo_insight.md` | 🟢 自动同步（原样 cp，两仓同名 `octo_insight.md`） |
 | `_dev/`、`docs/`、`CLAUDE.md`、`script/` 等纯外网文件 | ⚪ 忽略（不同步也不报警） |
 | `app.tsx` / `packages/desktop-electron/` / 依赖 / 其他 | 🔴 非绿灯，交 AI |
 
@@ -82,10 +82,10 @@ rsync -av --delete \
 
 整目录覆盖，文件结构对应。
 
-### 1.2 同步 `insight.md`
+### 1.2 同步 `octo_insight.md`
 
 ```bash
-cp /path/to/octo-agent/packages/agent/insight/agents/insight.md \
+cp /path/to/octo-agent/packages/agent/octo_insight/agents/octo_insight.md \
    ./packages/opencode/src/agent/prompt/octo_insight.md
 ```
 

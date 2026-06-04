@@ -23,14 +23,11 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { ModelsProvider } from "@/context/models"
-import { LocalProvider } from "@/context/local"
+import { LocalProvider, useLocal } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
-import {
-  InsightModelSelectionProvider,
-  useInsightModelSelection,
-} from "./store/model-selection"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
+import { InsightSidebar } from "./sidebar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
@@ -66,13 +63,11 @@ export default function InsightPage() {
         <SDKProvider directory={() => dir}>
           <SyncProvider>
             <ModelsProvider>
-              {/* LocalProvider:为 ModelSelectorPopover 内懒加载的 dialog-manage-models /
-                  dialog-select-provider 提供 useLocal()(用于全局模型可见性管理 UI)。
-                  我们在主流程里读的是 useInsightModelSelection,跟 useLocal 隔离。 */}
+              {/* 模型选择统一走 useLocal().model(SPEC-INS-010 D2):自带
+                  会话级→agent 默认→全局兜底 回退链,初次进入不再"显示未选却可发送"。
+                  原 InsightModelSelectionProvider/隔离 store 已删除。 */}
               <LocalProvider>
-                <InsightModelSelectionProvider>
-                  <InsightContent />
-                </InsightModelSelectionProvider>
+                <InsightContent />
               </LocalProvider>
             </ModelsProvider>
           </SyncProvider>
@@ -92,13 +87,20 @@ const UPLOAD_ACCEPT = ALLOWED_EXT.map((e) => `.${e}`).join(",")
 // 添加附件按钮的 tooltip 提示:支持的文件类型 + 大小 + 数量上限(均从常量派生)。
 const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB，最多 ${MAX_ATTACHMENTS} 个`
 
+// 刷新保路由:打包态 Electron 走 file://(dev 的 electron reload 同样不走 SPA 兜底),整页
+// 重载会丢失 /insight/:id 路由、回退到首页。这里把"当前所在对话"持久化,boot 落在无 id 的
+// 首页态时恢复到上次位置——实现浏览器式"原地刷新"。值为 session id;空串 = 上次在新建空态。
+const LAST_SESSION_KEY = "octo:insight:last-session"
+// 每次整页加载只恢复一次(模块级,页面 reload 时自然重置);避免 keyed 重挂导致重复跳转。
+let didBootRestore = false
+
 function InsightContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const sync = useSync()
-  const selection = useInsightModelSelection()
+  const local = useLocal()
   const themeCtx = useTheme()
 
   // Insight 暂不适配暗色模式：mount 时注入全局亮色 token 覆盖（selector 为 html 自身），
@@ -124,13 +126,42 @@ function InsightContent() {
 
   const homeDir = () => globalSync.data.path.home
 
+  // ── 刷新保路由 ─────────────────────────────────────────────
+  // bootSavedId:在下方 save effect 覆盖前,同步捕获"刷新前"存的对话 id。
+  const bootSavedId = localStorage.getItem(LAST_SESSION_KEY)
+  onMount(() => {
+    if (didBootRestore) return
+    didBootRestore = true
+    // 仅当本次整页加载落在"无 id 首页态"且上次确实在某对话时才尝试恢复。
+    // 若上次就在新建空态(bootSavedId 为空串)→ 不跳,保持空态(浏览器式原地刷新)。
+    if (params.id || !bootSavedId) return
+    const dir = homeDir() // InsightContent 仅在 homeDir 就绪后挂载,理论恒有值
+    if (!dir) return
+    // 先校验上次会话仍存在再跳(replace 不污染历史):避免跳到已删会话卡在加载态。
+    void globalSDK.client.session
+      .get({ directory: dir, sessionID: bootSavedId })
+      .then((r) => {
+        if ((r as { data?: unknown })?.data) navigate(`/insight/${bootSavedId}`, { replace: true })
+        else localStorage.removeItem(LAST_SESSION_KEY) // 已删 → 留首页 + 清记录
+      })
+      .catch(() => { /* 网络/未知错误:不跳,保持首页,记录留待下次 */ })
+  })
+  // 记录当前所在对话(空 = 新建空态),供下次整页加载恢复。
+  createEffect(() => { localStorage.setItem(LAST_SESSION_KEY, params.id ?? "") })
+
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
   // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
+  //
+  // 依赖同时取 params.id 和「message[id] 是否缺失」：
+  // - 切到新 id → message[id] 为 undefined → 触发 sync
+  // - 放置一段时间后 sync 缓存被清（连接重置/驱逐），message[id] 变回 undefined 但 id 未变
+  //   → 这里仍会重新触发 sync，避免中间聊天区永久空白（白屏 bug）。
+  //   sync.session.sync 自带 inflight 去重，重复调用安全；加载完 message[id] 有值后不再触发。
   createEffect(
     on(
-      () => params.id,
-      (id) => {
-        if (!id) return
+      () => [params.id, sync.data.message[params.id ?? ""] === undefined] as const,
+      ([id, missing]) => {
+        if (!id || !missing) return
         console.log("[octo:sync] session.sync", { sessionID: id })
         void sync.session.sync(id)
       },
@@ -293,9 +324,9 @@ function InsightContent() {
     const stored = localStorage.getItem(CHAT_WIDTH_KEY)
     if (stored) {
       const n = parseInt(stored, 10)
-      if (!isNaN(n) && n >= 240) return n
+      if (!isNaN(n) && n >= 345 && n <= 720) return n
     }
-    return Math.max(360, Math.floor((window.innerWidth - 240) / 2))
+    return 460 // 参考 UX AI make 的对话面板默认宽
   }
   const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
 
@@ -317,7 +348,7 @@ function InsightContent() {
       localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
     }
     const onMove = (ev: PointerEvent) => {
-      setChatWidth(Math.max(240, Math.min(Math.floor(window.innerWidth * 0.65), startWidth + ev.clientX - startX)))
+      setChatWidth(Math.max(345, Math.min(720, startWidth + ev.clientX - startX))) // 钳制参考 UX AI make
     }
     const cleanup = () => {
       restore()
@@ -436,6 +467,35 @@ function InsightContent() {
     return "请稍后重试"
   }
 
+  // 发送后"无反馈"探测:promptAsync 成功返回后启动,NO_FEEDBACK_WATCHDOG_MS 内若 session
+  // 既未进入 busy、也无新 assistant 响应,打一条显眼 warning —— 专门定位"发消息后既无思考中、
+  // 也无回复"的现象。状态没翻 busy 多半是 SSE/event 没到或 server 未启动该轮,据此分流排查。
+  const NO_FEEDBACK_WATCHDOG_MS = 8000
+  function armNoFeedbackWatchdog(sessionId: string, messageID: string) {
+    const assistantBefore = ((sync.data.message[sessionId] ?? []) as Message[]).filter((m) => m.role === "assistant").length
+    window.setTimeout(() => {
+      const status = sync.data.session_status[sessionId]?.type ?? "idle"
+      const msgs = (sync.data.message[sessionId] ?? []) as Message[]
+      const assistantNow = msgs.filter((m) => m.role === "assistant").length
+      if (status !== "busy" && assistantNow <= assistantBefore) {
+        console.warn(
+          `[octo:prompt] no-feedback ⚠️ 发送后 ${NO_FEEDBACK_WATCHDOG_MS}ms 内 session 未进入 busy 且无新 assistant 响应`,
+          {
+            sessionID: sessionId,
+            messageID,
+            status,
+            messageCount: msgs.length,
+            assistantBefore,
+            assistantNow,
+            hint: "status 没翻 busy → 查 globalSync 事件流(SSE)是否在收 / server 是否启动了该轮;若 model 为 undefined 且 agent 无默认模型也可能不启动",
+          },
+        )
+      } else {
+        console.log("[octo:prompt] feedback-ok", { sessionID: sessionId, messageID, status, assistantBefore, assistantNow })
+      }
+    }, NO_FEEDBACK_WATCHDOG_MS)
+  }
+
   /**
    * 共享的 prompt 调用底层(SPEC-INS-007 §3.2 改用 promptAsync + optimistic)
    *   - consumeAttachments=true(用户手动发送):附件随消息发送,发送后清空附件状态
@@ -455,10 +515,10 @@ function InsightContent() {
     const parts: TextPartInput[] = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
     const messageID = Identifier.ascending("message")
-    const agent = "insight"
+    const agent = "octo_insight"
 
-    // 当前 insight 选中的模型(来自 useInsightModelSelection,workspace 级持久化)
-    const currentModel = selection.model.current()
+    // 当前选中模型(useLocal().model.current():会话级→agent 默认→全局兜底 回退链)
+    const currentModel = local.model.current()
     const model = currentModel ? {
       modelID: currentModel.id,
       providerID: currentModel.provider.id,
@@ -500,6 +560,9 @@ function InsightContent() {
       sessionID: sessionId,
       messageID,
       agent,
+      model,                          // undefined ⇒ 服务端按 agent 默认配置;无默认时可能不启动该轮
+      modelResolved: !!model,
+      statusAtSend: sync.data.session_status[sessionId]?.type ?? "idle",
       text: text.length > 120 ? `${text.slice(0, 120)}…` : text,
       textLen: text.length,
       attachmentsCount: doneAttachments.length,
@@ -526,14 +589,21 @@ function InsightContent() {
     }
 
     try {
-      await globalSDK.client.session.promptAsync({
+      const result = await globalSDK.client.session.promptAsync({
         sessionID: sessionId,
         agent,
         model,
         parts,
         messageID,
       })
-      console.log("[octo:prompt] sent (async)", { messageID, sessionID: sessionId })
+      console.log("[octo:prompt] sent (async)", {
+        messageID,
+        sessionID: sessionId,
+        statusAfterSend: sync.data.session_status[sessionId]?.type ?? "idle",
+        response: (result as { data?: unknown })?.data ?? result,
+      })
+      // server 已受理,启动无反馈探测(8s 内未 busy 且无 assistant 响应 → warn)
+      armNoFeedbackWatchdog(sessionId, messageID)
     } catch (err) {
       console.error("[octo:prompt] failed", { source: opts.source, messageID, err })
       sync.session.optimistic.remove({ sessionID: sessionId, messageID })
@@ -890,7 +960,12 @@ function InsightContent() {
       onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
     >
       <Toast.Region />
-      <div class="size-full flex overflow-hidden relative" data-page="insight">
+      <div class="size-full flex overflow-hidden relative">
+        {/* 左侧会话栏(SPEC-INS-010 §11:侧栏归 insight,单独第一列,不混入对话↔面板的 flex) */}
+        <InsightSidebar />
+
+        {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外) */}
+        <div class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
 
         {/* ── 左栏：对话面板 ────
              展开态:固定 chatWidth,可拖拽分隔。收起态:撑满 100%,内容居中 reading-width。
@@ -913,7 +988,16 @@ function InsightContent() {
             <Show
               when={params.id && userMessages().length > 0}
               fallback={
-                <Show when={sessionMessagesLoaded()}>
+                <Show
+                  when={sessionMessagesLoaded()}
+                  fallback={
+                    /* 已有 id 但消息缓存未就绪：显示加载占位,绝不渲染空白。
+                       否则切回已存在会话、缓存被清时中间区会整块空白(白屏 bug)。 */
+                    <div class="size-full flex items-center justify-center">
+                      <div class="octo-spinner" />
+                    </div>
+                  }
+                >
                 <div class="size-full flex flex-col items-center justify-center px-8 py-10 overflow-y-auto">
                   <IllustrationInsightEmpty width={166} height={166} />
                   <div
@@ -1008,7 +1092,7 @@ function InsightContent() {
                         </Tooltip>
 
                         <ModelSelectorPopover
-                          model={selection.model}
+                          model={local.model}
                           triggerAs="button"
                           triggerProps={{
                             class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
@@ -1019,7 +1103,7 @@ function InsightContent() {
                           {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
                               synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
                           <span class="truncate">
-                            {selection.model.current()?.name ?? "选择模型"}
+                            {local.model.current()?.name ?? "选择模型"}
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
                         </ModelSelectorPopover>
@@ -1194,7 +1278,7 @@ function InsightContent() {
                     </Tooltip>
 
                     <ModelSelectorPopover
-                      model={selection.model}
+                      model={local.model}
                       triggerAs="button"
                       triggerProps={{
                         class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
@@ -1205,7 +1289,7 @@ function InsightContent() {
                       {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
                           synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
                       <span class="truncate">
-                        {selection.model.current()?.name ?? "选择模型"}
+                        {local.model.current()?.name ?? "选择模型"}
                       </span>
                       <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
                     </ModelSelectorPopover>
@@ -1273,6 +1357,7 @@ function InsightContent() {
             onSetViewMode={tabStore.setViewMode}
           />
         </Show>
+        </div>
       </div>
     </DataProvider>
   )
