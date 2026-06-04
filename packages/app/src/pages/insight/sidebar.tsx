@@ -62,8 +62,8 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
         <div class="shrink-0 px-[8px] pt-[12px]">{props.top}</div>
       </Show>
 
-      {/* 会话列表 */}
-      <div class="flex-1 min-h-0 overflow-y-auto px-[12px] py-[6px]" style={{ "scrollbar-width": "none" }}>
+      {/* 会话列表(自身不滚动:固定头 + 列表独立滚动在 InsightSessionList 内部分区) */}
+      <div class="flex-1 min-h-0 flex flex-col px-[12px] py-[6px]">
         <InsightSessionList />
       </div>
 
