@@ -442,7 +442,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
                 <path d="M8 2v8M5 7.5l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
                 <path d="M2.5 11.5v1A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5v-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
               </svg>
-              {downloadBusy() ? "保存中…" : "下载"}
+              {downloadBusy() ? "保存中…" : "另存为"}
             </button>
           </div>
         </Show>
