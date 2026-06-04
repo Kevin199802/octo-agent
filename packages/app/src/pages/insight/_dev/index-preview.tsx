@@ -35,6 +35,16 @@ const DEV_PAGES: { path: string; title: string; desc: string }[] = [
     title: "上传文件 Chip 新 UI",
     desc: "输入框上方附件条三态:上传成功(40px)、上传中(旋转光芒)、上传失败(56px 红色提示行)",
   },
+  {
+    path: "/_dev/panel-header",
+    title: "ConversationHeader 布局验证",
+    desc: "复现「产出(N)按钮遮挡三点菜单」bug，验证 badge 移入 header flex 行后三点始终可点",
+  },
+  {
+    path: "/_dev/attachment-parse",
+    title: "上传卡片解析验证（文件名带空格）",
+    desc: "复现「发送后对话框上方文件列表丢带空格文件名」真bug：对比旧正则（\\S+遇空格截断丢行）与新indexOf切分（全保留）",
+  },
 ]
 
 export default function DevIndexPage(): JSX.Element {

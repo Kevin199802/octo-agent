@@ -44,15 +44,8 @@ function FileFallbackNew(props: {
   return (
     <div
       class="relative flex flex-col items-center justify-center h-full overflow-hidden"
-      style={{ background: "linear-gradient(145deg, #EEF4FF 0%, #F5F0FF 45%, #EFF8FF 100%)" }}
+      style={{ background: "var(--octo-surface-result)" }}
     >
-      {/* 装饰光晕:左下蓝 */}
-      <div class="pointer-events-none absolute" style={{ width: "560px", height: "560px", left: "-100px", bottom: "-120px", "border-radius": "50%", background: "radial-gradient(circle, rgba(10,89,247,0.20) 0%, rgba(10,89,247,0) 70%)" }} />
-      {/* 装饰光晕:右下紫 */}
-      <div class="pointer-events-none absolute" style={{ width: "500px", height: "500px", right: "-80px", bottom: "-80px", "border-radius": "50%", background: "radial-gradient(circle, rgba(123,97,255,0.18) 0%, rgba(123,97,255,0) 70%)" }} />
-      {/* 装饰光晕:左上紫(较大) */}
-      <div class="pointer-events-none absolute" style={{ width: "758px", height: "758px", left: "-108px", top: "calc(50% - 200px)", "border-radius": "50%", background: "radial-gradient(circle, rgba(123,97,255,0.18) 0%, rgba(123,97,255,0) 70%)" }} />
-
       <div class="relative z-10 flex flex-col items-center" style={{ width: "560px", "max-width": "calc(100% - 48px)" }}>
         {/* 文件类型图标 72×72 */}
         <img src={iconUrl()} width={72} height={72} alt="" aria-hidden="true" style={{ "margin-bottom": "20px" }} />
@@ -102,6 +95,52 @@ function FileFallbackNew(props: {
   )
 }
 
+// ── 线上现状(result-viewer/index.tsx FileFallback 原样复刻,无 API 调用) ──
+function FileFallbackCurrent(props: {
+  fileName: string
+  mimeType: string
+  openBusy?: boolean
+  revealBusy?: boolean
+  downloadBusy?: boolean
+}): JSX.Element {
+  return (
+    <div class="flex flex-col items-center justify-center h-full gap-3 px-8 text-center">
+      <div class="text-sm" style={{ color: "var(--octo-text-secondary)" }}>
+        {props.fileName}
+      </div>
+      <div class="text-xs" style={{ color: "var(--octo-text-disabled)" }}>
+        {props.mimeType} · 该格式不在应用内预览
+      </div>
+      <div class="flex items-center gap-2 mt-1 flex-wrap justify-center">
+        <button
+          type="button"
+          disabled={props.openBusy}
+          class="px-3 py-1 text-xs rounded disabled:opacity-50"
+          style={{ border: "1px solid var(--octo-brand)", color: "var(--octo-brand)", background: "var(--octo-surface-page)" }}
+        >
+          {props.openBusy ? "打开中…" : "用本地应用打开"}
+        </button>
+        <button
+          type="button"
+          disabled={props.revealBusy}
+          class="px-3 py-1 text-xs rounded disabled:opacity-50"
+          style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
+        >
+          {props.revealBusy ? "定位中…" : "在文件夹中打开"}
+        </button>
+        <button
+          type="button"
+          disabled={props.downloadBusy}
+          class="px-3 py-1 text-xs rounded disabled:opacity-50"
+          style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
+        >
+          {props.downloadBusy ? "保存中…" : "另存为"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── 预览页主体 ──────────────────────────────────────────────
 export default function FileFallbackPreviewPage(): JSX.Element {
   const [selected, setSelected] = createSignal(0)
@@ -120,9 +159,9 @@ export default function FileFallbackPreviewPage(): JSX.Element {
       <div class="mx-auto" style={{ "max-width": "760px", padding: "40px 24px 80px" }}>
         <A href="/_dev" style={{ "font-size": "12px", color: "var(--octo-text-secondary)", "text-decoration": "none" }}>← Dev 预览索引</A>
 
-        <div style={{ "margin-top": "12px", "margin-bottom": "4px", "font-size": "22px", "font-weight": 600, color: "var(--octo-text-strong)" }}>FileFallback 新 UI</div>
+        <div style={{ "margin-top": "12px", "margin-bottom": "4px", "font-size": "22px", "font-weight": 600, color: "var(--octo-text-strong)" }}>FileFallback 对比预览</div>
         <div style={{ "margin-bottom": "20px", "font-size": "13px", color: "var(--octo-text-secondary)" }}>
-          设计稿「容器 30044 新的整体 ui.svg」。图标通过 <code>fileTypeIconUrl()</code> 按扩展名/mimeType 自动选取。
+          左:线上现状(result-viewer/index.tsx)&emsp;右:设计稿新 UI(待落地)
         </div>
 
         {/* 文件类型选择 */}
@@ -151,19 +190,43 @@ export default function FileFallbackPreviewPage(): JSX.Element {
           ))}
         </div>
 
-        {/* 渲染区:模拟 ResultViewer 右栏 */}
-        <div style={{ width: "560px", "max-width": "100%", height: "380px", border: "1px solid var(--octo-border-divider, #eee)", "border-radius": "var(--octo-radius-md, 8px)", overflow: "hidden", "box-shadow": "0 1px 3px rgba(0,0,0,.06)" }}>
-          <FileFallbackNew
-            fileName={file().fileName}
-            mimeType={file().mimeType}
-            openBusy={openBusy()}
-            revealBusy={revealBusy()}
-            downloadBusy={downloadBusy()}
-          />
+        {/* 左右对比:同一画框尺寸 */}
+        <div style={{ display: "flex", gap: "20px", "flex-wrap": "wrap" }}>
+          {/* 左:线上现状 */}
+          <div style={{ flex: "1", "min-width": "280px" }}>
+            <div style={{ "font-size": "12px", "font-weight": 600, color: "var(--octo-text-secondary)", "margin-bottom": "8px" }}>
+              线上现状
+            </div>
+            <div style={{ height: "320px", border: "1px solid var(--octo-border-divider, #eee)", "border-radius": "var(--octo-radius-md, 8px)", overflow: "hidden", "box-shadow": "0 1px 3px rgba(0,0,0,.06)", background: "var(--octo-surface-result, #fff)" }}>
+              <FileFallbackCurrent
+                fileName={file().fileName}
+                mimeType={file().mimeType}
+                openBusy={openBusy()}
+                revealBusy={revealBusy()}
+                downloadBusy={downloadBusy()}
+              />
+            </div>
+          </div>
+
+          {/* 右:设计稿新 UI */}
+          <div style={{ flex: "1", "min-width": "280px" }}>
+            <div style={{ "font-size": "12px", "font-weight": 600, color: "var(--octo-text-secondary)", "margin-bottom": "8px" }}>
+              设计稿新 UI(待落地)
+            </div>
+            <div style={{ height: "320px", border: "1px solid var(--octo-border-divider, #eee)", "border-radius": "var(--octo-radius-md, 8px)", overflow: "hidden", "box-shadow": "0 1px 3px rgba(0,0,0,.06)" }}>
+              <FileFallbackNew
+                fileName={file().fileName}
+                mimeType={file().mimeType}
+                openBusy={openBusy()}
+                revealBusy={revealBusy()}
+                downloadBusy={downloadBusy()}
+              />
+            </div>
+          </div>
         </div>
 
         <div style={{ "margin-top": "14px", "font-size": "12px", color: "var(--octo-text-disabled)", "line-height": 1.7 }}>
-          画框 560×380 模拟 ResultViewer 右栏。视觉 OK 后落地替换 <code>result-viewer/index.tsx FileFallback</code>。
+          画框 320px 高模拟 ResultViewer 右栏。确认新 UI 后落地替换 <code>result-viewer/index.tsx FileFallback</code>。
         </div>
       </div>
     </div>

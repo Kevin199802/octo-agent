@@ -319,9 +319,13 @@ export default function PanelTabsPreviewPage() {
 }
 ```
 
-规则：
-- **只 import 真实组件**，不另起新组件写样式
+规则（**强制**）：
+- **只 import 真实组件，绝不在 dev 页里拷贝或重写组件代码**。dev 页存在的唯一意义是"用 mock 数据驱动真实组件"，一旦自绘一份副本，dev 看到的就不再是线上的东西，调试结论失效，且两份代码会**悄悄漂移**。
+- **设计样张例外 + 回收义务**：若组件尚不存在（"设计先行"，先在 dev 页画样张定视觉），允许临时在 dev 页内自绘。但这是**带债务的临时态**——组件一旦在 `components/` 落地，**必须立刻回头把 dev 页改成 `import` 真实组件、删掉临时副本**。落地却不回收 = 留下一份必然漂移的影子代码。
+  - 自绘样张期间，在文件顶部注释标明"待落地后回收"，避免被遗忘。
+  - **反例（已修复）**：`attachment-bar-preview.tsx` 曾自绘整套 `AttachmentChip`，组件落地到 `components/attachment-bar.tsx` 后副本没回收，dev 页与线上各持一份近似拷贝，存在漂移风险——后已重构为 `import { AttachmentBar }`。
 - mock 数据写在文件内，不引外部状态
+- 真实组件若强依赖某个容器/上下文（如附件条贴合输入胶囊），dev 页只**模拟那层环境容器**（白底、圆角等），容器里仍塞真实组件——模拟的是"环境"，不是"组件本身"。
 - 用 `Frame` / `Section` 等 `_dev/cards-preview.tsx` 里已有的布局辅助组件（直接 copy 或抽共用）
 
 #### 第二步：在 `_dev/dev-routes.tsx` 注册路由（**不碰 app.tsx**）

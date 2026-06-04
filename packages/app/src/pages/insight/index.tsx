@@ -312,6 +312,10 @@ function InsightContent() {
   const [queuedText, setQueuedText] = createSignal<string | null>(null)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
+  // 首次带附件发送会 createAndNavigate 改 params.id,触发下方 session 切换 effect 清空附件草稿。
+  // 但首次发送的这批附件要留给 doSendPrompt consume,不能被 effect 抢清 → 用此 flag 标记
+  // "发送导致的导航",effect 消费一次后跳过清空(其余新建/切换 session 正常清)。
+  let sendingNavigation = false
   let textareaRef!: HTMLTextAreaElement
 
   // 聊天区宽度：从 localStorage 恢复，无存储值时取约 50% 可用宽（扣除侧边栏约 240px）
@@ -408,8 +412,10 @@ function InsightContent() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // 切换 session 时重置 ResultViewer tabs / 任务卡片防抖 / 自动 openTab 记录 / queue
+  // 切换 session 时重置 ResultViewer tabs / 任务卡片防抖 / 自动 openTab 记录 / queue / 未发送附件
   // queue 必须清:在 session A 排队的 text 不能错发到 session B(SPEC-INS-007 §3.3.5)
+  // 附件草稿必须清:在 session A 上传未发送的文件,新建/切换 session 后不应残留(设计确认)。
+  //   例外:首次发送触发的导航(sendingNavigation)——那批附件留给 doSendPrompt consume,跳过一次。
   createEffect(on(() => params.id, () => {
     tabStore.reset()
     setPanelCollapsed(false)
@@ -417,6 +423,12 @@ function InsightContent() {
     clearRefreshState()
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
+    if (sendingNavigation) {
+      sendingNavigation = false
+    } else {
+      filesById.clear()
+      setAttachments([])
+    }
     console.log("[octo:task] session switched, refresh state cleared", { sessionID: params.id })
   }, { defer: true }))
 
@@ -625,9 +637,12 @@ function InsightContent() {
 
     let sid = params.id
     if (!sid) {
+      // 首次发送:navigate 会触发 session 切换 effect,标记一下让它别抢清这批待发送附件
+      sendingNavigation = true
       sid = await createAndNavigate()
-      if (!sid) return
+      if (!sid) { sendingNavigation = false; return }
     }
+    autoScroll.forceScrollToBottom()
     await sendMessage(sid, text)
   }
 
@@ -817,16 +832,6 @@ function InsightContent() {
     void sendInjectedPrompt(sid, `终止任务 ${taskId}`, "task-stop")
   }
 
-  function handleTaskFollowup(taskId: string) {
-    // 填种子文本到输入框,光标定位,不自动发送(spec §6.1 "在对话里继续讨论")
-    const card = taskCards().get(taskId)
-    const toolHint = card ? toolDisplayName(card.toolName) : "任务"
-    const seed = `基于 task ${taskId}(${toolHint})的结果,我想…`
-    setPrompt(seed)
-    console.log("[octo:task] followup seed", { taskId, seed })
-    // 滚动到输入框 / focus — 由用户自然交互完成,不强抢焦点
-  }
-
   /**
    * 把 completed task 转成 1~N 个 OutputCard,每个 resource_link 一张;
    * 无 resource_link 但有 resultText 时,fallback 为单张 markdown inline 卡;
@@ -980,24 +985,6 @@ function InsightContent() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          {/* 收起态唤回浮标:有产物但面板被收起时,右上角浮「产出 (N)」(待收起动画结束再现,避免与滑出重叠) */}
-          <Show when={tabStore.tabs().length > 0 && panelCollapsed() && !panelAnimating()}>
-            <button
-              type="button"
-              onClick={() => setPanelCollapsed(false)}
-              title="展开产出面板"
-              class="absolute top-3 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors"
-              style={{
-                background: "var(--octo-surface-page)",
-                color: "var(--octo-text-secondary)",
-                border: "1px solid var(--octo-border-divider)",
-                "box-shadow": "0 1px 4px rgba(0,0,0,0.06)",
-              }}
-            >
-              <Icon name="chevron-left" class="size-3.5 opacity-70" />
-              产出 ({tabStore.tabs().length})
-            </button>
-          </Show>
             <Show
               when={params.id && userMessages().length > 0}
               fallback={
@@ -1091,6 +1078,7 @@ function InsightContent() {
                           placement="top"
                           class="flex-shrink-0"
                           value={maxAttachments() ? `最多 ${MAX_ATTACHMENTS} 个文件` : UPLOAD_HINT}
+                          contentStyle={{ "white-space": "nowrap", "max-width": "none" }}
                         >
                           <button
                             type="button"
@@ -1143,7 +1131,30 @@ function InsightContent() {
               }
             >
               {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
-              <ConversationHeader />
+              {/* 收起态唤回浮标：放进 header 行内，与三点菜单同行，避免绝对定位遮挡三点按钮 */}
+              <ConversationHeader
+                panelBadge={
+                  tabStore.tabs().length > 0 && panelCollapsed() && !panelAnimating()
+                    ? (
+                      <button
+                        type="button"
+                        onClick={() => setPanelCollapsed(false)}
+                        title="展开产出面板"
+                        class="flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors"
+                        style={{
+                          background: "var(--octo-surface-page)",
+                          color: "var(--octo-text-secondary)",
+                          border: "1px solid var(--octo-border-divider)",
+                          "box-shadow": "0 1px 3px rgba(0,0,0,0.06)",
+                        }}
+                      >
+                        <Icon name="chevron-left" class="size-3 opacity-70" />
+                        产出 ({tabStore.tabs().length})
+                      </button>
+                    )
+                    : undefined
+                }
+              />
 
               {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
               <div
@@ -1169,7 +1180,6 @@ function InsightContent() {
                         onTaskRefresh={handleTaskRefresh}
                         onTaskStop={handleTaskStop}
                         onTaskOpenResult={handleTaskOpenResult}
-                        onTaskFollowup={handleTaskFollowup}
                       />
                     )}
                   </For>
@@ -1254,6 +1264,7 @@ function InsightContent() {
                       placement="top"
                       class="flex-shrink-0"
                       value={maxAttachments() ? `最多 ${MAX_ATTACHMENTS} 个文件` : UPLOAD_HINT}
+                      contentStyle={{ "white-space": "nowrap", "max-width": "none" }}
                     >
                       <button
                         type="button"

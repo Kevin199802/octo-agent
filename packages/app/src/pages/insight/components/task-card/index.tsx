@@ -19,7 +19,7 @@ import {
  * 设计稿决策(见 memory insight-card-redesign-decisions):
  * - 统一白底卡面(不再按状态变背景色),仅图标/按钮带色
  * - 过程卡副文案优先 message,缺省"请稍后点击刷新获取结果"
- * - 完成卡简化为"共生成 N 份文件,请点击查看",保留"继续讨论"但弱化收起
+ * - 完成卡简化为"共生成 N 份文件,请点击查看"
  * - 失败卡错误详情可展开
  * - pending/stopped 设计稿未给图,先用近似(灰调)
  */
@@ -29,7 +29,6 @@ export function TaskCardView(props: {
   onRefresh: (taskId: string) => void
   onStop: (taskId: string) => void
   onOpenResult: (taskId: string) => void
-  onFollowup: (taskId: string) => void
 }): JSX.Element {
   const status = () => props.card.status
   const isTerminal = () => status() === "completed" || status() === "failed" || status() === "stopped"
@@ -80,13 +79,7 @@ export function TaskCardView(props: {
             props.onOpenResult(props.card.taskId)
           }}
         />
-        <Body
-          card={props.card}
-          onFollowup={() => {
-            console.log("[octo:task] followup click", { taskId: props.card.taskId })
-            props.onFollowup(props.card.taskId)
-          }}
-        />
+        <Body card={props.card} />
         {/* footer:提交时间 + ID(失败态不显示,错误详情已占位) */}
         <Show when={status() !== "failed"}>
           <Footer card={props.card} />
@@ -184,7 +177,7 @@ function RefreshButton(props: { taskId: string; busy: boolean; onClick: () => vo
 }
 
 // ── Body(副文案 / 完成提示 / 失败可展开) ──
-function Body(props: { card: TaskCardEntry; onFollowup: () => void }): JSX.Element {
+function Body(props: { card: TaskCardEntry }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false)
 
   return (
@@ -200,17 +193,6 @@ function Body(props: { card: TaskCardEntry; onFollowup: () => void }): JSX.Eleme
           <div class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>
             {completedSummary(props.card.resourceLinks.length)}
           </div>
-          {/* "继续讨论":保留但弱化收起(设计稿主入口只有"查看结果") */}
-          <button
-            type="button"
-            onClick={props.onFollowup}
-            class="mt-2 text-[12px] transition-colors"
-            style={{ color: "var(--octo-text-disabled)" }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--octo-brand)")}
-            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--octo-text-disabled)")}
-          >
-            在对话里继续讨论 →
-          </button>
         </Match>
 
         <Match when={props.card.status === "failed"}>
