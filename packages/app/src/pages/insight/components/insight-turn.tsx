@@ -51,7 +51,6 @@ export function InsightTurn(props: {
   onTaskRefresh: (taskId: string) => void
   onTaskStop: (taskId: string) => void
   onTaskOpenResult: (taskId: string) => void
-  onTaskFollowup: (taskId: string) => void
 }): JSX.Element {
   const data = useData()
 
@@ -287,7 +286,6 @@ export function InsightTurn(props: {
               onRefresh={props.onTaskRefresh}
               onStop={props.onTaskStop}
               onOpenResult={props.onTaskOpenResult}
-              onFollowup={props.onTaskFollowup}
             />
           )}
         </For>

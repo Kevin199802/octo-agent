@@ -761,16 +761,6 @@ function InsightContent() {
     void sendInjectedPrompt(sid, `终止任务 ${taskId}`, "task-stop")
   }
 
-  function handleTaskFollowup(taskId: string) {
-    // 填种子文本到输入框,光标定位,不自动发送(spec §6.1 "在对话里继续讨论")
-    const card = taskCards().get(taskId)
-    const toolHint = card ? toolDisplayName(card.toolName) : "任务"
-    const seed = `基于 task ${taskId}(${toolHint})的结果,我想…`
-    setPrompt(seed)
-    console.log("[octo:task] followup seed", { taskId, seed })
-    // 滚动到输入框 / focus — 由用户自然交互完成,不强抢焦点
-  }
-
   /**
    * 把 completed task 转成 1~N 个 OutputCard,每个 resource_link 一张;
    * 无 resource_link 但有 resultText 时,fallback 为单张 markdown inline 卡;
@@ -1105,7 +1095,6 @@ function InsightContent() {
                         onTaskRefresh={handleTaskRefresh}
                         onTaskStop={handleTaskStop}
                         onTaskOpenResult={handleTaskOpenResult}
-                        onTaskFollowup={handleTaskFollowup}
                       />
                     )}
                   </For>

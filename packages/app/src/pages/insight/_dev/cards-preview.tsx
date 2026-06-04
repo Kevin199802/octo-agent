@@ -34,7 +34,6 @@ export default function CardsPreviewPage(): JSX.Element {
                   onRefresh={(id) => console.log("[dev:preview] refresh", id)}
                   onStop={(id) => console.log("[dev:preview] stop", id)}
                   onOpenResult={(id) => console.log("[dev:preview] openResult", id)}
-                  onFollowup={(id) => console.log("[dev:preview] followup", id)}
                 />
               </Frame>
             )}
