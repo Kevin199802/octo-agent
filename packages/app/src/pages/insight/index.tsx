@@ -27,6 +27,7 @@ import { LocalProvider, useLocal } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
+import { InsightSidebar } from "./sidebar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
@@ -319,9 +320,9 @@ function InsightContent() {
     const stored = localStorage.getItem(CHAT_WIDTH_KEY)
     if (stored) {
       const n = parseInt(stored, 10)
-      if (!isNaN(n) && n >= 240) return n
+      if (!isNaN(n) && n >= 345 && n <= 720) return n
     }
-    return Math.max(360, Math.floor((window.innerWidth - 240) / 2))
+    return 460 // 参考 UX AI make 的对话面板默认宽
   }
   const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
 
@@ -343,7 +344,7 @@ function InsightContent() {
       localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
     }
     const onMove = (ev: PointerEvent) => {
-      setChatWidth(Math.max(240, Math.min(Math.floor(window.innerWidth * 0.65), startWidth + ev.clientX - startX)))
+      setChatWidth(Math.max(345, Math.min(720, startWidth + ev.clientX - startX))) // 钳制参考 UX AI make
     }
     const cleanup = () => {
       restore()
@@ -954,7 +955,12 @@ function InsightContent() {
       onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
     >
       <Toast.Region />
-      <div class="size-full flex overflow-hidden relative" data-page="insight">
+      <div class="size-full flex overflow-hidden relative">
+        {/* 左侧会话栏(SPEC-INS-010 §11:侧栏归 insight,单独第一列,不混入对话↔面板的 flex) */}
+        <InsightSidebar />
+
+        {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外) */}
+        <div class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
 
         {/* ── 左栏：对话面板 ────
              展开态:固定 chatWidth,可拖拽分隔。收起态:撑满 100%,内容居中 reading-width。
@@ -1340,6 +1346,7 @@ function InsightContent() {
             onSetViewMode={tabStore.setViewMode}
           />
         </Show>
+        </div>
       </div>
     </DataProvider>
   )

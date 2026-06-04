@@ -43,7 +43,9 @@ import { SettingsProvider } from "@/context/settings"
 import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
-import { OctoPageShell, OctoShell } from "@/pages/_shell"
+// ⚠️ 本地开发壳(SPEC-INS-010 §11:_shell 已废弃;topbar/壳移入 _dev,octo-sync 排除 _dev → 不合入 UXAI)
+// UXAI 用他们自己的壳;此处仅本地跑 insight 用。与下面 _dev 测试路由同属"本地、不合入"。
+import { LocalShell } from "@/pages/insight/_dev/shell"
 import { devRoutes, isDevPath } from "@/pages/insight/_dev/dev-routes"
 import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
@@ -142,7 +144,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
         </AppShellProviders>
       }
     >
-      <OctoShell withSidebar={isInsight()}>{props.children}</OctoShell>
+      <LocalShell>{props.children}</LocalShell>
     </Show>
   )
 }
