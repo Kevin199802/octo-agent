@@ -22,8 +22,20 @@ function OctoShellProviders(props: ParentProps) {
   )
 }
 
+// 侧栏宽度持久化(仿 insight chatWidth 的 localStorage 模式):整页重载后保留上次宽度。
+// 拖拽 clamp [160,360],与下方 onMove 一致。
+const SIDEBAR_WIDTH_KEY = "octo:shell:sidebar-width"
+function getInitialSidebarWidth(): number {
+  const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY)
+  if (stored) {
+    const n = parseInt(stored, 10)
+    if (!isNaN(n) && n >= 160 && n <= 360) return n
+  }
+  return 200
+}
+
 export function OctoShell(props: ParentProps<{ withSidebar?: boolean }>) {
-  const [sidebarWidth, setSidebarWidth] = createSignal(200)
+  const [sidebarWidth, setSidebarWidth] = createSignal(getInitialSidebarWidth())
 
   function handleSidebarResize(e: MouseEvent) {
     e.preventDefault()
@@ -35,6 +47,7 @@ export function OctoShell(props: ParentProps<{ withSidebar?: boolean }>) {
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth()))
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", onUp)
     }

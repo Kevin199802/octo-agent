@@ -86,6 +86,13 @@ const UPLOAD_ACCEPT = ALLOWED_EXT.map((e) => `.${e}`).join(",")
 // 添加附件按钮的 tooltip 提示:支持的文件类型 + 大小 + 数量上限(均从常量派生)。
 const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB，最多 ${MAX_ATTACHMENTS} 个`
 
+// 刷新保路由:打包态 Electron 走 file://(dev 的 electron reload 同样不走 SPA 兜底),整页
+// 重载会丢失 /insight/:id 路由、回退到首页。这里把"当前所在对话"持久化,boot 落在无 id 的
+// 首页态时恢复到上次位置——实现浏览器式"原地刷新"。值为 session id;空串 = 上次在新建空态。
+const LAST_SESSION_KEY = "octo:insight:last-session"
+// 每次整页加载只恢复一次(模块级,页面 reload 时自然重置);避免 keyed 重挂导致重复跳转。
+let didBootRestore = false
+
 function InsightContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
@@ -117,6 +124,29 @@ function InsightContent() {
   })
 
   const homeDir = () => globalSync.data.path.home
+
+  // ── 刷新保路由 ─────────────────────────────────────────────
+  // bootSavedId:在下方 save effect 覆盖前,同步捕获"刷新前"存的对话 id。
+  const bootSavedId = localStorage.getItem(LAST_SESSION_KEY)
+  onMount(() => {
+    if (didBootRestore) return
+    didBootRestore = true
+    // 仅当本次整页加载落在"无 id 首页态"且上次确实在某对话时才尝试恢复。
+    // 若上次就在新建空态(bootSavedId 为空串)→ 不跳,保持空态(浏览器式原地刷新)。
+    if (params.id || !bootSavedId) return
+    const dir = homeDir() // InsightContent 仅在 homeDir 就绪后挂载,理论恒有值
+    if (!dir) return
+    // 先校验上次会话仍存在再跳(replace 不污染历史):避免跳到已删会话卡在加载态。
+    void globalSDK.client.session
+      .get({ directory: dir, sessionID: bootSavedId })
+      .then((r) => {
+        if ((r as { data?: unknown })?.data) navigate(`/insight/${bootSavedId}`, { replace: true })
+        else localStorage.removeItem(LAST_SESSION_KEY) // 已删 → 留首页 + 清记录
+      })
+      .catch(() => { /* 网络/未知错误:不跳,保持首页,记录留待下次 */ })
+  })
+  // 记录当前所在对话(空 = 新建空态),供下次整页加载恢复。
+  createEffect(() => { localStorage.setItem(LAST_SESSION_KEY, params.id ?? "") })
 
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
   // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
