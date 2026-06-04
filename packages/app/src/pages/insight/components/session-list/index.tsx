@@ -1,48 +1,47 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
 import type { JSX } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { useNotification } from "@/context/notification"
+import { usePermission } from "@/context/permission"
+import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
+import { sessionTitle } from "@/utils/session-title"
+import { Spinner } from "@opencode-ai/ui/spinner"
 
 /**
- * InsightSessionList —— 从 _shell/sidebar.tsx 抽出的 Insight 会话段(SPEC-INS-010 PR2)
+ * InsightSessionList —— Insight 会话段(SPEC-INS-010 §11.3 / D11)
  *
- * 自包含、对外零参数:列表 / 新建 / 重命名 / 删除 / 右键菜单 / 折叠 / active 高亮 全在内部,
- * globalSDK / globalSync 自取(二者在 AppBaseProviders 全局层,挂在哪都拿得到)。
+ * 与 UX AI 会话列表 1:1:新建行 + 状态点(工作中 Spinner / 待处理权限 / 错误 / 未读),
+ * 由同源 opencode 子系统驱动(globalSync.child / notification / permission)——这些 context
+ * API 两仓**同名同签**(核对见 §11.3),故无需 lib 适配层,真 1:1。
  *
- * 宿主 shell 只需把本组件 import 进侧栏滚动容器摆位,不再持有任何 insight 会话逻辑
- * ——这是"shell 退化为纯壳"的关键(§2 验收红线:_shell 内无 /insight 字面量)。
+ * 与 UX AI 的两处**有意差异**(经 spec 锁定):
+ *  - 新建 = 懒创建跳空页(D4),不 eager session.create
+ *  - agent 过滤用优雅降级 `!s.agent || s.agent === "octo_insight"`(§10.4):外网 server 不返回
+ *    agent → 列全部;内网带 agent → 精确匹配。同一份源码 rsync 两边都正确。
  *
- * 会话过滤:本期列目录下全部会话,不按 agent 过滤(D8 降级;详见 spec §10 第 4 条)。
+ * 自包含、对外零参数:globalSDK / globalSync / notification / permission 自取
+ * (均在 AppBaseProviders 全局层,搬出后照样拿得到)。宿主 shell 仅 import 摆位。
  */
 
+const AGENT = "octo_insight" // 与发送链路 index.tsx:475 的 agent 名一致
+
+// 折叠箭头:与 UXAI 1:1(向下箭头,展开 0deg / 收起 -90deg)
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
-    <svg
-      width="12" height="12" viewBox="0 0 12 12" fill="none"
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20" fill="none"
       style={{
-        transform: props.collapsed ? "rotate(0deg)" : "rotate(90deg)",
+        transform: props.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
         transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
         "flex-shrink": "0",
       }}
     >
-      <path d="M4.5 2.5L7.5 6L4.5 9.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="rgba(0,0,0,0.6)"/>
     </svg>
   )
-}
-
-function PlusIcon(): JSX.Element {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M6 2V10M2 6H10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-    </svg>
-  )
-}
-
-// 判断 session 标题是否还在生成中（仍是默认占位标题）
-function isTitlePending(title: string): boolean {
-  return /^New session/.test(title)
 }
 
 export function InsightSessionList(): JSX.Element {
@@ -50,22 +49,38 @@ export function InsightSessionList(): JSX.Element {
   const globalSync = useGlobalSync()
   const navigate = useNavigate()
   const location = useLocation()
+  const notification = useNotification()
+  const permission = usePermission()
 
   const homeDir = () => globalSync.data.path.home
 
   const [sessions, { refetch }] = createResource(homeDir, async (dir) => {
     if (!dir) return [] as Session[]
     const result = await globalSDK.client.session.list({ directory: dir })
-    return ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+    // v2 Session 类型不暴露 agent;外网 server 也不返回 → 以 optional 字段读,优雅降级过滤
+    const data = ((result.data ?? []) as Array<Session & { agent?: string }>).sort(
+      (a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0),
+    )
+    return data.filter((s) => !s.agent || s.agent === AGENT)
   })
 
+  // reconcile(key=id):保持 <For> 行引用稳定,避免每次 refetch 重建每行的 globalSync.child
+  // 订阅与状态点 memo(否则状态点会闪)。
+  const [sessionList, setSessionList] = createStore<Session[]>([])
+  createEffect(on(sessions, (data) => {
+    if (data) setSessionList(reconcile(data, { key: "id" }))
+  }, { defer: true }))
+
+  let refetchTimer: ReturnType<typeof setTimeout> | undefined
   const unsub = globalSDK.event.listen((e) => {
     const t = e.details.type
     if (t === "session.created" || t === "session.updated" || t === "session.deleted") {
-      void refetch()
+      clearTimeout(refetchTimer)
+      refetchTimer = setTimeout(() => void refetch(), 1000)
     }
   })
   onCleanup(unsub)
+  onCleanup(() => clearTimeout(refetchTimer))
 
   const activeSessionId = () => {
     const m = location.pathname.match(/^\/insight\/(.+)$/)
@@ -74,7 +89,12 @@ export function InsightSessionList(): JSX.Element {
 
   const [insightCollapsed, setInsightCollapsed] = createSignal(false)
 
-  // ── 右键上下文菜单 ──────────────────────────────────────────
+  // 懒创建(D4):跳空会话页,发首条消息才建记录;不 eager session.create
+  function newSession() {
+    navigate("/insight")
+  }
+
+  // ── 右键改名/删除(我方在 1:1 之上的功能并集;UXAI 会话列表无此菜单)──────
   const [contextMenu, setContextMenu] = createSignal<{ id: string; x: number; y: number } | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null)
   const [renamingId, setRenamingId] = createSignal<string | null>(null)
@@ -95,7 +115,7 @@ export function InsightSessionList(): JSX.Element {
 
   function openRename(sessionId: string) {
     closeContextMenu()
-    const session = sessions()?.find((s) => s.id === sessionId)
+    const session = sessionList.find((s) => s.id === sessionId)
     const raw = session?.title ?? ""
     setRenameDraft(/^New session/.test(raw) ? "" : raw)
     setRenamingId(sessionId)
@@ -122,45 +142,42 @@ export function InsightSessionList(): JSX.Element {
     }
   }
 
-  function newSession() {
-    navigate("/insight")
-  }
-
   return (
-    <>
+    <div class="flex flex-col">
+      {/* 新建行 */}
+      <button
+        type="button"
+        class="flex items-center gap-3 w-full mb-[8px] rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+        style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
+        onClick={newSession}
+      >
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="shrink-0">
+          <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        </svg>
+        <span>新建</span>
+      </button>
+      <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", margin: "0 0 6px" }} />
+
       {/* ─── Octo Insight ─── */}
       <div class="mb-[2px]">
-        {/* 分组标题行 */}
-        <div class="flex items-center h-[32px] px-[4px]">
+        <div class="flex items-center h-[36px] px-[12px]">
           <button
             type="button"
             onClick={() => setInsightCollapsed((v) => !v)}
-            class="flex items-center gap-[4px] flex-1 min-w-0 text-left"
-            style={{ color: "var(--octo-text-secondary, #777777)" }}
+            class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
           >
-            <ChevronRightIcon collapsed={insightCollapsed()} />
-            <span
-              class="text-[12px] font-medium select-none leading-[20px]"
-              style={{ color: "var(--octo-text-tertiary, #364153)" }}
-            >
-              Octo Insight
+            <span class="flex items-center gap-[12px] min-w-0">
+              <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
+              <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
+                Octo Insight
+              </span>
             </span>
-          </button>
-          <button
-            type="button"
-            onClick={newSession}
-            title="新建 Insight 对话"
-            class="w-[24px] h-[24px] flex items-center justify-center rounded-[4px] transition-colors"
-            style={{ color: "var(--octo-text-secondary, #777777)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-brand-a8, rgba(0,103,209,0.08))"; e.currentTarget.style.color = "var(--octo-brand, #0067D1)" }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = ""; e.currentTarget.style.color = "var(--octo-text-secondary, #777777)" }}
-          >
-            <PlusIcon />
+            <ChevronRightIcon collapsed={insightCollapsed()} />
           </button>
         </div>
 
         <Show when={!insightCollapsed()}>
-          <div class="flex flex-col gap-[1px]">
+          <div class="flex flex-col">
             <Show
               when={!sessions.loading}
               fallback={
@@ -170,76 +187,91 @@ export function InsightSessionList(): JSX.Element {
               }
             >
               <Show
-                when={(sessions() ?? []).length > 0}
+                when={sessionList.length > 0}
                 fallback={
                   <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
                     暂无对话
                   </div>
                 }
               >
-                <For each={sessions() ?? []}>
+                <For each={sessionList}>
                   {(session) => {
                     const isActive = () => activeSessionId() === session.id
-                    const pending = () => isTitlePending(session.title)
+                    const [sessionStore] = globalSync.child(session.directory)
+                    const isWorking = createMemo(() => {
+                      const status = sessionStore.session_status[session.id]
+                      return status !== undefined && status.type !== "idle"
+                    })
+                    const unseenCount = createMemo(() => notification.session.unseenCount(session.id))
+                    const hasError = createMemo(() => notification.session.unseenHasError(session.id))
+                    const hasPermissions = createMemo(() =>
+                      !!sessionPermissionRequest(sessionStore.session, sessionStore.permission, session.id, (item) =>
+                        !permission.autoResponds(item, session.directory),
+                      ),
+                    )
                     return (
                       <Show
                         when={renamingId() === session.id}
                         fallback={
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/insight/${session.id}`)}
-                            onContextMenu={(e) => {
-                              e.preventDefault()
-                              setConfirmDeleteId(null)
-                              setContextMenu({ id: session.id, x: e.clientX, y: e.clientY })
-                            }}
-                            classList={{
-                              "w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center relative": true,
-                            }}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          notification.session.markViewed(session.id)
+                          navigate(`/insight/${session.id}`)
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault()
+                          setConfirmDeleteId(null)
+                          setContextMenu({ id: session.id, x: e.clientX, y: e.clientY })
+                        }}
+                        class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
+                        style={{
+                          height: "36px",
+                          padding: "0 24px 0 44px",
+                          color: isActive() ? "#0A59F7" : undefined,
+                        }}
+                        classList={{
+                          "bg-[rgba(10,89,247,0.08)]": isActive(),
+                          "hover:bg-surface-base-hover": !isActive(),
+                        }}
+                      >
+                        <Show when={isActive()}>
+                          <span
+                            class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
                             style={{
-                              height: "32px",
-                              background: isActive() ? "var(--octo-surface-selected, #EFF6FF)" : "transparent",
-                              color: isActive() ? "var(--octo-brand, #0067D1)" : "var(--octo-text-primary, #191919)",
-                              "font-weight": isActive() ? "500" : "400",
+                              height: "28px",
+                              width: "4px",
+                              background: "#0A59F7",
+                              transform: "translateY(-50%)",
                             }}
-                            onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
-                            onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.background = "transparent" }}
-                          >
-                            <Show when={isActive()}>
-                              <span
-                                class="absolute left-0 top-1/2 rounded-r-[3px]"
-                                style={{
-                                  height: "16px",
-                                  width: "3px",
-                                  background: "var(--octo-brand, #0067D1)",
-                                  transform: "translateY(-50%)",
-                                }}
-                              />
-                            </Show>
-                            <Show
-                              when={pending()}
-                              fallback={<span class="truncate block w-full">{session.title || "无标题"}</span>}
-                            >
-                              {/* 标题生成中：骨架动效 */}
-                              <span
-                                class="inline-block rounded-[3px] animate-pulse"
-                                style={{
-                                  width: "72px",
-                                  height: "10px",
-                                  background: isActive() ? "var(--octo-brand-a20, rgba(0,103,209,0.2))" : "rgba(0,0,0,0.1)",
-                                }}
-                              />
-                            </Show>
-                          </button>
+                          />
+                        </Show>
+                        <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
+                          <div class="shrink-0 size-6 flex items-center justify-center absolute left-[12px]">
+                            <Switch>
+                              <Match when={isWorking()}>
+                                <Spinner class="size-[15px]" />
+                              </Match>
+                              <Match when={hasPermissions()}>
+                                <div class="size-1.5 rounded-full bg-surface-warning-strong" />
+                              </Match>
+                              <Match when={hasError()}>
+                                <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+                              </Match>
+                              <Match when={unseenCount() > 0}>
+                                <div class="size-1.5 rounded-full bg-text-interactive-base" />
+                              </Match>
+                            </Switch>
+                          </div>
+                        </Show>
+                        <span class="flex-1 min-w-0 truncate">{sessionTitle(session.title) || "无标题"}</span>
+                      </button>
                         }
                       >
                         {/* 内联重命名输入框 */}
                         <div
-                          class="w-full px-[8px] rounded-[4px] flex items-center"
-                          style={{
-                            height: "32px",
-                            background: "var(--octo-surface-selected, #EFF6FF)",
-                          }}
+                          class="w-full rounded-[8px] flex items-center"
+                          style={{ height: "36px", padding: "0 12px 0 44px", background: "rgba(10,89,247,0.08)" }}
                         >
                           <input
                             type="text"
@@ -253,11 +285,7 @@ export function InsightSessionList(): JSX.Element {
                             onBlur={() => void handleRenameConfirm(session.id)}
                             ref={(el) => requestAnimationFrame(() => { el.focus(); el.select() })}
                             class="w-full bg-transparent text-[12px] outline-none"
-                            style={{
-                              color: "var(--octo-brand, #0067D1)",
-                              "font-weight": "500",
-                              border: "none",
-                            }}
+                            style={{ color: "#0A59F7", "font-weight": "500", border: "none" }}
                           />
                         </div>
                       </Show>
@@ -331,10 +359,7 @@ export function InsightSessionList(): JSX.Element {
                     type="button"
                     onClick={() => void handleDelete(menu().id)}
                     class="flex-1 px-[8px] py-[4px] text-[12px] rounded-[4px] transition-colors"
-                    style={{
-                      background: "var(--octo-danger, #DC2626)",
-                      color: "#fff",
-                    }}
+                    style={{ background: "var(--octo-danger, #DC2626)", color: "#fff" }}
                   >
                     删除
                   </button>
@@ -342,10 +367,7 @@ export function InsightSessionList(): JSX.Element {
                     type="button"
                     onClick={closeContextMenu}
                     class="flex-1 px-[8px] py-[4px] text-[12px] rounded-[4px] transition-colors"
-                    style={{
-                      background: "var(--octo-surface-hover, #F5F5F5)",
-                      color: "var(--octo-text-primary, #191919)",
-                    }}
+                    style={{ background: "var(--octo-surface-hover, #F5F5F5)", color: "var(--octo-text-primary, #191919)" }}
                   >
                     取消
                   </button>
@@ -355,6 +377,6 @@ export function InsightSessionList(): JSX.Element {
           </>
         )}
       </Show>
-    </>
+    </div>
   )
 }

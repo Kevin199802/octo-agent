@@ -1,7 +1,26 @@
 import { createSignal, Show } from "solid-js"
 import type { ParentProps } from "solid-js"
+import { SettingsProvider } from "@/context/settings"
+import { PermissionProvider } from "@/context/permission"
+import { NotificationProvider } from "@/context/notification"
 import { OctoSidebar } from "./sidebar"
 import { OctoTopbar } from "./topbar"
+
+/**
+ * OctoShell 分支(insight/chat/studio)不经过 app.tsx 的 AppShellProviders,
+ * 故缺 Settings / Permission / Notification。会话列表状态点(权限/未读/错误)依赖
+ * Permission + Notification,这里补齐(Platform 在 entry.tsx、Language/globalSDK/
+ * globalSync 在更上层,均已可用)。SPEC-INS-010 §11.3 / D11。
+ */
+function OctoShellProviders(props: ParentProps) {
+  return (
+    <SettingsProvider>
+      <PermissionProvider>
+        <NotificationProvider>{props.children}</NotificationProvider>
+      </PermissionProvider>
+    </SettingsProvider>
+  )
+}
 
 export function OctoShell(props: ParentProps<{ withSidebar?: boolean }>) {
   const [sidebarWidth, setSidebarWidth] = createSignal(200)
@@ -24,6 +43,7 @@ export function OctoShell(props: ParentProps<{ withSidebar?: boolean }>) {
   }
 
   return (
+    <OctoShellProviders>
     <div class="flex flex-col h-dvh overflow-hidden" style={{ background: "#f3f6fb" }}>
       <OctoTopbar />
       <div class="flex flex-1 min-h-0 overflow-hidden relative">
@@ -66,6 +86,7 @@ export function OctoShell(props: ParentProps<{ withSidebar?: boolean }>) {
         </Show>
       </div>
     </div>
+    </OctoShellProviders>
   )
 }
 
