@@ -197,8 +197,17 @@ export function formatUploadsForPrompt(uploads: Array<{ filename: string; url: s
 export function parseUploadedFiles(block: string): Array<{ filename: string; url: string }> {
   const out: Array<{ filename: string; url: string }> = []
   for (const line of block.split("\n")) {
-    const m = line.match(/^-\s+(.+?):\s+(https?:\/\/\S+)\s*$/)
-    if (m) out.push({ filename: m[1], url: m[2] })
+    const trimmed = line.trim()
+    if (!trimmed.startsWith("- ")) continue
+    // 按第一个 ": " 切分,不要用正则的 \S+ 匹配 URL:内网上传服务会把未编码的
+    // 原始文件名拼进 URL,文件名带空格 → URL 含空格 → \S+ 截断 → 整行丢弃(实测 10 个文件
+    // 发送后只剩不含空格的几个)。这里 filename / url 任一含空格都能完整还原。
+    const body = trimmed.slice(2)
+    const sep = body.indexOf(": ")
+    if (sep < 0) continue
+    const filename = body.slice(0, sep).trim()
+    const url = body.slice(sep + 2).trim()
+    if (filename && url) out.push({ filename, url })
   }
   return out
 }
