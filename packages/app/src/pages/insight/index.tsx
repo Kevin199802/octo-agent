@@ -28,6 +28,7 @@ import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar } from "./sidebar"
+import { ProjectInfo } from "./components/project-selector"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
@@ -962,7 +963,8 @@ function InsightContent() {
       <Toast.Region />
       <div class="size-full flex overflow-hidden relative">
         {/* 左侧会话栏(SPEC-INS-010 §11:侧栏归 insight,单独第一列,不混入对话↔面板的 flex) */}
-        <InsightSidebar />
+        {/* top 槽注入左上角「项目/版本」选择器(复刻 UXAI make-tab ProjectInfo) */}
+        <InsightSidebar top={<ProjectInfo />} />
 
         {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外) */}
         <div class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">

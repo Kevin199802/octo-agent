@@ -28,6 +28,7 @@
 | **Batch 1** | Topbar / Sidebar / Insight 输入区 / ResultViewer 输出卡片图标 | 已交付（§1–§5，作为存档保留） |
 | **Batch 2** | 长任务卡片状态视觉态（5 态图标、按钮图标、状态色 token） | 待交付（§6） |
 | **Batch 3** | 文件上传交互：附件 chip + 气泡内文件卡片（文件类型图标集、chip 状态/操作图标） | 待交付（§7） |
+| **Batch 4** | insight 左上角「项目/版本」选择器（onboarding 弹窗品牌 wordmark） | 待交付（§8） |
 
 **追加新批次**：开新章节、批次号 +1，在本表登记范围与状态。完成后状态改 "已交付"。
 
@@ -177,6 +178,21 @@ stopped 态当前复用 `--octo-surface-hover` / `--octo-border-default`，无�
 
 > `IconChipRetry` / `IconChipRemove` 与 Batch 2 长任务卡片的 `↻` / 关闭语义相近，若设计给的是通用图标可直接复用，不必单独切。
 > `IconChipUploading` 若需转圈动画，建议给可 CSS 旋转的单色 SVG（spinner）。
+
+---
+
+# Batch 4 — 待交付
+
+> insight 左上角「项目/版本」选择器（复刻 UXAI make-tab ProjectInfo）。组件位于
+> `packages/app/src/pages/insight/components/project-selector/`。
+
+## §8 项目/版本 onboarding 弹窗
+
+| 素材名 | 位置 | 当前占位 | 期望规格 |
+|---|---|---|---|
+| `octo-agent.png`（品牌 wordmark） | `dialog-project-onboarding.tsx` 顶部 Splash 下方，212×42 `<img>` | **已复用 UXAI 同名 png**（拷入 `insight/icons/octo-agent.png`，`?url` 导入） | 如需正式版：交付 SVG（透明背景，深色）替换该 png |
+
+> 注：Splash logo 复用 `@opencode-ai/ui/logo`（两仓库 logo.tsx 一致）；卡片左侧文件夹图标、下拉箭头、面板三列均为内联 SVG，无缺口；版本下拉/产品选择复用 `@opencode-ai/ui` 原语，无需切图。
 
 ---
 
