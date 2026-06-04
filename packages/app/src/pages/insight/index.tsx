@@ -989,6 +989,7 @@ function InsightContent() {
                           placement="top"
                           class="flex-shrink-0"
                           value={maxAttachments() ? `最多 ${MAX_ATTACHMENTS} 个文件` : UPLOAD_HINT}
+                          contentStyle={{ "white-space": "nowrap", "max-width": "none" }}
                         >
                           <button
                             type="button"
@@ -1175,6 +1176,7 @@ function InsightContent() {
                       placement="top"
                       class="flex-shrink-0"
                       value={maxAttachments() ? `最多 ${MAX_ATTACHMENTS} 个文件` : UPLOAD_HINT}
+                      contentStyle={{ "white-space": "nowrap", "max-width": "none" }}
                     >
                       <button
                         type="button"
