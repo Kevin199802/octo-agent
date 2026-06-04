@@ -18,10 +18,12 @@ import { Spinner } from "@opencode-ai/ui/spinner"
  * 由同源 opencode 子系统驱动(globalSync.child / notification / permission)——这些 context
  * API 两仓**同名同签**(核对见 §11.3),故无需 lib 适配层,真 1:1。
  *
- * 与 UX AI 的两处**有意差异**(经 spec 锁定):
+ * 与 UX AI 的有意差异(经 spec 锁定):
  *  - 新建 = 懒创建跳空页(D4),不 eager session.create
- *  - agent 过滤用优雅降级 `!s.agent || s.agent === "octo_insight"`(§10.4):外网 server 不返回
- *    agent → 列全部;内网带 agent → 精确匹配。同一份源码 rsync 两边都正确。
+ *
+ * agent 过滤:strict `s.agent === "octo_insight"` —— 见 [SPEC infra/session-agent-attribution](../../../../../../docs/specs/infra/session-agent-attribution.md)。
+ * server 已把 agent 作为一等字段持久化(SessionTable.agent / Session.Info.agent / Session.CreateInput.agent),
+ * 两仓 rsync 后行为一致;老数据 agent IS NULL 被天然过滤,即兜底机制。
  *
  * 自包含、对外零参数:globalSDK / globalSync / notification / permission 自取
  * (均在 AppBaseProviders 全局层,搬出后照样拿得到)。宿主 shell 仅 import 摆位。
@@ -57,11 +59,11 @@ export function InsightSessionList(): JSX.Element {
   const [sessions, { refetch }] = createResource(homeDir, async (dir) => {
     if (!dir) return [] as Session[]
     const result = await globalSDK.client.session.list({ directory: dir })
-    // v2 Session 类型不暴露 agent;外网 server 也不返回 → 以 optional 字段读,优雅降级过滤
+    // strict 过滤:server 已把 agent 作为一等字段持久化(见 SPEC infra/session-agent-attribution)。
     const data = ((result.data ?? []) as Array<Session & { agent?: string }>).sort(
       (a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0),
     )
-    return data.filter((s) => !s.agent || s.agent === AGENT)
+    return data.filter((s) => s.agent === AGENT)
   })
 
   // reconcile(key=id):保持 <For> 行引用稳定,避免每次 refetch 重建每行的 globalSync.child

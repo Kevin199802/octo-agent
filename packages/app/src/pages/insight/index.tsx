@@ -438,7 +438,7 @@ function InsightContent() {
     const dir = homeDir()
     if (!dir) return
     try {
-      const result = await globalSDK.client.session.create({ directory: dir })
+      const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_insight" })
       const session = result.data as Session | undefined
       if (session) {
         navigate(`/insight/${session.id}`)

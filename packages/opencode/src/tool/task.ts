@@ -64,11 +64,13 @@ export const TaskTool = Tool.define(
       const session = taskID
         ? yield* sessions.get(SessionID.make(taskID)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
+      const parent = yield* sessions.get(ctx.sessionID).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
       const nextSession =
         session ??
         (yield* sessions.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${next.name} subagent)`,
+          agent: parent?.agent,
           permission: [
             ...(canTodo
               ? []

@@ -400,6 +400,31 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 | 锚点状态写 UX AI 项目 `.insight-sync-state.json`（`lastSyncedExtSha`，记 UX AI 项目合到外网哪个 sha），范围判定靠 `git diff 锚点..HEAD`；忽略范围 `docs/` `CLAUDE.md` `script/` 等纯外网文件 | 合入工具状态 / 范围判定 |
 | `.gitignore` 新增 `script/.octo-sync.local.json`（各人 UX AI 项目绝对路径，配置优先 + 同级 `../UXAI` fallback） | 合入工具本地配置 |
 
+#### `packages/opencode/src/session/session.sql.ts`（2026-06-04）
+
+| 改了什么 | 性质 |
+|---|---|
+| `SessionTable` 加列 `agent: text()` | 上游核心 schema 补 agent 一等字段；见 [SPEC infra/session-agent-attribution](specs/infra/session-agent-attribution.md) |
+
+#### `packages/opencode/src/session/session.ts`（2026-06-04）
+
+| 改了什么 | 性质 |
+|---|---|
+| `Info` zod / `CreateInput` zod / `Interface.create` / `createNext` / `create` / `fork` / `fromRow` / `toRow` 全链路加 `agent?: string` | plumb agent 字段;`fork` 继承原会话 agent;见 [SPEC infra/session-agent-attribution](specs/infra/session-agent-attribution.md) |
+| **动因** | 修 2026-06-04 内网 insight 侧栏出现幽灵对话 + 工具子会话不可见 + 新建对话不显示三类 bug;agent 列长期缺失,业务侧只能靠"无 agent 就放行"的降级过滤,造成跨 agent 数据互泄 |
+
+#### `packages/opencode/src/tool/task.ts`（2026-06-04）
+
+| 改了什么 | 性质 |
+|---|---|
+| spawn 子会话时查父会话 agent 并传入 `sessions.create({ agent: parent?.agent })` | 工具子会话继承父 agent → 出现在父 agent 侧栏(用户语义优先,非子 agent 类型);见 [SPEC §5](specs/infra/session-agent-attribution.md) |
+
+#### `packages/opencode/migration/20260604121801_add_agent_to_session/`（新增,2026-06-04）
+
+| 改了什么 | 性质 |
+|---|---|
+| `ALTER TABLE \`session\` ADD \`agent\` text;` | Drizzle 自动生成的 schema 迁移;`ALTER TABLE ADD COLUMN` 是 SQLite 兼容操作,老数据 agent IS NULL 走 strict 过滤兜底 |
+
 **撤回到纯上游**（合入内网最坏情况）：
 
 1. 上面所有改动逆向回滚
