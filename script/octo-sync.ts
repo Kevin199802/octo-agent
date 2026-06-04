@@ -28,7 +28,7 @@ const BUSINESS = {
   int: "packages/app/octoapp/pages/insight",
 }
 const PROMPT = {
-  ext: "packages/agent/insight/agents/insight.md", // agent prompt(原样 cp,零转换)
+  ext: "packages/agent/octo_insight/agents/octo_insight.md", // agent prompt(原样 cp,零转换;两仓同名 octo_insight)
   int: "packages/opencode/src/agent/prompt/octo_insight.md",
 }
 const EXCLUDE = ["_dev"] // rsync 时业务目录内排除(dev 调试页不进生产)

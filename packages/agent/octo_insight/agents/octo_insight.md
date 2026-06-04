@@ -1,5 +1,5 @@
 ---
-name: insight
+name: octo_insight
 mode: primary
 description: 用研 Agent，从访谈材料中提取结构化洞察
 tools:

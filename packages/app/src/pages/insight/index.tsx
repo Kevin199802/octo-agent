@@ -472,7 +472,7 @@ function InsightContent() {
     const parts: TextPartInput[] = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
     const messageID = Identifier.ascending("message")
-    const agent = "insight"
+    const agent = "octo_insight"
 
     // 当前选中模型(useLocal().model.current():会话级→agent 默认→全局兜底 回退链)
     const currentModel = local.model.current()

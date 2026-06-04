@@ -224,7 +224,7 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 
 | 改了什么 | 性质 |
 |---|---|
-| 7 个 bun:test 用例：读**真实** `insight.md` + `default-config.json` 源文件，验证 V-01/V-02/V-04 | 自动化验证；`bun run test` 触发，无需打包 |
+| 7 个 bun:test 用例：读**真实** `octo_insight.md` + `default-config.json` 源文件，验证 V-01/V-02/V-04 | 自动化验证；`bun run test` 触发，无需打包 |
 
 #### `packages/desktop-electron/src/main/windows.ts`
 
@@ -238,7 +238,7 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 | 改了什么 | 性质 |
 |---|---|
 | 包名 / 图标 / 产品标识 | 品牌 |
-| 新增 `extraResources`：将 `packages/agent/insight/agents/insight.md` 打包到 `resources/agents/insight.md` | cascading 配置（ADR-008）；dev 模式直读源文件，production 打包后从此路径读 |
+| 新增 `extraResources`：将 `packages/agent/octo_insight/agents/octo_insight.md` 打包到 `resources/agents/octo_insight.md` | cascading 配置（ADR-008）；dev 模式直读源文件，production 打包后从此路径读 |
 
 #### `packages/app/src/app.tsx`
 
@@ -256,6 +256,15 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 |---|---|
 | 移除 `@octo/app` workspace devDependency（随 octo-app 删除） | 清理 |
 | 新增 `test`（`bun test src/main/config.test.ts`）和 `check-bundle`（`bun ./scripts/check-bundle.ts`）脚本 | 配置合并验证（cascading 配置 ADR-008） |
+
+#### agent 改名 `insight` → `octo_insight`（SPEC-INS-010 D10，2026-06）
+
+| 改了什么 | 性质 |
+|---|---|
+| agent 目录/文件 `packages/agent/insight/agents/insight.md` → `packages/agent/octo_insight/agents/octo_insight.md` | 命名统一 |
+| `resources/default-config.json`：`default_agent` 与 `agent` 键 `insight` → `octo_insight` | 命名统一 |
+| `electron-builder.config.ts` extraResources from/to、`scripts/check-bundle.ts` 校验路径、`config.test.ts` 断言、`script/octo-sync.ts` PROMPT.ext 同步改名 | 命名统一 |
+| **动因**：外网桌面壳按 `default-config.json` 的 agent 键名注册 agent（frontmatter `name` 不参与注册，仅作 prompt 文本）。发送链路 [index.tsx](../packages/app/src/pages/insight/index.tsx) 的 `const agent` 必须等于注册名,否则 server 不起轮（发送无反馈）。改名后外网/内网两仓 agent 名统一 `octo_insight`,octo-sync 的 prompt cp 不再需要改名,消除"发的 agent 名 ≠ 注册名"隐患 | 见 [SPEC-INS-010 §11.2](specs/ui/insight-standalone-extraction.md) |
 
 #### `packages/desktop-electron/icons/prod/`
 

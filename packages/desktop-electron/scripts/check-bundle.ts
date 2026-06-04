@@ -18,7 +18,7 @@ const ROOT = path.resolve(__dirname, "../../..")
 
 // 要对比的文件列表：[bundle 内相对 Resources/ 的路径, 仓库内源文件路径]
 const CHECKS: [string, string][] = [
-  ["agents/insight.md", "packages/agent/insight/agents/insight.md"],
+  ["agents/octo_insight.md", "packages/agent/octo_insight/agents/octo_insight.md"],
   ["default-config.json", "packages/desktop-electron/resources/default-config.json"],
 ]
 
