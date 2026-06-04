@@ -52,7 +52,8 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
       class="shrink-0 relative flex flex-col h-full overflow-hidden"
       style={{
         width: `${width()}px`,
-        background: "transparent",
+        // 蓝色渐变背景:与 make / 其他栏目侧栏一致
+        background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
         "border-right": "1px solid var(--octo-border-default, #E5E7EB)",
       }}
     >
