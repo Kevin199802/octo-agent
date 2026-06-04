@@ -1160,7 +1160,7 @@ function InsightContent() {
                           <span class="truncate">
                             {local.model.current()?.name ?? "选择模型"}
                           </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-200 group-data-[expanded]:rotate-180" />
                         </ModelSelectorPopover>
 
                         <button
@@ -1351,7 +1351,7 @@ function InsightContent() {
                       <span class="truncate">
                         {local.model.current()?.name ?? "选择模型"}
                       </span>
-                      <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                      <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-200 group-data-[expanded]:rotate-180" />
                     </ModelSelectorPopover>
 
                     <button
