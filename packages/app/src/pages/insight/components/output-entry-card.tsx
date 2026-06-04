@@ -1,6 +1,6 @@
 import type { JSX } from "solid-js"
-import docPurpleUrl from "../icons/IconCardDocPurple.svg?url"
-import type { OutputCard } from "./insight-turn"
+import { fileTypeIconUrl } from "../icons/illustrations"
+import type { OutputCard, OutputCardType } from "./insight-turn"
 
 /**
  * 文件结果卡片(紧凑预览入口) — 2026-06 设计稿改版。
@@ -10,14 +10,31 @@ import type { OutputCard } from "./insight-turn"
  * 保证 dev 预览与线上完全同源("结合项目,不脱离项目")。
  *
  * 设计稿决策:
- * - 图标统一紫色文档(不再按 type 分 6 种)
+ * - 图标按文件类型走(fileTypeIconUrl,与 FileFallback 同源):DOCX/XLSX/PPT/
+ *   PDF/HTML/MD/思维导图/视频/图片/代码各不同,其余落「其他文件」图标
  * - 副文案改"创建时间: …",去掉右侧"预览 →"(整卡可点)
  */
+
+// inline 卡(自由文本嗅探)无 fileName/mimeType,按 card.type 合成一个能被
+// fileTypeIconUrl 命中的扩展名/mime;uri 卡(MCP resource_link)直接用真实文件名。
+const TYPE_SYNTH: Partial<Record<OutputCardType, { name?: string; mime?: string }>> = {
+  html: { name: "x.html" },
+  markdown: { name: "x.md" },
+  mindmap: { name: "x.json", mime: "application/json+mindmap" },
+  json: { name: "x.json" },
+}
+
+function cardIconUrl(card: OutputCard): string {
+  if (card.fileName || card.mimeType) return fileTypeIconUrl(card.fileName, card.mimeType)
+  const synth = TYPE_SYNTH[card.type]
+  return fileTypeIconUrl(synth?.name, synth?.mime)
+}
+
 export function OutputEntryCard(props: { card: OutputCard; onClick: () => void }): JSX.Element {
   return (
     <button type="button" class="octo-preview-entry" onClick={props.onClick}>
       <span class="octo-preview-entry__icon">
-        <img src={docPurpleUrl} width={28} height={28} alt="" aria-hidden="true" />
+        <img src={cardIconUrl(props.card)} width={28} height={28} alt="" aria-hidden="true" />
       </span>
       <span class="octo-preview-entry__body">
         <span class="octo-preview-entry__title">{previewEntryLabel(props.card)}</span>

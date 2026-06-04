@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js"
 import type { JSX } from "solid-js"
+import { fileTypeIconUrl } from "../icons/illustrations"
 
 export type AttachmentStatus = "uploading" | "done" | "error"
 
@@ -19,35 +20,31 @@ export type Attachment = {
 // 8 条旋转光芒的角度
 const SPIN_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315]
 
-// 蓝渐变文档图标（24×24）
-function DocFileIcon(props: { uploading?: boolean }): JSX.Element {
+// 文件类型图标（24×24）— 按 filename/mime 走 fileTypeIconUrl(与结果卡 / FileFallback 同源)。
+// 上传中:图标上叠半透明黑遮罩 + 白色旋转光芒。
+function FileTypeIcon(props: { filename: string; mime: string; uploading?: boolean }): JSX.Element {
   return (
     <div style={{ position: "relative", width: "24px", height: "24px", "flex-shrink": "0" }}>
-      <svg viewBox="0 0 24 24" fill="none" width="24" height="24" aria-hidden="true">
-        <defs>
-          <linearGradient id="att-g1" x1="12" x2="12" y1="0" y2="24" gradientUnits="userSpaceOnUse">
-            <stop stop-color="rgb(57,156,255)" offset="0" />
-            <stop stop-color="rgb(85,192,242)" offset="1" />
-          </linearGradient>
-          <linearGradient id="att-g2" x1="17.93" x2="15.00" y1="3.25" y2="7.21" gradientUnits="userSpaceOnUse">
-            <stop stop-color="rgb(55,142,230)" offset="0" stop-opacity="0.8" />
-            <stop stop-color="rgb(57,156,255)" offset="1" stop-opacity="0" />
-          </linearGradient>
-          <linearGradient id="att-g3" x1="16.08" x2="18.19" y1="4.87" y2="2.81" gradientUnits="userSpaceOnUse">
-            <stop stop-color="rgb(132,215,251)" offset="0" stop-opacity="0.9" />
-            <stop stop-color="rgb(103,203,255)" offset="1" stop-opacity="0.5" />
-          </linearGradient>
-        </defs>
-        <path d="M4.263 0L14.994 0C15.2325 0 15.4613 0.0945 15.63 0.2625L20.7353 5.361C20.9048 5.5298 21 5.7593 21 5.9978L21 22.7362C21 23.4338 20.4338 24 19.7362 24L4.263 24C3.5655 24 3 23.4338 3 22.7362L3 1.263C3 0.5655 3.5655 0 4.263 0Z" fill="url(#att-g1)" />
-        <path d="M4.263 0L14.994 0C15.2325 0 15.4613 0.0945 15.63 0.2625L20.7353 5.361C20.9048 5.5298 21 5.7593 21 5.9978L21 22.7362C21 23.4338 20.4338 24 19.7362 24L4.263 24C3.5655 24 3 23.4338 3 22.7362L3 1.263C3 0.5655 3.5655 0 4.263 0Z" fill="url(#att-g2)" />
-        <path d="M15.4935 0.10175L15.5013 0.10958C15.4981 0.10672 15.4968 0.10456 15.4935 0.10175ZM15.7998 0.76863C15.7998 0.78026 15.7996 0.79185 15.7991 0.80339L15.7991 3.9691C15.7991 4.6319 16.3363 5.1691 16.9991 5.1691L20.1865 5.1691C20.4751 5.1691 20.7316 5.309 20.8915 5.5246C20.848 5.4564 20.797 5.3927 20.7388 5.3347L15.58 0.18807C15.7168 0.34284 15.7998 0.54614 15.7998 0.76863Z" fill="url(#att-g3)" />
-        <path d="M8.25 10.4663L9.9023 17.0663L12.0255 10.4663L14.1413 17.0663L15.75 10.4663" stroke="white" stroke-linejoin="round" stroke-width="1.2" />
-        <Show when={props.uploading}>
-          <path d="M4.263 0L14.994 0C15.2325 0 15.4613 0.0945 15.63 0.2625L20.7353 5.361C20.9048 5.5298 21 5.7593 21 5.9978L21 22.7362C21 23.4338 20.4338 24 19.7362 24L4.263 24C3.5655 24 3 23.4338 3 22.7362L3 1.263C3 0.5655 3.5655 0 4.263 0Z" fill="rgba(0,0,0,0.4)" />
-        </Show>
-      </svg>
+      <img
+        src={fileTypeIconUrl(props.filename, props.mime)}
+        width={24}
+        height={24}
+        alt=""
+        aria-hidden="true"
+        style={{ display: "block" }}
+      />
       <Show when={props.uploading}>
-        <div style={{ position: "absolute", inset: "0", display: "flex", "align-items": "center", "justify-content": "center" }}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            background: "rgba(0,0,0,0.4)",
+            "border-radius": "4px",
+            display: "flex",
+            "align-items": "center",
+            "justify-content": "center",
+          }}
+        >
           <svg viewBox="0 0 12 12" width="12" height="12" fill="none" class="octo-att-spin" aria-hidden="true">
             {SPIN_ANGLES.map((deg, i) => {
               const rad = (deg - 90) * Math.PI / 180
@@ -105,7 +102,7 @@ function AttachmentChip(props: {
     }}>
       {/* 文件图标区——错误态下移 8px 使其垂直居中于 56px 容器 */}
       <div style={{ position: "absolute", left: "12px", top: isError() ? "16px" : "8px" }}>
-        <DocFileIcon uploading={isUploading()} />
+        <FileTypeIcon filename={props.att.filename} mime={props.att.mime} uploading={isUploading()} />
       </div>
 
       {/* 文字区 */}
