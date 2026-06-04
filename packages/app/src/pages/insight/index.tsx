@@ -572,6 +572,7 @@ function InsightContent() {
       sid = await createAndNavigate()
       if (!sid) { sendingNavigation = false; return }
     }
+    autoScroll.forceScrollToBottom()
     await sendMessage(sid, text)
   }
 
