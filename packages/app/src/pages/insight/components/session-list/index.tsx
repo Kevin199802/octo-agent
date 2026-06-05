@@ -145,7 +145,9 @@ export function InsightSessionList(): JSX.Element {
   }
 
   return (
-    <div class="flex flex-col">
+    <div class="flex flex-col flex-1 min-h-0">
+      {/* 固定头:新建行 + 分隔 + Octo Insight 标题,不随会话列表滚动 */}
+      <div class="shrink-0">
       {/* 新建行 */}
       <button
         type="button"
@@ -160,25 +162,27 @@ export function InsightSessionList(): JSX.Element {
       </button>
       <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", margin: "0 0 6px" }} />
 
-      {/* ─── Octo Insight ─── */}
-      <div class="mb-[2px]">
-        <div class="flex items-center h-[36px] px-[12px]">
-          <button
-            type="button"
-            onClick={() => setInsightCollapsed((v) => !v)}
-            class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
-          >
-            <span class="flex items-center gap-[12px] min-w-0">
-              <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
-              <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
-                Octo Insight
-              </span>
+      {/* ─── Octo Insight 标题(固定,不随列表滚动) ─── */}
+      <div class="flex items-center h-[36px] px-[12px] mb-[2px]">
+        <button
+          type="button"
+          onClick={() => setInsightCollapsed((v) => !v)}
+          class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
+        >
+          <span class="flex items-center gap-[12px] min-w-0">
+            <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
+            <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
+              Octo Insight
             </span>
-            <ChevronRightIcon collapsed={insightCollapsed()} />
-          </button>
-        </div>
+          </span>
+          <ChevronRightIcon collapsed={insightCollapsed()} />
+        </button>
+      </div>
+      </div>
 
-        <Show when={!insightCollapsed()}>
+      {/* 会话列表(独立滚动区:只滚列表,固定头不动) */}
+      <Show when={!insightCollapsed()}>
+        <div class="flex-1 min-h-0 overflow-y-auto" style={{ "scrollbar-width": "none" }}>
           <div class="flex flex-col">
             <Show
               when={!sessions.loading}
@@ -297,8 +301,8 @@ export function InsightSessionList(): JSX.Element {
               </Show>
             </Show>
           </div>
-        </Show>
-      </div>
+        </div>
+      </Show>
 
       {/* ── 右键上下文菜单 ───────────────────────────────────── */}
       <Show when={contextMenu()}>

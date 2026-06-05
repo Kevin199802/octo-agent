@@ -3,6 +3,7 @@ import { createMemo } from "solid-js"
 import type { JSX } from "solid-js"
 import { For, Show } from "solid-js"
 import { formatUploadsForPrompt, parseUploadedFiles } from "../lib/upload"
+import { fileTypeIconUrl } from "../icons/illustrations"
 
 /**
  * Dev-only 预览页 — 「文件名带空格」上传卡片解析验证
@@ -24,12 +25,6 @@ function parseUploadedFilesOld(block: string): Array<{ filename: string; url: st
     if (m) out.push({ filename: m[1], url: m[2] })
   }
   return out
-}
-
-// 文件名扩展名徽标(与 insight-turn.tsx 的 extBadge 一致,本页自包含不外引)
-function extBadge(filename: string): string {
-  const ext = filename.split(".").pop()?.toUpperCase()
-  return ext && ext !== filename.toUpperCase() ? ext : "FILE"
 }
 
 // 10 个原始文件名:奇数带空格,偶数不带,便于一眼看出"带空格的丢了"
@@ -174,7 +169,7 @@ function ParseResult(props: {
           <For each={props.parsed}>
             {(f) => (
               <div class="octo-input-attachment-card" title={f.filename}>
-                <span class="octo-input-attachment-card__badge">{extBadge(f.filename)}</span>
+                <img class="octo-input-attachment-card__icon" src={fileTypeIconUrl(f.filename)} width={24} height={24} alt="" aria-hidden="true" />
                 <span class="octo-input-attachment-card__name">{f.filename}</span>
               </div>
             )}

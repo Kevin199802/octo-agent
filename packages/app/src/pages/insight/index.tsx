@@ -28,6 +28,7 @@ import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar } from "./sidebar"
+import { ProjectInfo } from "./components/project-selector"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
@@ -441,6 +442,48 @@ function InsightContent() {
     }
     console.log("[octo:task] session switched, refresh state cleared", { sessionID: params.id })
   }, { defer: true }))
+
+  // 切换 / 打开 session 后把对话区滚到底部：消息异步加载(message[id] 先 undefined),
+  // 必须等 sessionMessagesLoaded 翻真、InsightTurn 的 parts 渲染撑开高度后再定位,
+  // 否则会滚到尚为空的容器。
+  //
+  // 单次 rAF 不够:切到"已完成会话"时任务卡片/各类 part renderer(图表/mermaid/html)
+  // 渐进撑高,高度在首帧之后还在涨;而 session 非 busy → autoScroll 的 ResizeObserver
+  // 不会再补滚(它只在 active() 时跟随)。所以这里自己盯一个 settle 窗口:每帧强制贴底,
+  // 直到 scrollHeight 连续两帧不再变化(高度稳定),或超时兜底。切换/卸载时取消上一轮。
+  let scrollContainerEl: HTMLElement | undefined
+  let settleScrollRAF: number | undefined
+  const cancelSettleScroll = () => {
+    if (settleScrollRAF !== undefined) {
+      cancelAnimationFrame(settleScrollRAF)
+      settleScrollRAF = undefined
+    }
+  }
+  onCleanup(cancelSettleScroll)
+  createEffect(on(
+    () => [params.id, sessionMessagesLoaded()] as const,
+    ([id, loaded]) => {
+      cancelSettleScroll()
+      if (!id || !loaded) return
+      const SETTLE_MS = 600
+      const start = performance.now()
+      let lastHeight = -1
+      let stableFrames = 0
+      const step = () => {
+        const height = scrollContainerEl?.scrollHeight ?? 0
+        autoScroll.forceScrollToBottom()
+        stableFrames = height === lastHeight ? stableFrames + 1 : 0
+        lastHeight = height
+        // 连续两帧高度不变 = 内容已稳定;或超时兜底,停止盯防
+        if (stableFrames >= 2 || performance.now() - start > SETTLE_MS) {
+          settleScrollRAF = undefined
+          return
+        }
+        settleScrollRAF = requestAnimationFrame(step)
+      }
+      settleScrollRAF = requestAnimationFrame(step)
+    },
+  ))
 
   // ── session 操作 ──────────────────────────────────────────
 
@@ -974,6 +1017,15 @@ function InsightContent() {
     lastTaskSnapshot = currentSnap
   })
 
+  // textarea 高度随内容自适应(min-height 由 CSS 控制)
+  createEffect(() => {
+    prompt()
+    const el = textareaRef
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = el.scrollHeight + "px"
+  })
+
   const maxAttachments = () => attachments().length >= MAX_ATTACHMENTS
   function hasUploadingAttachments() {
     return attachments().some((a) => a.status === "uploading")
@@ -989,7 +1041,8 @@ function InsightContent() {
       <Toast.Region />
       <div class="size-full flex overflow-hidden relative">
         {/* 左侧会话栏(SPEC-INS-010 §11:侧栏归 insight,单独第一列,不混入对话↔面板的 flex) */}
-        <InsightSidebar />
+        {/* top 槽注入左上角「项目/版本」选择器(复刻 UXAI make-tab ProjectInfo) */}
+        <InsightSidebar top={<ProjectInfo />} />
 
         {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外) */}
         <div class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
@@ -1069,7 +1122,7 @@ function InsightContent() {
                             rgba(61, 93, 255, 1) 87%,
                             rgba(206, 7, 232, 1) 92%) border-box`,
                         "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                        height: "150px",
+                        "min-height": "150px",
                       }}
                     >
                       {/* 附件条在胶囊内部顶部:单行横向滚动,不撑开胶囊 */}
@@ -1084,10 +1137,12 @@ function InsightContent() {
                         onInput={(e) => setPrompt(e.currentTarget.value)}
                         onKeyDown={handleKeyDown}
                         placeholder="请描述您的需求..."
-                        class="w-full flex-1 resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
+                        class="w-full resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
                         style={{
                           color: "var(--octo-text-primary)",
                           "font-family": "var(--octo-font)",
+                          "min-height": "100px",
+                          "max-height": "240px",
                           "overflow-y": "auto",
                         }}
                       />
@@ -1132,7 +1187,7 @@ function InsightContent() {
                           <span class="truncate">
                             {local.model.current()?.name ?? "选择模型"}
                           </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-200 group-data-[expanded]:rotate-180" />
                         </ModelSelectorPopover>
 
                         <button
@@ -1186,7 +1241,10 @@ function InsightContent() {
               {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
               <div
                 class="flex-1 overflow-y-auto min-h-0"
-                ref={autoScroll.scrollRef}
+                ref={(el) => {
+                  scrollContainerEl = el
+                  autoScroll.scrollRef(el)
+                }}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
@@ -1254,7 +1312,7 @@ function InsightContent() {
                         rgba(61, 93, 255, 0.7) 87%,
                         rgba(206, 7, 232, 0.7) 92%) border-box`,
                     "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                    height: "150px",
+                    "min-height": "150px",
                     "margin-top": attachments().length > 0 ? "6px" : "0",
                   }}
                 >
@@ -1270,10 +1328,12 @@ function InsightContent() {
                     onInput={(e) => setPrompt(e.currentTarget.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="上传评估任务书、逐字稿，智能整理问题和观点"
-                    class="w-full flex-1 resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
+                    class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
                       "font-family": "var(--octo-font)",
+                      "min-height": "100px",
+                      "max-height": "240px",
                       "overflow-y": "auto",
                     }}
                   />
@@ -1318,7 +1378,7 @@ function InsightContent() {
                       <span class="truncate">
                         {local.model.current()?.name ?? "选择模型"}
                       </span>
-                      <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                      <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-200 group-data-[expanded]:rotate-180" />
                     </ModelSelectorPopover>
 
                     <button
