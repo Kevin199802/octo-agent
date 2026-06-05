@@ -26,6 +26,7 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 8. [tools-and-permissions.md](tools-and-permissions.md) — 内置工具清单（11 个）、MCP 工具接入、agent 工具白名单配置、权限规则（allow/ask/deny）
 9. [agent-deploy.md](agent-deploy.md) — 注册 vs 不注册的区别、config 版本化写入机制、Electron 打包后用户侧如何自带配置
 10. [mcp-api-integration.md](mcp-api-integration.md) — 内网 API 对接 MCP 的完整方案（路径 C）：UXR 服务加 /mcp 路由的实现、联调验证流程
+11. [opencode-db-and-storage.md](opencode-db-and-storage.md) — opencode 数据持久化全貌:SQLite 事务 / WAL / Drizzle schema-as-code / migration journal + snapshot.json / channel-aware DB / JsonMigration / storage + snapshot + tool-output 三兄弟,与 Rails/Prisma/Django/Flyway 对比
 
 > 后续可能补:
 >

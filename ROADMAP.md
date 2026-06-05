@@ -81,6 +81,7 @@
 
 | 规模 | 领域 | 任务 | 说明 |
 |-----|------|------|------|
+| `[S]` | infra | **Session.agent 字段化 + 修 task 子会话归属** | 上游 `Session` 加 `agent` 列;task spawn 继承父 agent;insight strict 过滤 + 补 agent;修 2026-06-04 内网三类侧栏 bug。同步 UXAI PR #26 | [session-agent-attribution.md](docs/specs/infra/session-agent-attribution.md) |
 | `[L]` | infra | **M1 — Electron 渲染入口跑通** | `packages/octo-app/` 建立为启动入口，接入 opencode server，Electron 窗口跑通对话 |
 | `[M]` | infra | **M1.5 — 工作目录策略确定** | 明确在 `packages/app/src/pages/insight/` 开发，与内网路径一致；精简脚手架；写 integration.md |
 | `[M]` | infra | **OctoShell 框架层** | `pages/_shell/`（sidebar + topbar）；RouterRoot 路由分叉；Chat/Studio 占位页 |

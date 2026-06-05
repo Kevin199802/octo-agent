@@ -72,6 +72,7 @@ export function fromRow(row: SessionRow): Info {
     share,
     revert,
     permission: row.permission ?? undefined,
+    agent: row.agent ?? undefined,
     time: {
       created: row.time_created,
       updated: row.time_updated,
@@ -98,6 +99,7 @@ export function toRow(info: Info) {
     summary_diffs: info.summary?.diffs,
     revert: info.revert ?? null,
     permission: info.permission,
+    agent: info.agent,
     time_created: info.time.created,
     time_updated: info.time.updated,
     time_compacting: info.time.compacting,
@@ -153,6 +155,7 @@ export const Info = z
         diff: z.string().optional(),
       })
       .optional(),
+    agent: z.string().optional(),
   })
   .meta({
     ref: "Session",
@@ -183,6 +186,7 @@ export const CreateInput = z
     title: z.string().optional(),
     permission: Info.shape.permission,
     workspaceID: WorkspaceID.zod.optional(),
+    agent: z.string().optional(),
   })
   .optional()
 export type CreateInput = z.output<typeof CreateInput>
@@ -334,6 +338,7 @@ export interface Interface {
     title?: string
     permission?: Permission.Ruleset
     workspaceID?: WorkspaceID
+    agent?: string
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
@@ -395,6 +400,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       workspaceID?: WorkspaceID
       directory: string
       permission?: Permission.Ruleset
+      agent?: string
     }) {
       const ctx = yield* InstanceState.context
       const result: Info = {
@@ -407,6 +413,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         parentID: input.parentID,
         title: input.title ?? createDefaultTitle(!!input.parentID),
         permission: input.permission,
+        agent: input.agent,
         time: {
           created: Date.now(),
           updated: Date.now(),
@@ -517,6 +524,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       title?: string
       permission?: Permission.Ruleset
       workspaceID?: WorkspaceID
+      agent?: string
     }) {
       const directory = yield* InstanceState.directory
       const workspace = yield* InstanceState.workspaceID
@@ -526,6 +534,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         title: input?.title,
         permission: input?.permission,
         workspaceID: workspace,
+        agent: input?.agent,
       })
     })
 
@@ -537,6 +546,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         directory,
         workspaceID: original.workspaceID,
         title,
+        agent: original.agent,
       })
       const msgs = yield* messages({ sessionID: input.sessionID })
       const idMap = new Map<string, MessageID>()
