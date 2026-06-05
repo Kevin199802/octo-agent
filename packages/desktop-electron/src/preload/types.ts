@@ -75,7 +75,7 @@ export type ElectronAPI = {
    * namespace 通常传 sessionId 或 tabId,避免不同任务冲突。
    * 详见 docs/specs/ui/output-renderers.md §6.A。
    */
-  downloadResourceToTemp: (url: string, namespace: string, filename: string) => Promise<string>
+  downloadResourceToTemp: (url: string, namespace: string, filename: string, baseDir?: string) => Promise<string>
   readClipboardImage: () => Promise<{ buffer: ArrayBuffer; width: number; height: number } | null>
   showNotification: (title: string, body?: string) => void
   getWindowFocused: () => Promise<boolean>

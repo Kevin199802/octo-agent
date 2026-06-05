@@ -5,6 +5,7 @@ import { createStore, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { useProjectDir } from "@/hooks/use-project-dir"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -54,9 +55,12 @@ export function InsightSessionList(): JSX.Element {
   const notification = useNotification()
   const permission = usePermission()
 
-  const homeDir = () => globalSync.data.path.home
+  // 走全栈统一 useProjectDir():路由 :dir → server.projects.last() → globalSync.data.path.home 兜底,
+  // 与 _shell/sidebar.tsx / make / studio 完全一致;避免"insight 自读 home 而其他模块走 selection"造成
+  // 用户选了项目目录后 insight 仍查 home dir 而看不到自己历史对话的 directory 飘移 bug。
+  const projectDir = useProjectDir()
 
-  const [sessions, { refetch }] = createResource(homeDir, async (dir) => {
+  const [sessions, { refetch }] = createResource(projectDir, async (dir) => {
     if (!dir) return [] as Session[]
     const result = await globalSDK.client.session.list({ directory: dir })
     // strict 过滤:server 已把 agent 作为一等字段持久化(见 SPEC infra/session-agent-attribution)。

@@ -3,6 +3,7 @@ import octoAgentWordmarkUrl from "../../icons/octo-agent.png?url"
 import { usePlatform } from "@/context/platform"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useServer } from "@/context/server"
 import { ProjectInfoDialogContent } from "./project-info-dialog-content"
 import { createStore } from "solid-js/store"
 import { createMemo, createSignal, Show } from "solid-js"
@@ -29,6 +30,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   const platform = usePlatform()
   const globalSync = useGlobalSync()
   const language = useLanguage()
+  const server = useServer()
 
   const lastSelection = projectSelection()
 
@@ -80,6 +82,9 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
       version: selections.version,
     }
     saveProjectSelection(data)
+    // 同步到 app 全局 last-project,让所有读 server.projects.last() 的下游(useProjectDir 等)
+    // 跟随切换。同事原版漏了这一笔,导致 dialog 选完目录但 sidebar / insight 数据没换。
+    server.projects.touch(dir)
     props.onSelect(data)
   }
 

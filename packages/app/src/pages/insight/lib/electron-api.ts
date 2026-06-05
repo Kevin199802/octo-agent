@@ -10,7 +10,7 @@ export type DesktopApi = {
   showItemInFolder?: (path: string) => void
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   downloadResource?: (url: string, destPath: string) => Promise<void>
-  downloadResourceToTemp?: (url: string, namespace: string, filename: string) => Promise<string>
+  downloadResourceToTemp?: (url: string, namespace: string, filename: string, baseDir?: string) => Promise<string>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {

@@ -13,6 +13,7 @@ import { stripCodeFence } from "../../utils/detect"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { getDesktopApi } from "../../lib/electron-api"
+import { useProjectDir } from "@/hooks/use-project-dir"
 import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
 
 // ── 源码渲染器 ──────────────────────────────────────────────────
@@ -264,6 +265,8 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
   const [openBusy, setOpenBusy] = createSignal(false)
   const [downloadBusy, setDownloadBusy] = createSignal(false)
   const [revealBusy, setRevealBusy] = createSignal(false)
+  // 选了项目目录就把 MCP 文件落进 <projectDir>/.octo/downloads/ 持久保留;否则走 OS 临时目录。
+  const projectDir = useProjectDir()
 
   function sanitize(name: string): string {
     return name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 200) || "untitled"
@@ -299,7 +302,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
       mode: "to-temp",
     })
     try {
-      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname)
+      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname, projectDir() || undefined)
       console.log("[octo:office] download-ok", { localPath })
       console.log("[octo:office] open-path", { localPath })
       // shell.openPath 返回值约定: 空字符串 = 成功,非空 = 错误说明。
@@ -335,7 +338,10 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     const api = getDesktopApi()!
     setDownloadBusy(true)
     try {
-      const chosen = await api.saveFilePicker!({ defaultPath: defaultFilename() })
+      // 另存为默认路径:有项目目录则落项目内,无则让 OS 弹空白(用户自选)
+      const projectBase = projectDir()
+      const defaultPath = projectBase ? `${projectBase}/${defaultFilename()}` : defaultFilename()
+      const chosen = await api.saveFilePicker!({ defaultPath })
       if (!chosen) {
         setDownloadBusy(false)
         return
@@ -370,7 +376,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     const fname = defaultFilename()
     console.log("[octo:office] reveal-start", { uri: props.tab.uri, namespace: props.tab.id, filename: fname })
     try {
-      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname)
+      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname, projectDir() || undefined)
       console.log("[octo:office] reveal-show", { localPath })
       api.showItemInFolder!(localPath)
     } catch (err) {

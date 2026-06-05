@@ -425,6 +425,30 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 |---|---|
 | `ALTER TABLE \`session\` ADD \`agent\` text;` | Drizzle 自动生成的 schema 迁移;`ALTER TABLE ADD COLUMN` 是 SQLite 兼容操作,老数据 agent IS NULL 走 strict 过滤兜底 |
 
+#### `packages/app/src/hooks/use-project-dir.ts`(新增,2026-06-05)
+
+| 改了什么 | 性质 |
+|---|---|
+| 全栈统一 `useProjectDir()` hook:`:dir` 路由 → `server.projects.last()` → `globalSync.data.path.home` 兜底;并提供 `octoSessionsDir()` 给 chat/studio 等"agent 级配置态"用 | 修 insight 目录飘移 bug —— 之前 `pages/insight/*` 直接读 `globalSync.data.path.home`,与 _shell/sidebar / make / studio 行为不一致;切目录后 insight 不跟随。本 hook 与 UXAI `octoapp/hooks/use-project-dir.ts` 行为对齐(同事合入的 `dialog-project-onboarding` 调它 + 调 `server.projects.touch()` 即可联动) |
+
+#### `packages/app/src/utils/path-valid.ts`(新增,2026-06-05)
+
+| 改了什么 | 性质 |
+|---|---|
+| `isValidUserPath()`:过滤 `""` / `/` / Windows 盘符根等无效路径 | `useProjectDir()` 依赖,逐级 fallback 时跳过无效候选 |
+
+#### `packages/desktop-electron/src/main/ipc.ts`(补充,2026-06-05)
+
+| 改了什么 | 性质 |
+|---|---|
+| `download-resource-to-temp` IPC 加可选第 4 参 `baseDir`:提供时落 `<baseDir>/.octo/downloads/<ns>/<name>`,不传时 fallback 老逻辑(OS tmp) | MCP 工具产物("打开"/"在文件夹定位")可选落进用户的项目目录,持久可查/可备份 |
+
+#### `packages/desktop-electron/src/preload/types.ts` + `index.ts`(补充,2026-06-05)
+
+| 改了什么 | 性质 |
+|---|---|
+| `DesktopApi.downloadResourceToTemp` 签名加 `baseDir?: string`;preload 透传 | 同 IPC 改动,renderer 类型同步 |
+
 **撤回到纯上游**（合入内网最坏情况）：
 
 1. 上面所有改动逆向回滚
