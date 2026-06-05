@@ -57,13 +57,14 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
         "border-right": "1px solid var(--octo-border-default, #E5E7EB)",
       }}
     >
-      {/* 顶部槽:项目/产品切换器(D5,本地注入 ProjectInfo 或留空待宿主注入) */}
+      {/* 顶部槽:项目/产品切换器(D5,本地注入 ProjectInfo 或留空待宿主注入)。
+          shrink-0 flex flex-col px-[12px] pt-[12px] 与 make / _shell 一致 */}
       <Show when={props.top}>
-        <div class="shrink-0 px-[8px] pt-[12px]">{props.top}</div>
+        <div class="shrink-0 flex flex-col px-[12px] pt-[12px]">{props.top}</div>
       </Show>
 
       {/* 会话列表(自身不滚动:固定头 + 列表独立滚动在 InsightSessionList 内部分区) */}
-      <div class="flex-1 min-h-0 flex flex-col px-[12px] py-[6px]">
+      <div class="flex-1 min-h-0 flex flex-col px-[12px]">
         <InsightSessionList />
       </div>
 
