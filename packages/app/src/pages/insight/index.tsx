@@ -35,6 +35,7 @@ import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { installInsightDebug } from "./lib/debug-observer"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { linkToOutputType } from "./utils/resource-link"
@@ -102,6 +103,15 @@ function InsightContent() {
   const sync = useSync()
   const local = useLocal()
   const themeCtx = useTheme()
+
+  // 内网 debug 观测层(自包含):旁路订阅 SSE event → [octo:event] 日志 + window.octoDebug 控制台 API。
+  // 见 lib/debug-observer.ts / docs/insight-debugging.md。只读,不影响主流程;keyed 重挂时 dispose 清理。
+  const debug = installInsightDebug({
+    globalSDK,
+    syncData: sync.data as unknown as Parameters<typeof installInsightDebug>[0]["syncData"],
+    currentSessionID: () => params.id,
+  })
+  onCleanup(() => debug.dispose())
 
   // Insight 暂不适配暗色模式：mount 时注入全局亮色 token 覆盖（selector 为 html 自身），
   // 使 portal（模型选择弹窗等）也能被覆盖到；insight 是全屏页，不影响其他页面。
@@ -575,6 +585,21 @@ function InsightContent() {
       cleanText: text,         // 用户可见文本
       uploadBlock,             // synthetic 上传块(喂给 LLM,气泡不显示)
     })
+    // 回灌 debug 环形缓冲:出 bug 后 octoDebug.lastSend()/sends() 可回放「究竟发了什么」
+    const endpoint = `${globalSDK.url ?? ""}/session/${sessionId}/prompt_async`
+    debug.recordSend({
+      ts: Date.now(),
+      source: opts.source,
+      sessionID: sessionId,
+      messageID,
+      model,
+      modelResolved: !!model,
+      statusAtSend: sync.data.session_status[sessionId]?.type ?? "idle",
+      cleanText: text,
+      uploadBlock,
+      attachmentsCount: doneAttachments.length,
+      endpoint,
+    })
 
     sync.session.optimistic.add({
       sessionID: sessionId,
@@ -599,6 +624,8 @@ function InsightContent() {
       console.log("[octo:prompt] sent (async)", {
         messageID,
         sessionID: sessionId,
+        method: "POST",
+        endpoint,                       // POST /session/:id/prompt_async —— Network 面板按此筛
         statusAfterSend: sync.data.session_status[sessionId]?.type ?? "idle",
         response: (result as { data?: unknown })?.data ?? result,
       })

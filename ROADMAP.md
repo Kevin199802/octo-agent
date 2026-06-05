@@ -48,6 +48,7 @@
 
 | 规模 | 领域 | 任务 | 说明 |
 |-----|------|------|------|
+| `[M]` | ui | **Insight 内网调试工具（debug-observer）** | 阶段 1 第一步已落地（`[octo:event]` + `window.octoDebug` + 文档字典）。待执行 → 阶段 1 增强：snapshot 参数化（时间窗/profile/around）+ `why()` 速诊 + 捕获层加强（未捕获异常/console 镜像）；阶段 2：IndexedDB 持久化（跨 reload/重启）；阶段 3：renderer console 全量落盘兜底（限改+登记） | [insight-debug-toolkit.md](docs/specs/ui/insight-debug-toolkit.md) |
 | `[S]` | ui | **原始输出隐藏升级（路线 B）** | MCP 联调后，tool_call part 到达时立即切换 loading 占位，原始内容从不暴露（当前 CSS 过渡方案在流完后才隐藏） | [ADR-010](docs/adr/010-suppress-raw-output.md) |
 | `[S]` | agents | **内网 skill 联调** | 同事完成 MCP server 后，本地验证 research agent 能通过 skill 调内网接口 | — |
 | `[S]` | agents | **mock 脚本** | `packages/agent/research/mock/` 放本地测试脚本，无内网环境也能跑基础流程 | — |

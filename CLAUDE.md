@@ -77,6 +77,14 @@ UI 开发中遇到 SVG 占位 / 插图近似替代 / 真实数据缺失等情况
 
 ---
 
+## console 日志字典维护（强制）
+
+[docs/insight-debugging.md](docs/insight-debugging.md) 是「console 日志 → bug 定位」的对照字典，内网排查（人读 / AI 读）都依赖它可靠。
+
+**强制同步触发点**：任何 `[octo:*]` 日志前缀 / 字段、或 `window.octoDebug` 命令的**新增 / 修改 / 删除**，必须**同步更新** insight-debugging.md 对应字典条目（时机、字段含义、正常 vs 异常）。字典与代码不一致会直接误导定位。debug 工具整体规划见 [SPEC-INS-011](docs/specs/ui/insight-debug-toolkit.md)。
+
+---
+
 ## 实施原则
 
 - **复用零件**：`@opencode-ai/ui` 的组件 import，不重写
