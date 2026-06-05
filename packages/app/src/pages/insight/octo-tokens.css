@@ -461,3 +461,12 @@
   animation: octo-att-spin-kf 1s linear infinite;
   transform-origin: center;
 }
+
+/* 代码块复制按钮 tooltip:上游默认水平居中(left:50%/translateX),按钮贴代码块右上角
+   → tooltip 向右溢出被对话区右边界裁切(见截图"复制"被切)。改为右对齐按钮、向左展开。
+   仅 insight 作用域覆盖,不动 packages/ui。 */
+[data-component="session-turn"] [data-slot="markdown-copy-button"]::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
