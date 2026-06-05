@@ -100,6 +100,7 @@ export function InsightTurn(props: {
   // 同 turn A 命中则 B 不执行(避免重复)。
   const outputCards = createMemo((): OutputCard[] => {
     const parts = assistantParts() as Array<{ type: string; text?: string }>
+    const msgDate = new Date(assistantMsg()?.time?.created ?? Date.now())
     if (showGenerating()) return []
 
     // 同 turn 有任务卡片就抑制 OutputCard:completed 由 TaskCardView 内的"查看完整结果"按钮触发 openTab
@@ -127,7 +128,7 @@ export function InsightTurn(props: {
         mimeType: link.mimeType,
         fileName: link.name,
         description: link.description,
-        createdAt: new Date(),
+        createdAt: msgDate,
       }))
     }
 
@@ -166,7 +167,7 @@ export function InsightTurn(props: {
           type: "html",
           source: "inline",
           content: block.html,
-          createdAt: new Date(),
+          createdAt: msgDate,
         })
       })
     }
@@ -188,7 +189,7 @@ export function InsightTurn(props: {
           type: "table",
           source: "inline",
           content: lastText,
-          createdAt: new Date(),
+          createdAt: msgDate,
         })
       }
       if (isMindmapJSON(lastText)) {
@@ -199,7 +200,7 @@ export function InsightTurn(props: {
           type: "mindmap",
           source: "inline",
           content: lastText,
-          createdAt: new Date(),
+          createdAt: msgDate,
         })
       }
       if (matched.length > 0) {
