@@ -315,10 +315,19 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
       }
     } catch (err) {
       console.error("[octo:office] open-failed", { uri: props.tab.uri, err })
+      const isFileLocked =
+        err instanceof Error &&
+        (err.message.includes("EBUSY") ||
+          err.message.includes("EPERM") ||
+          err.message.includes("being used by another process"))
       showToast({
-        title: "无法打开文件",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "error",
+        title: isFileLocked ? "文件已打开" : "无法打开文件",
+        description: isFileLocked
+          ? "文件已在本地应用中打开，无需重复操作"
+          : err instanceof Error
+            ? err.message
+            : String(err),
+        variant: isFileLocked ? "default" : "error",
       })
     } finally {
       setOpenBusy(false)
