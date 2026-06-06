@@ -103,9 +103,9 @@ opencode 通过 `OPENCODE_CONFIG` 环境变量读取一个 JSON 文件。如果�
 
 | 类别  | 角色            | 路径                                                                           |
 | --- | ------------- | ---------------------------------------------------------------------------- |
-| A   | 系统提示词源        | `packages/agent/insight/agents/insight.md`                                   |
+| A   | 系统提示词源        | `packages/agent/octo_insight/agents/octo_insight.md`                                   |
 | A   | agent/MCP 结构源 | `packages/desktop-electron/resources/default-config.json`                    |
-| A   | 安装包内的副本       | `Octo Agent.app/Contents/Resources/{agents/insight.md, default-config.json}` |
+| A   | 安装包内的副本       | `Octo Agent.app/Contents/Resources/{agents/octo_insight.md, default-config.json}` |
 | B/C | 用户配置          | `~/.config/octo/octo.json`                                            |
 | -   | 运行时合并产物       | `~/.config/octo/.octo-runtime.json`（opencode 读这个）                            |
 
@@ -124,7 +124,7 @@ dev 与 production 行为一致——改源文件 → 重启 main 进程 → 自
 
 | 改什么                   | 改哪个文件                                                     | 怎么生效       |
 | --------------------- | --------------------------------------------------------- | ---------- |
-| 系统提示词                 | `packages/agent/insight/agents/insight.md`                | 重启 main 进程 |
+| 系统提示词                 | `packages/agent/octo_insight/agents/octo_insight.md`                | 重启 main 进程 |
 | agent 工具白名单 / MCP URL | `packages/desktop-electron/resources/default-config.json` | 重启 main 进程 |
 | 用户 API key / model 选择 | `~/.config/octo/octo.json`                         | 重启 main 进程 |
 
@@ -141,7 +141,7 @@ dev 与 production 行为一致——改源文件 → 重启 main 进程 → 自
 ### 当前阶段（实现前）的临时手动方案
 
 完整自动部署逻辑见 spec，实现完成前是手动维护：
-- 改 `insight.md` 后手动 cp 到 `packages/desktop-electron/resources/agents/insight.md`
+- 改 `octo_insight.md` 后手动 cp 到 `packages/desktop-electron/resources/agents/octo_insight.md`
 - 手动同步到 `~/.config/octo/octo.json` 的 `agent.insight.prompt` 字段
 
 实现完成后这些手动步骤全部消除。任务在 ROADMAP P2 infra：「首次启动配置写入」。

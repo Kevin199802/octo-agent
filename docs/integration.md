@@ -13,7 +13,7 @@
 | `packages/app/src/pages/chat/` | 直接同步目录 | Chat 页面 |
 | `packages/app/src/pages/studio/` | 直接同步目录 | Studio 页面 |
 | `packages/app/src/app.tsx`（OctoShell 路由分叉） | 手动合并变更 | 见 §2 |
-| `packages/agent/insight/agents/insight.md` | 注入 `octo.json`（主进程自动写入，见 §3） | 见 §3 |
+| `packages/agent/octo_insight/agents/octo_insight.md` | 注入 `octo.json`（主进程自动写入，见 §3） | 见 §3 |
 
 **不合入**：`packages/desktop-electron/` 的 Electron 接线改动（内网有自己的启动方式）。
 
@@ -49,7 +49,7 @@ const StudioPage  = lazy(() => import("@/pages/studio"))
 
 Agent 配置通过 Electron 主进程在首次启动时写入 `~/.config/octo/octo.json`，详见 §5 及 [learning/agent-deploy.md](learning/agent-deploy.md)。
 
-源文件：`packages/agent/insight/agents/insight.md`
+源文件：`packages/agent/octo_insight/agents/octo_insight.md`
 ```
 
 ---

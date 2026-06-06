@@ -37,7 +37,7 @@
 | 路径 | 说明 |
 |---|---|
 | `packages/app/src/pages/insight/` | 用研 Agent 页面（合入物）|
-| `packages/agent/insight/agents/` | opencode agent 配置文件（合入物）|
+| `packages/agent/octo_insight/agents/` | opencode agent 配置文件（合入物）|
 | `packages/app/src/pages/_shell/` | OctoShell 框架层 |
 | `packages/app/src/app.tsx` | OctoShell 路由分叉（限改） |
 
@@ -49,7 +49,7 @@
 
 | 范围 | 政策 |
 |---|---|
-| `packages/app/src/pages/insight/`、`packages/app/src/pages/_shell/`、`packages/agent/insight/`、`docs/` | **自由改**（合入物） |
+| `packages/app/src/pages/insight/`、`packages/app/src/pages/_shell/`、`packages/agent/octo_insight/`、`docs/` | **自由改**（合入物） |
 | `packages/app/src/app.tsx` | **限改**：仅 OctoShell 路由分叉所需，内网同步 |
 | `packages/app/` 其他文件、`packages/ui/`、`packages/opencode/`、`packages/sdk/` | **不动**：改了跟上游 diff 会乱 |
 | `packages/desktop-electron/src/main/`、`electron.vite.config.ts` 等接线文件 | **限改**：仅品牌、接线、调试 |

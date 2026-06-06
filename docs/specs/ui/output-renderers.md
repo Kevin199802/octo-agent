@@ -56,7 +56,7 @@ OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 
 | 依赖 | 强依赖模型指令遵循（Claude/GPT 95%+，其他模型不可靠） | 不依赖模型能力 |
 | 适用 | 单一模型平台（Anthropic / OpenAI 自家产品）| 多模型场景（DeepSeek R1 / flash / GPT / Claude 都要支持）|
 
-我们走的是"**真 MCP tool（强）+ fence/shape 嗅探（兜底）**"，与 IDE 系工具（Cursor / VS Code Chat / Continue）一致。未来若嗅探被证明太不稳定，再考虑在 [insight agent.md](../../../packages/agent/insight/agents/insight.md) 里加 fence 约定（强约束 LLM 输出格式）+ 前端识别。
+我们走的是"**真 MCP tool（强）+ fence/shape 嗅探（兜底）**"，与 IDE 系工具（Cursor / VS Code Chat / Continue）一致。未来若嗅探被证明太不稳定，再考虑在 [insight agent.md](../../../packages/agent/octo_insight/agents/octo_insight.md) 里加 fence 约定（强约束 LLM 输出格式）+ 前端识别。
 
 ---
 
@@ -207,7 +207,7 @@ function isPlainJSON(text: string): boolean {
 - **路径 A 严格契约** = MCP tool 返回 `resource_link`（强信号，零嗅探，类似 "ChatGPT Canvas 走 canmore tool" 但是真 MCP 工具）
 - **路径 B 窄而准的嗅探** = fence / table / mindmap shape（类 Cursor 路线）
 
-如果未来路径 B 在多模型场景下漏检率太高，再考虑在 [insight agent.md](../../../packages/agent/insight/agents/insight.md) 加 fence 约定（强约束 LLM 输出格式），前端按约定 tag 识别，等价于 ChatGPT Canvas 的"伪工具触发"但通过 prompt 实现。短期不做。
+如果未来路径 B 在多模型场景下漏检率太高，再考虑在 [insight agent.md](../../../packages/agent/octo_insight/agents/octo_insight.md) 加 fence 约定（强约束 LLM 输出格式），前端按约定 tag 识别，等价于 ChatGPT Canvas 的"伪工具触发"但通过 prompt 实现。短期不做。
 
 ### 2.4 console 调试埋点（路径 B）
 

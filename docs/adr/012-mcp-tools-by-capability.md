@@ -65,7 +65,7 @@ search_reports(query)           ← RAG 检索
 ## 后果
 
 - [mcp-contract.md](../specs/agents/mcp-contract.md) 工具部分按本 ADR 重写
-- [packages/agent/insight/agents/insight.md](../../packages/agent/insight/agents/insight.md) frontmatter `tools` 白名单同步更新
+- [packages/agent/octo_insight/agents/octo_insight.md](../../packages/agent/octo_insight/agents/octo_insight.md) frontmatter `tools` 白名单同步更新
 - [docs/specs/ui/insight-analysis-mode.md](../specs/ui/insight-analysis-mode.md) 模板列表收缩到内网已实现的范围
 - 其他文档（integration / intranet-handoff / learning / output-renderers）中涉及 MCP 工具名称的地方一律改为引用 mcp-contract.md，**不重复定义**，避免后续多处漂移
 - 早期 ADR（005/006/007/009/010/011）中出现的 `analyze_interview` / `analysis_type` 字样保留为历史快照，不改

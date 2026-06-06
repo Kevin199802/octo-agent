@@ -341,7 +341,7 @@ inject 出来的 user 消息**正常显示在对话流中**(与用户手输无�
 - 收到 "终止任务 X" → LLM 调 `stop_task(X)`
 - 客户端**不**直接调 MCP 工具,**不**直接访问任务管理 API
 
-工具调用约束写在 agent prompt(`packages/agent/insight/agents/insight.md`)里,本 spec 不重复定义。
+工具调用约束写在 agent prompt(`packages/agent/octo_insight/agents/octo_insight.md`)里,本 spec 不重复定义。
 
 ### 6.3 卡片状态更新
 
@@ -489,7 +489,7 @@ pages/insight/
 | 步骤 | 操作 | 期望看到的 log | 缺失时的判断 |
 |---|---|---|---|
 | **1** | 触发"观点解析",输入框发送 | `[octo:prompt] send` 带 `source: "user"` + `template: "..."` | session.prompt 调用失败 → 看 `[InsightPage] prompt failed` |
-| **2** | 5 秒内 | `[octo:sse] new part` + `[octo:sse] tool part` 含 `tool: "key_findings"` + `state.status: "completed"` + 展开 `fullPart.state.metadata` / `state.output` 看 task_id 形态 | 无 → MCP 工具没被 LLM 调用;看 agent prompt(`packages/agent/insight/agents/insight.md` 是否声明了该工具白名单) |
+| **2** | 5 秒内 | `[octo:sse] new part` + `[octo:sse] tool part` 含 `tool: "key_findings"` + `state.status: "completed"` + 展开 `fullPart.state.metadata` / `state.output` 看 task_id 形态 | 无 → MCP 工具没被 LLM 调用;看 agent prompt(`packages/agent/octo_insight/agents/octo_insight.md` 是否声明了该工具白名单) |
 | **3** | 紧接着 | `[octo:task] aggregate diff` 含 `changes: [{ taskId, from: null, to: "pending\|processing" }]` + `snapshot` 数组 | 无 → defensive 解析没命中,**粘 step 2 的 `fullPart` 完整对象**;`readStructuredContent` 三个分支需调 |
 | **4** | 卡片渲染后,点 **↻ 刷新** | `[octo:task] refresh click` → `[octo:task] markRefreshed` → `[octo:prompt] send` 带 `source: "task-refresh"` + `text: "查询任务 xxx 的进度"` | "blocked: busy" → 当前 turn 没结束;"blocked: cooldown" → 3 分钟内已刷过 |
 | **5** | 几秒后 | 新一条 `[octo:sse] tool part` 含 `tool: "get_task_result"` → `[octo:task] aggregate diff` 含 status 变化 | LLM 没调 get_task_result → 看 agent prompt 是否落了 [mcp-contract.md §LLM 调用规范](../agents/mcp-contract.md) |

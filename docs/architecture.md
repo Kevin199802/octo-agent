@@ -55,7 +55,7 @@ opencode 不是 sidecar 二进制，是 `import("virtual:opencode-server")` 加�
 | `packages/app/src/pages/insight/` | 用研 Agent 页面 |
 | `packages/app/src/pages/chat/` | Chat 页面 |
 | `packages/app/src/pages/studio/` | Studio 页面 |
-| `packages/agent/insight/agents/` | opencode agent 配置文件（`.md`） |
+| `packages/agent/octo_insight/agents/` | opencode agent 配置文件（`.md`） |
 | `docs/`、`ROADMAP.md`、`CLAUDE.md` | 文档 |
 
 > 其他 agent 各自在 `packages/app/src/pages/<name>/` 建立相同结构。  
@@ -142,8 +142,8 @@ packages/app/src/pages/
 └── studio/            # Studio 页面（占位）
     └── index.tsx
 
-packages/agent/research/
-└── agents/research.md  # 用研 agent 配置，部署至 ~/.config/octo/agent/
+packages/agent/octo_insight/
+└── agents/octo_insight.md  # 用研 agent 配置，部署至 ~/.config/octo/agent/
 ```
 
 ---
@@ -261,7 +261,7 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 
 | 改了什么 | 性质 |
 |---|---|
-| agent 目录/文件 `packages/agent/insight/agents/insight.md` → `packages/agent/octo_insight/agents/octo_insight.md` | 命名统一 |
+| agent 目录/文件 `packages/agent/insight/agents/octo_insight.md` → `packages/agent/octo_insight/agents/octo_insight.md` | 命名统一 |
 | `resources/default-config.json`：`default_agent` 与 `agent` 键 `insight` → `octo_insight` | 命名统一 |
 | `electron-builder.config.ts` extraResources from/to、`scripts/check-bundle.ts` 校验路径、`config.test.ts` 断言、`script/octo-sync.ts` PROMPT.ext 同步改名 | 命名统一 |
 | **动因**：外网桌面壳按 `default-config.json` 的 agent 键名注册 agent（frontmatter `name` 不参与注册，仅作 prompt 文本）。发送链路 [index.tsx](../packages/app/src/pages/insight/index.tsx) 的 `const agent` 必须等于注册名,否则 server 不起轮（发送无反馈）。改名后外网/内网两仓 agent 名统一 `octo_insight`,octo-sync 的 prompt cp 不再需要改名,消除"发的 agent 名 ≠ 注册名"隐患 | 见 [SPEC-INS-010 §11.2](specs/ui/insight-standalone-extraction.md) |
@@ -353,7 +353,7 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 
 | 改了什么 | 性质 |
 |---|---|
-| 删掉 `agent.interview-worker` 段（2026-05-29，dead reference 清理） | 配置卫生 — 该 agent 在 [ADR-005 §38](adr/005-prompt-template-vs-subagent.md#38-多文档并行执行) 是 fallback 设想，但 `packages/agent/interview-worker/` 目录在 git 历史里**从未创建过**，prompt 文件不存在。[config-core.ts:74-81](../packages/desktop-electron/src/main/config-core.ts) 合并时 prompt 缺失只 `console.warn` 不剔除 agent，runtime config 里留下一个无 prompt 的瘸腿 subagent。**事实证据**：mac 端 W 在 dev 环境 insight chat 已稳定运行一个多月（说明 opencode 实际接受这种瘸腿配置，对 subagent prompt 是宽松/可选的，而非如 zod `.strict()` 文档暗示的严格），且 [`insight.md`](../packages/agent/insight/agents/insight.md) prompt 与 [insight 页面代码](../packages/app/src/pages/insight/) 内零调用 interview-worker。删除属于 dead reference 清理，验证依据：`bun test src/main/config.test.ts` 7 pass / 0 fail（W 在 mac 端跑过）。以后真要实现该 subagent，先创建 `packages/agent/interview-worker/agents/interview-worker.md`，再同步加回此 config |
+| 删掉 `agent.interview-worker` 段（2026-05-29，dead reference 清理） | 配置卫生 — 该 agent 在 [ADR-005 §38](adr/005-prompt-template-vs-subagent.md#38-多文档并行执行) 是 fallback 设想，但 `packages/agent/interview-worker/` 目录在 git 历史里**从未创建过**，prompt 文件不存在。[config-core.ts:74-81](../packages/desktop-electron/src/main/config-core.ts) 合并时 prompt 缺失只 `console.warn` 不剔除 agent，runtime config 里留下一个无 prompt 的瘸腿 subagent。**事实证据**：mac 端 W 在 dev 环境 insight chat 已稳定运行一个多月（说明 opencode 实际接受这种瘸腿配置，对 subagent prompt 是宽松/可选的，而非如 zod `.strict()` 文档暗示的严格），且 [`octo_insight.md`](../packages/agent/octo_insight/agents/octo_insight.md) prompt 与 [insight 页面代码](../packages/app/src/pages/insight/) 内零调用 interview-worker。删除属于 dead reference 清理，验证依据：`bun test src/main/config.test.ts` 7 pass / 0 fail（W 在 mac 端跑过）。以后真要实现该 subagent，先创建 `packages/agent/interview-worker/agents/interview-worker.md`，再同步加回此 config |
 
 #### `packages/desktop-electron/src/preload/index.ts`（补充）
 

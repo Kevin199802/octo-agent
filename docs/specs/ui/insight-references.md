@@ -121,7 +121,7 @@ for source in result["sources"]:
 }
 ```
 
-**对 LLM 角标约束的位置**:写在 [insight agent.md](../../../packages/agent/insight/agents/insight.md) 的 systemHint 里,例:
+**对 LLM 角标约束的位置**:写在 [insight agent.md](../../../packages/agent/octo_insight/agents/octo_insight.md) 的 systemHint 里,例:
 
 > 调用 `search_reports` 后,如果工具返回了 N 个 `resource_link` 文档,在你的回答正文中用 `[1][2][3]` 角标引用对应文档,编号对应 resource_link 数组顺序(1-indexed)。若不引用某个文档,角标可省略。
 
@@ -338,4 +338,4 @@ Phase 3 的 InlineCitation 在 `components/reference-list/inline-citation.tsx`�
 | 本 spec → [mcp-contract.md](../agents/mcp-contract.md) | 引用型 tool 契约 + `business_type` 字段定义 | 业务工具分类约束 |
 | 本 spec → [output-renderers.md §0](output-renderers.md#0-两类卡片来源--职责边界重要) | 路径 A 强契约边界 | 引用型不走 OutputCard 大卡 |
 | 本 spec → [task-card.md §3.5](task-card.md#35-故意保留的冗余刷新-turn-的-outputcard入口冗余非-tab-重复) | 入口冗余规则 | 引用型不参与冗余(无 task_id) |
-| 本 spec → [insight agent.md](../../../packages/agent/insight/agents/insight.md) | LLM 角标约束(Phase 3) | systemHint 引导 LLM 写 `[n]` |
+| 本 spec → [insight agent.md](../../../packages/agent/octo_insight/agents/octo_insight.md) | LLM 角标约束(Phase 3) | systemHint 引导 LLM 写 `[n]` |

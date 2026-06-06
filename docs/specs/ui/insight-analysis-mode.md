@@ -10,7 +10,7 @@
 
 - 模板指令通过 `session.prompt()` 的 `system` 字段传给 LLM，**不污染用户消息**
 - 同一个 `insight` primary agent，模板只是单次系统指令注入
-- agent.prompt（insight.md）描述全局工作流和工具规则，模板只补充"本轮用哪个 MCP 工具"
+- agent.prompt（octo_insight.md）描述全局工作流和工具规则，模板只补充"本轮用哪个 MCP 工具"
 
 ---
 
@@ -41,7 +41,7 @@
 
 ### systemHint 文本
 
-精简原则：只声明**本轮意图**和**输出约束**，工具调用细节由 insight.md 系统提示承担。
+精简原则：只声明**本轮意图**和**输出约束**，工具调用细节由 octo_insight.md 系统提示承担。
 
 **观点解析**
 ```
@@ -276,7 +276,7 @@ function detectCard(text: string) {
 | 场景 | 行为 |
 |---|---|
 | MCP 返回未知工具 / 服务端尚未支持 | 对话区显示"该分析类型 UXR 服务端尚未支持"的友好提示卡片，不影响其他模板使用 |
-| 用户没上传文件就选观点解析发送 | LLM 收到 system hint 但无文件 URL，会按 insight.md 工作流询问用户 |
+| 用户没上传文件就选观点解析发送 | LLM 收到 system hint 但无文件 URL，会按 octo_insight.md 工作流询问用户 |
 | 用户选了用研知识问答但又上传了文件 | LLM 优先按 `search_reports` 处理，文件作为补充材料 |
 
 > MCP 工具支持状态以 [mcp-contract.md](../agents/mcp-contract.md) 为准。

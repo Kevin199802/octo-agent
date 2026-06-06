@@ -498,12 +498,12 @@
 
 ## 与 agent 配置的对应关系
 
-`packages/agent/insight/agents/insight.md` frontmatter 的工具白名单需覆盖本文档列出的所有业务工具 + `search_reports`，详见该文件。
+`packages/agent/octo_insight/agents/octo_insight.md` frontmatter 的工具白名单需覆盖本文档列出的所有业务工具 + `search_reports`，详见该文件。
 
 工具名称如与 MCP server 实际提供的不一致，需**同时**修改：
 
 - 本文档工具清单
-- `packages/agent/insight/agents/insight.md` frontmatter
+- `packages/agent/octo_insight/agents/octo_insight.md` frontmatter
 - 涉及对外契约的文档（[intranet-handoff.md](../../intranet-handoff.md)）
 
 其他文档（integration / learning / output-renderers / insight-analysis-mode 等）应通过引用本文档获取最新名称，不复述具体 tool 名。

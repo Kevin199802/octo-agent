@@ -43,7 +43,7 @@ Octo 的 `octo.json` 同时混合了两类信息：
 
 ```
 bundle 内（A 类，我们维护，每次启动从 bundle 读最新）
-  ├─ packages/agent/insight/agents/insight.md         ← 系统提示词
+  ├─ packages/agent/octo_insight/agents/octo_insight.md         ← 系统提示词
   └─ packages/desktop-electron/resources/default-config.json  ← agent 结构 + MCP 配置
 
 用户文件（B + C 类，用户拥有，我们永不写）
@@ -54,7 +54,7 @@ bundle 内（A 类，我们维护，每次启动从 bundle 读最新）
 ```
 
 主进程启动流程：
-1. 读 bundled defaults + insight.md → 拼成 A 类完整配置
+1. 读 bundled defaults + octo_insight.md → 拼成 A 类完整配置
 2. 读用户的 octo.json → B + C 类
 3. deepMerge(A, B+C) → 写到 .octo-runtime.json
 4. `OPENCODE_CONFIG=.octo-runtime.json` 启动 opencode
@@ -84,6 +84,6 @@ bundle 内（A 类，我们维护，每次启动从 bundle 读最新）
 
 - A 类升级走 app 升级通道（用户更新 app → 自动生效），不污染用户文件
 - 用户文件保持简洁（典型情况 < 30 行）
-- `packages/desktop-electron/resources/agents/insight.md` 这个手动副本可以**删除**：源是 `packages/agent/insight/agents/insight.md`，开发时主进程直读源文件，打包时通过 `extraResources` 自动同步进 bundle
+- `packages/desktop-electron/resources/agents/octo_insight.md` 这个手动副本可以**删除**：源是 `packages/agent/octo_insight/agents/octo_insight.md`，开发时主进程直读源文件，打包时通过 `extraResources` 自动同步进 bundle
 - 实现细节见 [docs/specs/infra/agent-config-deploy.md](../specs/infra/agent-config-deploy.md)
 - 概念背景见 [docs/learning/agent-deploy.md](../learning/agent-deploy.md)
