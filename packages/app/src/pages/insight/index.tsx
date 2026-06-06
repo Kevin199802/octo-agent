@@ -309,9 +309,6 @@ function InsightContent() {
   }, { defer: true }))
 
   const [prompt, setPrompt] = createSignal("")
-  // queue:busy 期间用户继续发送,先入队,idle 后自动 flush(SPEC-INS-007 §3.3.3)
-  // 单容量:第二次入队会覆盖上一次;切 session 时清空
-  const [queuedText, setQueuedText] = createSignal<string | null>(null)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   // 首次带附件发送会 createAndNavigate 改 params.id,触发下方 session 切换 effect 清空附件草稿。
@@ -421,7 +418,6 @@ function InsightContent() {
   createEffect(on(() => params.id, () => {
     tabStore.reset()
     setPanelCollapsed(false)
-    setQueuedText(null)
     clearRefreshState()
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
@@ -683,15 +679,8 @@ function InsightContent() {
 
   async function handleSubmit() {
     const text = prompt().trim()
-    if (!text || hasUploadingAttachments()) return
+    if (!text || hasUploadingAttachments() || isBusy()) return
     setPrompt("")
-
-    // busy 时入队(SPEC-INS-007 §3.3.3):单容量,第二次会覆盖上一次
-    if (isBusy()) {
-      setQueuedText(text)
-      console.log("[octo:queue] enqueued", { sessionID: params.id, len: text.length })
-      return
-    }
 
     let sid = params.id
     if (!sid) {
@@ -704,30 +693,9 @@ function InsightContent() {
     await sendMessage(sid, text)
   }
 
-  // busy → idle 自动 flush 队列(SPEC-INS-007 §3.3.3)
-  createEffect(on(isBusy, (busy, prev) => {
-    if (!prev || busy) return
-    const text = queuedText()
-    const sid = params.id
-    if (!text || !sid) return
-    setQueuedText(null)
-    console.log("[octo:queue] flushing", { sessionID: sid, len: text.length })
-    void sendMessage(sid, text)
-  }, { defer: true }))
-
-  function cancelQueued() {
-    const text = queuedText()
-    if (!text) return
-    setQueuedText(null)
-    setPrompt((cur) => cur ? cur : text)
-    console.log("[octo:queue] canceled, restored to input")
-  }
-
   async function handleAbort() {
     const sid = params.id
     if (!sid) return
-    // 先取消排队消息，避免 abort 完成后 idle 触发器自动 flush
-    if (queuedText()) cancelQueued()
     try {
       await globalSDK.client.session.abort({ sessionID: sid })
     } catch {
@@ -1181,12 +1149,12 @@ function InsightContent() {
                         <button
                           type="button"
                           onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
-                          disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
-                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (!local.model.current() ? "请先选择模型" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)))}
+                          disabled={!stopping() && (isBusy() || !prompt().trim() || hasUploadingAttachments())}
+                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (!local.model.current() ? "请先选择模型" : (isBusy() ? "请等待当前对话完成" : undefined)))}
                           class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                           style={{
-                            opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
-                            filter: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
+                            opacity: (!stopping() && (isBusy() || !prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
+                            filter: (!stopping() && (isBusy() || !prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
                           }}
                         >
                           <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
@@ -1261,23 +1229,6 @@ function InsightContent() {
 
               {/* 输入区(居中 reading-width,与消息列表对齐) */}
               <div class="shrink-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
-                {/* 队列提示条:busy 时点了发送会先入队,这里给反馈 (SPEC-INS-007 §3.3.4) */}
-                <Show when={queuedText()}>
-                  <div class="octo-queue-banner">
-                    <span class="octo-queue-banner-label">排队中</span>
-                    <span class="octo-queue-banner-text">{queuedText()}</span>
-                    <button
-                      type="button"
-                      onClick={cancelQueued}
-                      class="octo-queue-banner-cancel"
-                      title="取消并恢复到输入框"
-                      aria-label="取消排队"
-                    >
-                      ×
-                    </button>
-                  </div>
-                </Show>
-
                 {/* 预置提示词按钮 (SPEC-INS-007 §3.1.3):放在输入框白卡片之外,
                     视觉层级:辅助操作浮在输入框上方,与卡片解耦 */}
                 <PresetPrompts
@@ -1372,12 +1323,12 @@ function InsightContent() {
                     <button
                       type="button"
                       onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
-                      disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
-                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (!local.model.current() ? "请先选择模型" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)))}
+                      disabled={!stopping() && (isBusy() || !prompt().trim() || hasUploadingAttachments())}
+                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (!local.model.current() ? "请先选择模型" : (isBusy() ? "请等待当前对话完成" : undefined)))}
                       class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                       style={{
-                        opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
-                        filter: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
+                        opacity: (!stopping() && (isBusy() || !prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
+                        filter: (!stopping() && (isBusy() || !prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
                       }}
                     >
                       <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
