@@ -1,5 +1,5 @@
 import windowState from "electron-window-state"
-import { app, BrowserWindow, nativeImage, nativeTheme } from "electron"
+import { app, BrowserWindow, nativeImage, nativeTheme, shell } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { TitlebarTheme } from "../preload/types"
@@ -129,6 +129,11 @@ export function createMainWindow(globals: Globals) {
   loadWindow(win, "index.html")
   wireZoom(win)
   injectGlobals(win, globals)
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url)
+    return { action: "deny" }
+  })
 
   win.once("ready-to-show", () => {
     win.show()

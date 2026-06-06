@@ -232,6 +232,7 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 |---|---|
 | dev 模式自动开 DevTools；`OCTO_DEVTOOLS=1` 打开打包版 DevTools | 调试 |
 | 注入 `__OPENCODE__.windowChrome`（mac 红绿灯位置 + sidebar inset） | 接线 |
+| `createMainWindow` 加 `setWindowOpenHandler`：所有 `target="_blank"` 链接一律 `shell.openExternal` 跳系统浏览器，`deny` 阻止 Electron 内部新建窗口 — 修复点击工具卡 URL 同时触发下载和系统浏览器的双重行为 | 接线 |
 
 #### `packages/desktop-electron/electron-builder.config.ts`
 
