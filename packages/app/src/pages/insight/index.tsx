@@ -13,6 +13,7 @@ import {
   onMount,
   Show,
 } from "solid-js"
+import { produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
@@ -484,6 +485,20 @@ function InsightContent() {
       const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_insight" })
       const session = result.data as Session | undefined
       if (session) {
+        // Seed the session into sync store before navigating. This prevents a race where
+        // sync.session.sync (triggered by the navigation) issues a REST session.get that
+        // returns the default title and later overwrites the LLM-generated title that
+        // arrived via SSE session.updated. With the session pre-seeded, hasSession=true
+        // and the REST call is skipped entirely.
+        sync.set(
+          produce((draft) => {
+            if (!draft.session.some((s) => s.id === session.id)) {
+              const insertAt = draft.session.findIndex((s) => s.id > session.id)
+              if (insertAt === -1) draft.session.push(session)
+              else draft.session.splice(insertAt, 0, session)
+            }
+          }),
+        )
         navigate(`/insight/${session.id}`)
         return session.id
       }
