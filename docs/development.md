@@ -1,9 +1,8 @@
 # Octo Agent — 开发、调试、打包指南
 
-> 上次同步:2026-05-29。
-> - 主路径在 **macOS, Apple Silicon** 上验证（dev / build / package 全通）。
-> - **Windows 11 x64** 已端到端验证（dev 启动 + chat 流式回话），需要按 [§1.1](#11-windows-开发者补充) 做的小量适配已在仓库内打好 patch，开发者无需手工改源码。
-> - Linux 未验证；理论上跟 Windows 等价，遇到差异请补到本文档。
+> 本文记录 octo-agent 本地壳(`packages/desktop-electron/`)的 dev / build / package 流程,
+> 供在 UXAI 仓做 insight 开发时对照参考(UXAI 壳结构不同,按需取用)。
+> 平台:macOS Apple Silicon 全通;Windows 11 x64 端到端验证;Linux 未验证。
 
 里程碑跟踪与验收清单见仓库根 [ROADMAP.md](../ROADMAP.md)。架构与目录边界见 [docs/architecture.md](architecture.md)。
 

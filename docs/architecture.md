@@ -1,6 +1,7 @@
 # Octo Agent — 架构
 
-> 上次同步：2026-05-07。任何分歧以代码为准。
+> 本文档描述 octo-insight 系统架构,服务在 UXAI 仓(<https://github.com/MyHeavenDyf/UXAI>)开发 insight。
+> 文中代码路径沿用 octo-agent 命名,与 UXAI 的对应见 [intranet-handoff §0](intranet-handoff.md)。
 
 ---
 
@@ -194,9 +195,9 @@ opencode 内置 SQLite（Drizzle ORM），数据在：
 
 配置已隔离，数据库仍写到 opencode 默认目录（改路径需侵入上游，代价大）。
 
-### 5.4 上游接线壳改动清单
+### 5.4 上游接线壳改动清单（octo-agent 本地壳）
 
-> **新增改动必须同步更新本表**，否则架构文档会再次跟代码漂移。
+> 本节是 octo-agent 本地 Electron 壳(`packages/desktop-electron/`)的逐条改动,供 UXAI 壳开发对照参考([handoff §1.6](intranet-handoff.md) 引用本节)。
 
 #### `packages/desktop-electron/src/main/index.ts`
 

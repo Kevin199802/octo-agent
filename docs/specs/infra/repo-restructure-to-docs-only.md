@@ -389,6 +389,7 @@ git 历史完整,无单向门。
 
 - **learning 笔记补全**:SQLite / Drizzle / Effect / Solid 响应式 / IPC / SDK 生成机制等。这些是"现在的我们沉淀给将来"的知识,放新 docs-only 写
 - **UXAI 仓那侧加引用本仓的入口**:需要新 docs-only 状态先存在,由 UXAI 负责人决定
+- **文档视角迁移到 UXAI(大工程,开新对话)**:architecture / development / 各 spec / ADR 里的代码路径、开发流程目前沿用 octo-agent 本仓命名(如 `packages/app/src/pages/insight/`),需逐篇调成 UXAI 视角(路径映射见 [intranet-handoff §0](../../intranet-handoff.md):`octoapp/pages/insight/`),让文档直接服务 UXAI 开发,而非要求读者心算映射。本期只在 architecture / development 顶部加了定位指引,逐路径迁移**未做**。
 - **新 docs-only 状态下的 docs 重组**:看运行一段时间后是否需要(比如 specs/ 按"已归档 / 现役" 分子目录)
 
 以上不在本期范围。

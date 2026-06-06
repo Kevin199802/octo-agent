@@ -1,4 +1,0 @@
-{
-  "_comment": "复制本文件为 script/.octo-sync.local.json(已被 .gitignore 忽略),填入你机器上 UX AI 项目仓库的绝对路径。若两仓放在同一父目录下(.../octo-agent 与 .../UXAI 同级),可不配置,脚本自动 fallback 到 ../UXAI。",
-  "intranetPath": "/absolute/path/to/UXAI"
-}
