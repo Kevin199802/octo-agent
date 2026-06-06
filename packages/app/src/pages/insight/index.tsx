@@ -1165,7 +1165,7 @@ function InsightContent() {
                           model={local.model}
                           triggerAs="button"
                           triggerProps={{
-                            class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                            class: `flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] font-medium group ${local.model.current() ? "text-gray-800" : "text-amber-500"}`,
                             "data-action": "prompt-model",
                           }}
                           onClose={() => { requestAnimationFrame(() => textareaRef?.focus()) }}
@@ -1182,7 +1182,7 @@ function InsightContent() {
                           type="button"
                           onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
                           disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
-                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
+                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (!local.model.current() ? "请先选择模型" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)))}
                           class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                           style={{
                             opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
@@ -1356,7 +1356,7 @@ function InsightContent() {
                       model={local.model}
                       triggerAs="button"
                       triggerProps={{
-                        class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                        class: `flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] font-medium group ${local.model.current() ? "text-gray-800" : "text-amber-500"}`,
                         "data-action": "prompt-model",
                       }}
                       onClose={() => { requestAnimationFrame(() => textareaRef?.focus()) }}
@@ -1373,7 +1373,7 @@ function InsightContent() {
                       type="button"
                       onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
                       disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
-                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
+                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (!local.model.current() ? "请先选择模型" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)))}
                       class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                       style={{
                         opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
