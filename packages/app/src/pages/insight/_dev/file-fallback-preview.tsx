@@ -1,8 +1,9 @@
-import "../octo-tokens.css"
+﻿import "../octo-tokens.css"
 import { createSignal, For, type JSX } from "solid-js"
 import { A } from "@solidjs/router"
 import { fileTypeIconUrl } from "../icons/illustrations"
 import folderBlueUrl from "../icons/IconFolderBlue.svg?url"
+import multiAgentMd from "../../../../../../docs/specs/agents/multi-agent.md?raw"
 
 /**
  * Dev-only 样张:FileFallback 新 UI 布局预览。
@@ -38,6 +39,7 @@ function FileFallbackNew(props: {
   openBusy?: boolean
   revealBusy?: boolean
   downloadBusy?: boolean
+  onSaveAs?: () => Promise<void>
 }): JSX.Element {
   const iconUrl = () => fileTypeIconUrl(props.fileName, props.mimeType)
 
@@ -81,8 +83,8 @@ function FileFallbackNew(props: {
             {props.revealBusy ? "定位中…" : "文件夹打开"}
           </button>
 
-          {/* 次按钮:下载 — 浅灰底蓝字 */}
-          <button type="button" disabled={props.downloadBusy} style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: props.downloadBusy ? "not-allowed" : "pointer", opacity: props.downloadBusy ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}>
+          {/* 次按钮:另存为 — 浅灰底蓝字 */}
+          <button type="button" onClick={() => void props.onSaveAs?.()} disabled={props.downloadBusy} style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: props.downloadBusy ? "not-allowed" : "pointer", opacity: props.downloadBusy ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}>
             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
               <path d="M8 2v8M5 7.5l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
               <path d="M2.5 11.5v1A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5v-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -154,6 +156,26 @@ export default function FileFallbackPreviewPage(): JSX.Element {
     setTimeout(() => setter(false), 1500)
   }
 
+  async function handleSaveAs() {
+    if (downloadBusy()) return
+    setDownloadBusy(true)
+    try {
+      const blob = new Blob([multiAgentMd], { type: "text/markdown" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "multi-agent.md"
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (e) {
+      console.error("[dev:saveAs]", e)
+    } finally {
+      setDownloadBusy(false)
+    }
+  }
+
   return (
     <div class="size-full overflow-y-auto" style={{ background: "var(--octo-shell-bg, #f5f6f8)", "font-family": "var(--octo-font, system-ui)" }}>
       <div class="mx-auto" style={{ "max-width": "760px", padding: "40px 24px 80px" }}>
@@ -220,6 +242,7 @@ export default function FileFallbackPreviewPage(): JSX.Element {
                 openBusy={openBusy()}
                 revealBusy={revealBusy()}
                 downloadBusy={downloadBusy()}
+                onSaveAs={handleSaveAs}
               />
             </div>
           </div>
