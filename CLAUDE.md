@@ -35,6 +35,7 @@
 
 ## 文档维护
 
+- **spec 完成 / 变更后,更新 [ROADMAP.md](ROADMAP.md)**
 - **ADR** 一旦落地不删;改决策开新 ADR,在旧 ADR 顶部链过去
 - **spec 变更**走 PR review（架构级尤其）;**learning 笔记**作者自负,可直接编写
 - **重复内容走引用**：spec / ADR / learning 各司其职,事实层重叠时剥离换引用,不复制粘贴
@@ -44,20 +45,12 @@
 
 ## 与 UXAI 仓的关系
 
-- 代码改动:在 **UXAI 仓**改、跑、提 PR
-- 设计变化需落 spec / ADR / learning:在**本仓**提 PR
+- 代码改动:在 **UXAI 仓**改、跑、提 PR;设计变化需落 spec / ADR / learning:在**本仓**提 PR
 - 两仓无代码同步;文档以本仓为准
-- UXAI 仓的 CLAUDE.md 是其**全仓共享**文件,**不要为 insight 单独改它**;insight 的工作约束以**本仓 CLAUDE.md + docs/** 为准
-
----
-
-## 代码在 UXAI、字典在本仓（改代码时回看）
-
-以下文件记录的约束,代码在 UXAI 改动时需对照回看本仓:
-
-- [docs/insight-debugging.md](docs/insight-debugging.md) — `[octo:*]` 日志 → bug 定位字典;UXAI 改日志前缀 / 字段 / `window.octoDebug` 命令时同步更新此字典
-- [docs/intranet-handoff.md](docs/intranet-handoff.md) — 桌面壳 `window.api` API 依赖清单 + MCP / 文件上传对接契约
-- [docs/specs/ui/design-assets-needed.md](docs/specs/ui/design-assets-needed.md) — UI 遇 SVG 占位 / 数据缺失时追加,给设计师的可交付清单
+- UXAI 仓的 CLAUDE.md 是其**全仓共享**文件,**不要为 insight 单独改它**
+- **在 UXAI 开发 insight 的完整约束**(实施原则、查上游、工作目录、字典同步等)在
+  [CLAUDE.uxai.md](CLAUDE.uxai.md) ——复制到 UXAI 本地、改名 `CLAUDE.md`、改文档仓路径一行即用
+  (UXAI 已 gitignore `CLAUDE.md`,不污染团队共享文件)
 
 ---
 
