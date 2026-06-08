@@ -7,17 +7,28 @@
 > 这篇是**客户端实时事件怎么按目录路由到内存 store**。两者一个落盘、一个内存,互补。
 >
 > 锚点案例:Octo Insight 在「非 home 目录」新建对话后发消息,聊天区白屏、刷新才出。我们花了很久
-> 才定位到根因——本文把那次排查的结论沉淀成可复用的心智模型。
+> 才定位到根因。
+>
+> ⚠️ **订正记录(2026-06-08)**:本文初版把根因归为「`event.directory` = VCS worktree 根、数据层应
+> 改用 home」——**该结论已证伪**。`event.directory` 其实 = 客户端请求**传入的 directory**(经
+> `resolve` 归一),与 worktree 无关;真正的白屏根因是 insight **发送时错用了不带 directory 的
+> `globalSDK.client`**。完整方案见 [SPEC-INS-012](../specs/ui/insight-directory-scoping.md)。本文已按
+> 正确模型重写。
 
 ---
 
 ## 0. 一句话结论(先看这个)
 
 **前端是"每个目录一个数据 store"。实时事件按 `event.directory` 这个 key 投递到对应 store。
-页面要能看到实时更新,它的「数据层目录」必须和服务端给事件打的「`event.directory`」是同一个 key。
-而服务端打的 `event.directory` 是会话的 **VCS worktree 根**,不是你传进去的子目录。**
+页面要能看到实时更新,它的「数据层目录」必须和「触发这一轮的请求所用的 directory」一致——
+因为服务端打的 `event.directory` 就等于那个请求的 directory(`resolve` 归一后),不是 worktree。**
 
-错位的后果:事件被正确地 apply 进了 worktree 那个 store,但页面在读"子目录"那个空 store → 白屏。
+错位的两种典型来源:
+1. **数据层目录 ≠ 建会话/发送用的 directory**(例:数据层用 worktree 或 home,但发送用子目录)。
+2. **发送走了不带 directory 的 client**(例:`globalSDK.client.session.promptAsync`),
+   导致该轮跑在 `process.cwd()` 实例,事件 `event.directory = cwd` 落到 cwd 的 store。← 本案根因
+
+后果:事件被正确地 apply 进了"另一个目录"的 store,但页面在读"自己目录"的空 store → 白屏。
 而 HTTP 直读(`session.messages`)按 sessionID 找得到,所以**刷新就好**——这个"刷新能好"会强烈
 误导你以为是"加载时序问题",其实是"实时事件路由错位"。
 
@@ -37,19 +48,22 @@ globalSync
 - `directoryKey` = `pathKey`(`packages/app/src/utils/path-key.ts`):把路径归一成 store 的 key。
   归一只做:Windows `\`→`/`、去尾斜杠、盘符补斜杠。**注意:不折叠大小写**(踩坑见 §6)。
 - child store 由 `globalSync.child(directory)` 懒创建并注册进 `children`
-  (`packages/app/src/context/global-sync/child-store.ts`)。默认 `bootstrap:true` 会触发
-  `bootstrapInstance`(加载 sessions / providers / mcp / path)。
+  (`packages/app/octoapp/context/global-sync/child-store.ts`)。
 
 每个页面(chat / make / insight / studio)在自己子树顶层挂:
 
 ```tsx
-<SDKProvider directory={() => 某目录}>   // 决定这棵子树的"数据层目录"
+<SDKProvider directory={() => 某目录}>   // 决定这棵子树的"数据层目录",并向 sdk.client 注入 directory
   <SyncProvider>                          // 内部: current = globalSync.child(sdk.directory)
     <PageContent/>                         // useSync().data 读的就是那个 child store
 ```
 
-**关键认知:`SDKProvider` 传的目录,决定了这个页面"读哪个 child store"。**
-`useSync().data.message[id]` 取的是 `globalSync.child(sdk.directory)` 那个 store 的数据。
+**两个关键认知:**
+- `SDKProvider` 传的目录,决定了这个页面"读哪个 child store"。`useSync().data.message[id]` 取的是
+  `globalSync.child(sdk.directory)` 那个 store 的数据。
+- `useSDK().client`(scoped)= `globalSDK.createClient({ directory: sdk.directory })`,**所有请求都带
+  这个 directory**;而 `useGlobalSDK().client`(global)**不带 directory**(`context/global-sdk.tsx`)。
+  这俩的区别正是本案命门(§4)。
 
 ---
 
@@ -57,7 +71,7 @@ globalSync
 
 ```
 ①服务端某实例 Bus.publish(session.status / message.updated / message.part.delta ...)
-   └→ bus/index.ts:101 转发到 GlobalBus,带 { directory: InstanceState.directory, ... }   ★
+   └→ bus/index.ts 转发到 GlobalBus,带 { directory: InstanceState.directory, ... }   ★
 ②客户端 /global/event 长连(一条 SSE)收到所有目录的事件
    (packages/app/octoapp/context/global-sdk.tsx:eventSdk.global.event)
 ③global-sdk 把事件 emit 到内部 emitter,key = event.directory
@@ -71,12 +85,18 @@ globalSync
 
 两个 ★ 是命门:
 
-- **★(服务端)`event.directory = InstanceState.directory`**。这是**会话被解析出的目录**,
-  对一个传进去的子目录,服务端会**向上解析到 VCS worktree 根**,事件就打 worktree 根的目录。
-  即:你 `session.create({ directory: "/Users/x/Downloads/agent-test" })`,但如果
-  `/Users/x` 是个 git 仓库(或 worktree 探测回退到 home),事件的 `directory` 会是 `/Users/x`。
+- **★(服务端)`event.directory = InstanceState.directory`**。这就是**处理该轮的实例目录**,
+  而实例目录 = **客户端请求传入的 directory**(`resolve` 归一后)。链路:
+  `httpapi/middleware/instance-context.ts`(`store.provide({ directory: route.directory })`)→
+  `workspace-routing.ts`(取 `?directory` / `x-opencode-directory` header,**缺省 `process.cwd()`**)→
+  `project/instance-store.ts` `boot`:`ctx.directory = input.directory`。
+  ⚠️ 不是 worktree:`boot` 里 worktree 另存为 `ctx.worktree = result.sandbox`,但事件用的是 `ctx.directory`。
 - **★★(客户端)分发按 `directoryKey(event.directory)` 严格命中 child store**,命中不了就 `return` 丢掉。
   注意"丢掉"≠"没收到":事件**到了**客户端(③),只是④没找到对应 store。
+
+**推论(本案命门):** 如果某个请求**没传 directory**(用了 global client),服务端 `workspace-routing`
+缺省到 `process.cwd()` → 该轮实例目录 = cwd → 它产出的所有事件 `event.directory = cwd`。
+若页面数据层目录 ≠ cwd,这些事件全被丢弃 → 白屏。
 
 ---
 
@@ -84,61 +104,68 @@ globalSync
 
 | 概念 | 是什么 | 谁用它 |
 |---|---|---|
-| **directory** | 你传给 API 的目录(可以是任意子目录) | `session.create({ directory })`、SDKProvider |
-| **worktree** | 服务端从 directory 向上解析出的 **VCS 根** | **`event.directory` 就是它**、会话的 `worktree` 字段 |
-| **project** | 服务端按 worktree 归并出的项目(有 `project_id`) | `session.list` 按 **projectID** 列(`session.ts:553`) |
+| **directory** | 你传给 API 的目录(`resolve` 归一);不传则服务端缺省 `cwd` | `session.create/promptAsync({directory})`、SDKProvider、**`event.directory` 就是它** |
+| **worktree** | 服务端从 directory 向上解析出的 **VCS 根**(`boot` 的 `result.sandbox`) | 存进会话的 `worktree` 字段、会话 `path`(相对 worktree)的计算基准 |
+| **project** | 服务端按 worktree 归并出的项目(有 `project_id`) | `session.list` 过滤的一部分 |
 
-会话行同时存了 `directory`(你传的)和 `worktree`(解析的)两个字段(`session.ts:66-68`)。
+会话行同时存 `directory`(你传的)、`worktree`(解析的)、`path`(directory 相对 worktree 的相对路径)。
 
 推论(都很重要):
-- **实时事件按 worktree 走**(★)。你的页面数据层目录若不是 worktree,就收不到。
-- **会话列表按 project(=worktree)走**。所以 `session.list({directory: 子目录A})` 和
-  `session.list({directory: 同仓另一子目录B})` 返回**同一批**会话(同 project)。
-  "切目录列表变"只在**切到不同 git 仓**时才真正变;同仓不同子目录列表不变。
+- **实时事件按 directory 走**(★),不是 worktree。页面数据层目录若不是"建会话/发送用的 directory",就收不到。
+- **`session.list` 默认(非 workspace)按 `project_id` + `directory` 精确过滤**(`session.ts` `listByProject`)。
+  传 `path` 参数时改走 path 前缀过滤。insight/make 列表传的是 `directory`,所以**建会话用的 directory
+  必须与列表查询的 directory 一致**,否则列表查不到(本案"记录落根目录"即此:建会话用 home、列表用所选目录)。
 - **HTTP 直读 `session.messages({sessionID})` 按 ID 找**,跟目录形态无关 → 所以刷新总能出。
 
 ---
 
 ## 4. 为什么 chat / make 没事,insight 踩坑(锚点案例)
 
-三个页面的"数据层目录"来源不同(`packages/app/octoapp/octo.tsx` 路由 + 各页 SDKProvider):
+需求:insight 对话**跟随所选目录**(在所选目录建会话、该目录列表显示、不白屏)。
 
-| 页面 | 路由 | 数据层目录(SDKProvider) | 与 worktree 对齐? |
+三个页面的目录处理对比:
+
+| 页面 | 数据层目录(SDKProvider) | 发送用的 client | 结果 |
 |---|---|---|---|
-| chat / studio | `/:dir/...` 经 `DirectoryLayout` | `octoSessionsDir(config)`(config 派生的**固定**目录) | ✅ 固定、启动即 bootstrap,事件能流 |
-| make | `/make/:id` 独立 | `globalSync.data.path.home` | ✅ home 即 worktree |
-| **insight(改坏时)** | `/insight/:id` 独立 | `useProjectDir()` = **`server.projects.last()`(用户选的任意子目录)** | ❌ 子目录 ≠ worktree |
+| chat / studio | `octoSessionsDir(config)`(固定) | scoped `sdk.client`(带 directory) | ✅ 三处一致 |
+| make | `globalSync.data.path.home` | scoped `sdk.client`(带 directory) | ✅ 三处一致 |
+| **insight(改坏时)** | 跟随所选目录 / 或 home | **`globalSDK.client`(不带 directory!)** | ❌ 发送轮跑 cwd,事件落 cwd store |
 
-insight 当时(commit `1ac439826` 引入)把数据层绑到了**用户选的子目录**(如
-`/Users/x/Downloads/agent-test`)。但该会话的事件被服务端按 worktree 根 `/Users/x` 投递:
+insight 的 `doSendPrompt` 当时用的是 `globalSDK.client.session.promptAsync({ sessionID })`——**没传
+directory**。于是 LLM 这一轮跑在 `cwd`(= sidecar 启动目录 = home)实例,回复事件 `event.directory=home`,
+落到 home 的 store;而页面数据层在读"所选目录"的 store → 永远读不到 → 白屏。
 
 ```
-[octo:dispatch] { eventDirectory: '/Users/x', key: '/Users/x', hasChild: true, type: 'message.updated', sid: 'ses_...' }
-   ^ 事件挂在 /Users/x 的 store(且那 store 存在、被正确写入)
-insight 的 sdkDirectory = '/Users/x/Downloads/agent-test'  ← 页面读这个空 store
-   → 永远读不到 → 白屏
+[octo:dispatch] { eventDirectory: '/Users/x'(=home=cwd), key: '/Users/x', type: 'message.part.delta', sid: 'ses_...' }
+   ^ 事件挂在 home 的 store
+insight sdkDirectory = '/Users/x/Downloads/agent-test'(所选目录)  ← 页面读这个空 store → 白屏
 ```
 
-而 chat/make 的数据层是固定目录 / home(本身就是 worktree),event.directory 和它一致 → 事件直接落进
-页面读的那个 store → 实时出。**所以问题从来不是"目录是不是 home",而是"数据层目录和 event.directory 是否对齐"。**
+**为什么 `home` 一度"能用"**:当数据层也用 home 时,恰好 `home == cwd`,发送轮的事件正好落进页面读的
+那个 store。纯属巧合,不是设计对。一旦数据层改成所选目录,这个巧合就破了 → 白屏。
 
-### 修复
+**为什么 chat/make 没事**:它们发送走 scoped `sdk.client`(注入了各自的 directory),事件 `event.directory`
+= 数据层目录 → 落进页面读的 store → 实时出。
 
-让 insight 数据层用 **home**(= worktree 根,事件落点),与 chat/make 一致:
+### 修复(SPEC-INS-012)
+
+让 insight **三处目录统一到所选目录**,且会话操作全部走 scoped `sdk.client`:
 
 ```diff
-- const projectDir = useProjectDir()        // server.projects.last() = 选中子目录
-- <Show when={projectDir()} keyed> ... <SDKProvider directory={() => projectDir}>
-+ const homeDir = () => globalSync.data.path.home
-+ <Show when={homeDir()} keyed> ... <SDKProvider directory={() => homeDir}>
+- const globalSDK = useGlobalSDK()
+- await globalSDK.client.session.promptAsync({ sessionID, ... })   // ❌ 不带 directory → 跑 cwd
++ const sdk = useSDK()                                              // scoped,注入 sdk.directory
++ await sdk.client.session.promptAsync({ sessionID, ... })         // ✅ 带所选目录
 ```
 
-**"目录跟随"属于列表层职责,不属于数据/事件层。** 列表用 `session.list({directory: 选中目录})`
-过滤(`session-list/index.tsx`),MCP 文件落项目用 `useProjectDir()`(`result-viewer`)——这两处
-保留;只把**数据/事件层**从选中子目录改回 home。两层解耦,各司其职。
+- 数据层 keyed 在 `useProjectDir()`(所选目录);create/prompt/abort/get 全走 `sdk.client`;
+  目录引用统一 `sdk.directory`。三处一致 → 不白屏、记录落所选目录、列表查得到。
+- 切目录时 `navigate("/insight")` 回新建空态(用 `server.projects.last()` 做信号,跳过启动抖动)。
 
-> 设计教训:**需求是"对话列表跟着目录走",不是"对话数据存进目录"。** 当初提示词写成了后者,
-> 才把数据层也绑了选中目录。一个字之差,埋了这个白屏。
+> 设计教训(订正版):**白屏不是"目录该不该用 home"的问题,而是"数据层目录、建会话/发送 directory、
+> 列表 directory 三处是否一致"。** 最隐蔽的一处是发送 client——用 global(不带 directory)还是 scoped
+> (带 directory),决定了事件落哪个 store。初版误判成 worktree,是因为只看了"事件落别处"的现象、
+> 没核到"该轮实例目录从哪来"。
 
 ---
 
@@ -155,6 +182,9 @@ insight 的 sdkDirectory = '/Users/x/Downloads/agent-test'  ← 页面读这个�
    - 空 → 服务端没跑该轮(实例/模型问题)。
 4. **看事件落哪个目录**:在 global-sync 分发点打 `{ eventDirectory, key, hasChild, childKeys, sid }`。
    - `eventDirectory` ≠ 页面 sdkDirectory、`hasChild:true`(挂在别的 store)→ **错位**,本案。
+5. **核到"该轮实例目录从哪来"**(本案关键、初版漏的一步):看发送请求用的是
+   `globalSDK.client`(不带 directory → cwd)还是 `sdk.client`(带 directory)。`eventDirectory == cwd`
+   且发送走 global client → 就是它。
 
 ### ⚠️ 一个会浪费你半天的大坑:octoapp 有自己的 context
 
@@ -165,7 +195,7 @@ insight 的 sdkDirectory = '/Users/x/Downloads/agent-test'  ← 页面读这个�
 
 桌面端 insight 的 `import { useGlobalSDK } from "@/context/global-sdk"` 解析到的是 **octoapp 那份**。
 **你改 `src/context/` 的同名文件,对桌面端是死代码,日志永远不出现。** 排查桌面端务必改
-`packages/app/octoapp/context/`。本案一度因为改错文件,白白多跑了好几轮"日志怎么不出来"。
+`packages/app/octoapp/context/`。
 
 ---
 
@@ -174,9 +204,8 @@ insight 的 sdkDirectory = '/Users/x/Downloads/agent-test'  ← 页面读这个�
 `directoryKey`/`pathKey` 归一了分隔符和尾斜杠,但**没折叠大小写**。理论上 Windows(大小写不敏感)
 若两条代码路径产出不同大小写的同一路径(`C:` vs `c:`),会算出两个 key、事件路由错位。
 
-本案最终证伪了大小写假设(macOS 正斜杠也复现,根因是 worktree 错位)。但留意:**如果未来在 Windows
-上遇到"同一目录两个 store"的现象,先查 pathKey 大小写**。修法是仅对 Windows 路径
-`toLowerCase()`(POSIX 大小写敏感,不能折叠)。
+本案最终证伪了大小写假设(macOS 正斜杠也复现)。但留意:**如果未来在 Windows 上遇到"同一目录两个
+store"的现象,先查 pathKey 大小写**。修法是仅对 Windows 路径 `toLowerCase()`(POSIX 大小写敏感,不能折叠)。
 
 ---
 
@@ -184,8 +213,9 @@ insight 的 sdkDirectory = '/Users/x/Downloads/agent-test'  ← 页面读这个�
 
 - 事件分发点(命门):`packages/app/octoapp/context/global-sync.tsx`,`globalSDK.event.listen` 内
   `const existing = children.children[key]; if (!existing) return`。
-- 服务端事件打目录:`packages/opencode/src/bus/index.ts:101`,`directory: InstanceState.directory`。
-- 会话按 project 列:`packages/opencode/src/session/session.ts:553` `listByProjectWithCategory`。
-- 页面数据层目录:各页 `SDKProvider directory`(chat=DirectoryLayout 的 octoSessionsDir、
-  make/insight=home)。
-- 黄金法则:**页面数据层目录 ≡ event.directory(worktree)**;目录跟随放列表层做过滤,别动数据层。
+- 服务端事件打目录:`packages/opencode/src/bus/index.ts`,`directory: InstanceState.directory`(= `ctx.directory` = 请求传入的 directory,**非 worktree**)。
+- 请求目录解析/缺省:`server/routes/instance/httpapi/middleware/workspace-routing.ts`(缺省 `process.cwd()`)。
+- scoped vs global client:`context/sdk.tsx`(`useSDK` 注入 directory) vs `context/global-sdk.tsx`(`globalSDK.client` 不带)。
+- 会话列表过滤:`packages/opencode/src/session/session.ts` `listByProject`(默认 `project_id` + `directory`)。
+- **黄金法则**:**数据层目录 ≡ 建会话/发送的 directory ≡ 列表查询的 directory**;发送务必走 scoped
+  `sdk.client`(带 directory),别用 `globalSDK.client`。目录跟随是"三处统一到所选目录",不是只改一处。
