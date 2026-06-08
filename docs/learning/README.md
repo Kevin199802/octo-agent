@@ -27,6 +27,7 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 9. [agent-deploy.md](agent-deploy.md) — 注册 vs 不注册的区别、config 版本化写入机制、Electron 打包后用户侧如何自带配置
 10. [mcp-api-integration.md](mcp-api-integration.md) — 内网 API 对接 MCP 的完整方案（路径 C）：UXR 服务加 /mcp 路由的实现、联调验证流程
 11. [opencode-db-and-storage.md](opencode-db-and-storage.md) — opencode 数据持久化全貌:SQLite 事务 / WAL / Drizzle schema-as-code / migration journal + snapshot.json / channel-aware DB / JsonMigration / storage + snapshot + tool-output 三兄弟,与 Rails/Prisma/Django/Flyway 对比
+12. [uxai-app-entry-routing.md](uxai-app-entry-routing.md) — UXAI 前端入口与路由组成:`entry.tsx → @/app = app.tsx`(活)vs `octo.tsx`(死副本)、改错文件的判活诊断法、dev sandbox 路由注册位置与三层隔离
 
 > 后续可能补:
 >
