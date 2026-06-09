@@ -34,6 +34,22 @@
 | `mindmap` | 产物型 | 思维导图生成 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id；完成时 resource_link **必须**标 `business_type: "mindmap"` 触发双卡(原始 JSON + 思维导图可视化) |
 | `search_reports` | 同步检索 | 基于内网用研知识库的 RAG 检索 | 自然语言 query | 同步返回（< 5s）;**第一版按通用产物渲染**（resource_link 不填 business_type）;未来如需"引用 chip"形态再走 [insight-references.md](../ui/insight-references.md) 的 business_type 扩展 |
 
+### 工具入参
+
+> 由 UXR MCP 开发者确认（2026-06-09）。文件类参数收 **S3 URL**（完整可访问地址）。
+
+| 工具 | 入参 | 说明 |
+|---|---|---|
+| `key_findings` | `download_links: List[str]` | 访谈稿 URL 列表 |
+| `mindmap` | `download_links: List[str]` | 访谈稿 URL 列表 |
+| `run_guide_analysis` | `download_links: List[str]`、`outline_file_path: str` | 访谈稿 URL 列表 + **单个**大纲文件 URL |
+| `run_usability_analysis` | `download_links: List[str]`、`outline_file_path: str` | 访谈稿 URL 列表 + **单个**任务书文件 URL |
+| `search_reports` | `query: str` | 自然语言检索词，无文件参数 |
+
+**文件 URL 的传递方式**：模型**不直接生成 URL**（弱模型会改坏转码字符）——上述文件参数由模型填 handle（`upload_N`），server 端 `octo-upload-inject` 插件在工具执行前把 handle 换成精确 S3 URL。机制与决策见 [ADR-014](../../adr/014-url-injection-via-plugin.md)。`download_links` 是列表、`outline_file_path` 是单值，故 `run_guide_analysis` / `run_usability_analysis` 属"多角色"工具（角色映射由模型按文件名判断）。
+
+> 历史备注：早期 ADR（005/006/012）出现的 `doc_urls` / `analyze_interview(doc_urls=...)` 是拆分前的旧入参名，**现行字段名以本表为准**（`download_links`）。
+
 **业务工具通用出参（长任务提交即返回）：**
 
 业务工具调用 → 立即创建任务记录 → 同步返回 task_id（< 5s），实际分析后台异步执行。**不返回** `resource_link`（结果尚未产出）；客户端通过后续 [`get_task_result`](#1-get_task_resulttask_id) 查询拿结果。
@@ -380,11 +396,11 @@
 只约束以下共性：
 
 - **业务工具**（除 search_reports）：入参为**已上传文件 URL** + 业务上下文字符串
-  - 文件 URL 来源：[file-upload.md](../infra/file-upload.md)，由 InsightPage 上传后注入 session context
-  - 具体形态因工具而异：单文件 / 多文件列表 / 多个角色分明的文件参数（如 `run_guide_analysis` 可能拆 `outline_doc_url` + `interview_doc_urls` 两个参数）—— 由每个工具自己声明
+  - 文件 URL 来源：[file-upload.md](../infra/file-upload.md)，由 InsightPage 上传后注入 session context；模型填 handle，插件换成精确 URL（[ADR-014](../../adr/014-url-injection-via-plugin.md)）
+  - 具体形态因工具而异：单文件列表 / 列表 + 单文件角色拆分 —— 具体字段名见上方 [§工具入参](#工具入参)
 - **search_reports**：自然语言 query 字符串
 
-> 不在本文档列具体字段名是为了避免漂移——MCP 协议天然让 tool 自描述，contract 文档强行复述等于双写。
+> 字段名以 MCP tool 的 `inputSchema` 自描述为准；上方 §工具入参 表是 2026-06-09 与 UXR 对齐的快照，因 `octo-upload-inject` 插件的单桶完整性保险依赖 `download_links` 这个名字、故在此固化一份（字段名变更时同步插件常量 + 该表）。
 
 ### 通用出参骨架
 

@@ -13,8 +13,9 @@
 用户选文件 → 页面 POST /api/files (multipart, binary)
   → 上传服务接收 → 校验 → 服务端组路径 → PUT S3
   → 返回 { url, fileId, ... }
-  → 注入 session.prompt() 文本
-  → LLM 调 analyze_interview(doc_urls=[...])
+  → 注入 session 文本（[已上传文件] 区块，每文件带 handle upload_N）
+  → LLM 调业务工具，文件参数填 handle（download_links / outline_file_path）
+  → octo-upload-inject 插件在工具执行前把 handle 换成精确 URL（见 ADR-014）
 ```
 
 **与 UXR 的关系**：UXR 团队仅负责 MCP 分析工具（[mcp-contract.md](../agents/mcp-contract.md)），与本上传服务**互不相关**。UXR 内部也有自己的 S3 上传（用于分析结果落盘），那是 UXR 自治范围，不在本 spec 覆盖范围内。详见 [ADR-006 §职责边界](../../adr/006-upload-architecture.md#职责边界)。
@@ -91,12 +92,12 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 
 ### 注入格式
 
-各 agent 页面上传完成后，URL 段落以**独立的 synthetic text part** 随消息发送（不再拼进用户可见文本），格式（保持一致，LLM 可识别）：
+各 agent 页面上传完成后，URL 段落以**独立的 synthetic text part** 随消息发送（不再拼进用户可见文本），每行带一个稳定 handle `[upload_N]`（按序，从 1 起），格式（保持一致，LLM 可识别）：
 
 ```
 [已上传文件]
-- filename-1.docx: https://obs.example.com/.../filename-1.docx
-- filename-2.txt:  https://obs.example.com/.../filename-2.txt
+- filename-1.docx [upload_1]: https://obs.example.com/.../filename-1.docx
+- filename-2.txt [upload_2]:  https://obs.example.com/.../filename-2.txt
 ```
 
 发送时拆成两个 text part：
@@ -107,6 +108,8 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 | 2 | 上述 `[已上传文件]` 段落 | **是** | ✓ | ✗ |
 
 **为什么用 synthetic part**：server `toModelMessages` 对 user 消息只过滤 `ignored`、不过滤 `synthetic`，所以 synthetic part 照样喂给模型（LLM 拿得到 URL）；而上游 `UserMessageDisplay` 只渲染非 synthetic text part，气泡不会暴露 S3 长地址。文件本身在气泡里以**文件卡片**呈现（insight 页解析 synthetic 段落 `parseUploadedFiles` 渲染，optimistic / server 回传后都稳定存在）。
+
+**为什么带 handle（`[upload_N]`）**：弱模型会把 URL 的转码字符微调坏 → MCP 取不到文件。故约束模型「文件参数只填 handle、永不填 URL」，由 server 端 `octo-upload-inject` 插件在 MCP 工具执行前把 handle 换成此块里的精确 URL（权威副本，模型从不改写）。决策与机制见 [ADR-014](../../adr/014-url-injection-via-plugin.md)。该块的行格式是「页面 `formatUploadsForPrompt` / `parseUploadedFiles`」与「插件 `parseUploadBlock`」的单一事实源，改格式需两处同步。
 
 不再走 `FilePartInput.url`——避免 opencode SDK 误将 URL 当本地文件 fetch（file part 会被当作媒体附件直传给模型，而非文本 URL）。
 
@@ -384,8 +387,8 @@ bun run dev
 | 4 | 响应体形态 | `{ content: { url, fileId, fileName, size, mime }, success: true, errorCode: 200, errorMessage: null }` |
 | 5 | 输入文字 → 点发送 | Console 出 `[octo:prompt] send`，含 `uploads: [{ name, url }]`；`optimistic added` 的 `partsCount=2` |
 | 6 | 用户气泡渲染 | 气泡**只显示干净文本**（不暴露 S3 URL）；气泡上方右对齐出现**文件卡片**（文件名 + 扩展名徽标） |
-| 7 | session 内消息 part | 含一个 `synthetic:true` 的 text part，内容为 `[已上传文件]\n- <filename>: <url>` 段 |
-| 8 | LLM 调 `analyze_interview` 时 | `doc_urls` 参数能填入步骤 4 里的 `content.url`（synthetic part 已喂给模型） |
+| 7 | session 内消息 part | 含一个 `synthetic:true` 的 text part，内容为 `[已上传文件]\n- <filename> [upload_N]: <url>` 段 |
+| 8 | LLM 调业务工具时 | 模型在文件参数填 **handle**（`upload_N`）；server 端 `octo-upload-inject` 插件在 MCP 执行前把 handle 换成步骤 4 的 `content.url`，看 `[octo:inject] args rewritten` 日志的 before/after（见 [ADR-014](../../adr/014-url-injection-via-plugin.md)） |
 
 #### 4. 边界 / 错误链路验证
 

@@ -32,8 +32,11 @@
 | `[insight:session-list]` | [components/session-list/index.tsx](../packages/app/src/pages/insight/components/session-list/index.tsx) | 会话重命名 / 删除失败 |
 | `[InsightPage]` | [index.tsx](../packages/app/src/pages/insight/index.tsx) | 兜底 error(session.create / upload 失败) |
 | `[dev:preview]` | [_dev/cards-preview.tsx](../packages/app/src/pages/insight/_dev/cards-preview.tsx) | **仅开发预览页**,mock 不连 SDK,排查线上问题时无视 |
+| `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前把 handle 换成精确 S3 URL([ADR-014](docs/adr/014-url-injection-via-plugin.md))。**注意:出在 opencode 服务进程 console,不在客户端 DevTools** |
 
 > 约定:`⚠️` 出现在 `console.warn`,`✗`/红色出现在 `console.error`。正常链路只有 `console.log`。
+>
+> `[octo:inject]` 关键字段:`args rewritten` 的 `before`(模型填的,含 handle 或被改坏的 URL)/ `after`(注入后,应是精确 URL)/ `urlField`(单桶工具命中的 MCP 字段名,核对是否与 MCP schema 一致)/ `uploads`(解析到的文件数)。`no uploads found` = session 里没解析到 `[已上传文件]` 区块(模型在无文件时调了文件工具,或区块格式被破坏)。
 
 ---
 
