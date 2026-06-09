@@ -5,7 +5,7 @@
 设计文档(architecture / spec / ADR / learning / handoff)的真相源在 **octo-agent 仓**:
 `/Users/huowenkai/Desktop/projects/octo-agent`(下文 `docs/…`、`ROADMAP.md` 等均指此仓)。
 
-- 读 / 写文档、文档的 commit 与 PR **都在文档仓**;**不在 UXAI 提交任何设计文档(.md)**
+- 读 / 写文档都在文档仓;改完**直接 commit,无需开 PR**;**不在 UXAI 提交设计文档(.md)**
 - UXAI 仓只提交 insight 代码
 
 ## 提交
