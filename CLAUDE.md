@@ -37,7 +37,7 @@
 
 - **spec 完成 / 变更后,更新 [ROADMAP.md](ROADMAP.md)**
 - **ADR** 一旦落地不删;改决策开新 ADR,在旧 ADR 顶部链过去
-- **spec 变更**走 PR review（架构级尤其）;**learning 笔记**作者自负,可直接编写
+- **spec / ADR / learning 改完直接 commit,无需开 PR**(commit / push 前仍需用户确认)
 - **重复内容走引用**：spec / ADR / learning 各司其职,事实层重叠时剥离换引用,不复制粘贴
 - **死链 / 过期路径**:改动涉及的引用顺手修正,不留烂链
 
