@@ -27,7 +27,8 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 9. [agent-deploy.md](agent-deploy.md) — 注册 vs 不注册的区别、config 版本化写入机制、Electron 打包后用户侧如何自带配置
 10. [mcp-api-integration.md](mcp-api-integration.md) — 内网 API 对接 MCP 的完整方案（路径 C）：UXR 服务加 /mcp 路由的实现、联调验证流程
 11. [opencode-db-and-storage.md](opencode-db-and-storage.md) — opencode 数据持久化全貌:SQLite 事务 / WAL / Drizzle schema-as-code / migration journal + snapshot.json / channel-aware DB / JsonMigration / storage + snapshot + tool-output 三兄弟,与 Rails/Prisma/Django/Flyway 对比
-12. [uxai-app-entry-routing.md](uxai-app-entry-routing.md) — UXAI 前端入口与路由组成:`entry.tsx → @/app = app.tsx`(活)vs `octo.tsx`(死副本)、改错文件的判活诊断法、dev sandbox 路由注册位置与三层隔离
+12. [client-event-routing-by-directory.md](client-event-routing-by-directory.md) — 前端按目录分发实时事件:globalSync + per-directory child store / directory·worktree·project 三层模型 / `event.directory` = worktree 根 /「页面数据层目录 vs 事件投递目录」错位导致白屏(Insight 锚点案例)/ 排查方法论 + octoapp 自有 context 大坑
+13. [plugin-hooks-url-injection.md](plugin-hooks-url-injection.md) — opencode 插件系统:`Plugin` 函数 / `INTERNAL_PLUGINS` vs config 插件 / `tool.execute.before` 钩子在哪触发(MCP 也触发)/「就地改写 output.args」契约 / 用插件把精确 S3 URL 注入 MCP 工具(handle 机制)/ 踩坑:MCP 工具名带 `uxr-tool_` 前缀、字段名 `download_links`、插件日志在 server 进程
 
 > 后续可能补:
 >

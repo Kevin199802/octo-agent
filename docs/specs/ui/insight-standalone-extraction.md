@@ -130,7 +130,7 @@ insight 第一版的路由 / shell 层被 UX AI 项目直接参考,拆分(insigh
 
 ## 9. 实施步骤(建议 PR 拆分)
 
-1. **PR1 模型切 useLocal** ✅ **已完成**:删隔离 store + `InsightModelSelectionProvider`,主流程/标签/发送改 `useLocal().model`(初次进入不空靠兜底链 `defaultModel()` 取第一个可用模型,见 §4)。~~`createAndNavigate` 建会话补 `agent`~~ **已取消**:v2 `session.create` 不收 `agent` 且对模型回退无收益(insight.md frontmatter 无 `model` 字段,agent 默认层本就为空)。typecheck(tsgo)+ build(vite)双门禁通过
+1. **PR1 模型切 useLocal** ✅ **已完成**:删隔离 store + `InsightModelSelectionProvider`,主流程/标签/发送改 `useLocal().model`(初次进入不空靠兜底链 `defaultModel()` 取第一个可用模型,见 §4)。~~`createAndNavigate` 建会话补 `agent`~~ **已取消**:v2 `session.create` 不收 `agent` 且对模型回退无收益(octo_insight.md frontmatter 无 `model` 字段,agent 默认层本就为空)。typecheck(tsgo)+ build(vite)双门禁通过
 2. **PR2 抽会话段** ✅ **已完成(简版)**:Insight 会话段 → `pages/insight/components/session-list/`(自包含、零参数);`_shell/sidebar.tsx` 改为 `import` 该组件摆位;验收 `_shell` 无 `/insight` 字面量。⚠️ **D11 要把它升级为与 UX AI 1:1(完整状态点 + agent 过滤),见 §11.3**
 3. **PR3(待依赖)** 接入同事的 `SharedSidebar` / 选择器共享组件,`_shell/sidebar.tsx` 退场——等共享组件就绪再做
 4. 各 PR 自动验证(typecheck + build)后合入 dev,里程碑级再触发 octo-sync
@@ -165,7 +165,7 @@ topbar tab `Cowork`→`Insight`([topbar.tsx](../../../packages/app/src/pages/_sh
 **关键认识**:`_shell`(topbar/sidebar 框架)是**本地开发壳,不同步给 UXAI**——UXAI 用自己的 shell,我方仅 `pages/insight/**` 同步。故壳子改动只为本地 dev 观感,非合入物。
 
 ### 11.2 D10 — agent 名两仓统一 `octo_insight`(取代 §10.4 末"无需改名")
-- 改 2 处:[insight.md](../../../packages/agent/insight/agents/insight.md) frontmatter `name: insight`→`octo_insight`;[index.tsx:475](../../../packages/app/src/pages/insight/index.tsx#L475) `const agent = "insight"`→`"octo_insight"`。(`[data-page="insight"]` CSS 属性与 agent 无关,**不动**。)
+- 改 2 处:[octo_insight.md](../../../packages/agent/octo_insight/agents/octo_insight.md) frontmatter `name: insight`→`octo_insight`;[index.tsx:475](../../../packages/app/src/pages/insight/index.tsx#L475) `const agent = "insight"`→`"octo_insight"`。(`[data-page="insight"]` CSS 属性与 agent 无关,**不动**。)
 - 本地 opencode **按 frontmatter `name` 注册**([agent.ts:269](../../../packages/opencode/src/agent/agent.ts#L269)),改即生效。
 - **不写 octo-sync transform**(改写源码字符串脆弱);统一字面量后 rsync 天然一致。消除"发的 agent 名 ≠ server 注册名 → server 不起轮 → 发送无反馈"的合入隐患。
 

@@ -92,13 +92,13 @@ agent 定义硬编码在 `packages/opencode/src/agent/agent.ts` 中（非 .md fr
 
 ```
 仓库内（合入物）
-├── packages/agent/insight/agents/insight.md          ← A 源（系统提示词）
+├── packages/agent/octo_insight/agents/octo_insight.md          ← A 源（系统提示词）
 └── packages/desktop-electron/resources/
     └── default-config.json                            ← A 源（agent 结构 + MCP）
 
 打包后（Octo Agent.app/Contents/Resources/）
 ├── agents/
-│   └── insight.md                                     ← extraResources 自动复制
+│   └── octo_insight.md                                     ← extraResources 自动复制
 └── default-config.json                                ← resources/ 自带
 
 用户机器（~/.config/octo/）
@@ -106,7 +106,7 @@ agent 定义硬编码在 `packages/opencode/src/agent/agent.ts` 中（非 .md fr
 └── .octo-runtime.json                                 ← 运行时合并产物（主进程生成）
 ```
 
-**注意**：`packages/desktop-electron/resources/agents/insight.md` 这个手动副本**应删除**——源在 `packages/agent/insight/`，开发时直读源，打包时 extraResources 自动同步。
+**注意**：`packages/desktop-electron/resources/agents/octo_insight.md` 这个手动副本**应删除**——源在 `packages/agent/octo_insight/`，开发时直读源，打包时 extraResources 自动同步。
 
 ---
 
@@ -218,7 +218,7 @@ function getAgentPromptPath(agentName: string): string {
 ```
 
 **dev 调试**：
-- 改 `packages/agent/insight/agents/insight.md` → 重启 main 进程（Cmd+R 或 vite reload）→ runtime 文件刷新
+- 改 `packages/agent/octo_insight/agents/octo_insight.md` → 重启 main 进程（Cmd+R 或 vite reload）→ runtime 文件刷新
 - 改 `packages/desktop-electron/resources/default-config.json` → 重启 main → runtime 刷新
 - 改 `~/.config/octo/octo.json` → 重启 main → runtime 刷新
 
@@ -232,8 +232,8 @@ export default {
   // ... 现有配置
   extraResources: [
     {
-      from: "../../packages/agent/insight/agents/insight.md",
-      to: "agents/insight.md",
+      from: "../../packages/agent/octo_insight/agents/octo_insight.md",
+      to: "agents/octo_insight.md",
     },
     // 未来加 agent 时在此追加
   ],
@@ -373,7 +373,7 @@ OCTO_MCP_URL=http://localhost:8005/mcp bun --cwd packages/desktop-electron dev
 |---|---|
 | 用户文件 JSON 解析失败 | 弹窗提示路径 + 错误位置，启动中止（不静默 fallback，避免用户改坏后困惑） |
 | bundled default-config.json 缺失 | 严重 bug，弹窗"安装包损坏请重装"，中止 |
-| insight.md 缺失 | 警告日志，agent.prompt 字段空，opencode 仍能启动（fallback 内置 build agent） |
+| octo_insight.md 缺失 | 警告日志，agent.prompt 字段空，opencode 仍能启动（fallback 内置 build agent） |
 | 用户文件存在但缺 apiKey | 不阻止启动，opencode 在第一次调用时报错 |
 
 ---
@@ -393,7 +393,7 @@ bun run test   # → src/main/config.test.ts，7 个用例
 
 | 用例 | 对应验证点 |
 |---|---|
-| 首次启动：stub 自动创建，runtime 含真实 insight.md prompt | V-01 |
+| 首次启动：stub 自动创建，runtime 含真实 octo_insight.md prompt | V-01 |
 | 改 prompt 源文件后重跑，runtime 立即更新，用户文件不变 | V-02 |
 | 用户手动 override A 类，runtime 以用户值为准 | V-04 |
 | deepMerge：object 递归合并，array 整体覆盖 | 合并语义（§5） |
@@ -405,10 +405,10 @@ bun run test   # → src/main/config.test.ts，7 个用例
 bun run package:mac
 # 然后手动检查：
 ls "dist/mac-arm64/Octo AI.app/Contents/Resources/agents/"
-# 预期：insight.md 存在，内容与 packages/agent/insight/agents/insight.md 一致
+# 预期：octo_insight.md 存在，内容与 packages/agent/octo_insight/agents/octo_insight.md 一致
 
-diff "dist/mac-arm64/Octo AI.app/Contents/Resources/agents/insight.md" \
-     packages/agent/insight/agents/insight.md
+diff "dist/mac-arm64/Octo AI.app/Contents/Resources/agents/octo_insight.md" \
+     packages/agent/octo_insight/agents/octo_insight.md
 # 预期：无差异
 ```
 
@@ -420,7 +420,7 @@ bun run check-bundle   # scripts/check-bundle.ts，对比 bundle 与源文件
 
 ### V-03 dev 模式（手动，无法完全自动化）
 - [ ] `bun --cwd packages/desktop-electron dev` 启动
-- [ ] 改 `packages/agent/insight/agents/insight.md` → 重启 main → 检查 `~/.config/octo/.octo-runtime.json` 中 prompt 字段已更新
+- [ ] 改 `packages/agent/octo_insight/agents/octo_insight.md` → 重启 main → 检查 `~/.config/octo/.octo-runtime.json` 中 prompt 字段已更新
 - [ ] 全程不需要手动 cp 任何文件
 
 ---
@@ -430,6 +430,6 @@ bun run check-bundle   # scripts/check-bundle.ts，对比 bundle 与源文件
 属于 ROADMAP P2 infra：[首次启动配置写入](../../../ROADMAP.md)。
 
 实现完成后：
-- 删除 `packages/desktop-electron/resources/agents/insight.md`（手动副本）
+- 删除 `packages/desktop-electron/resources/agents/octo_insight.md`（手动副本）
 - 删除 `~/.config/octo/octo.json` 中的 A 类字段（精简到只含 B + C，配合 [docs/integration.md §6.2](../../integration.md) 更新示例）
 - 更新 [agent-deploy.md](../../learning/agent-deploy.md) §2 引用本 spec

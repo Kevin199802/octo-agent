@@ -66,7 +66,7 @@ tools:  [read_file, write_file, edit, bash, grep, web_search,
          <所有 MCP 工具>, ...]  ← 20+ 个工具混在一起
 
 # 注册了 insight agent
-system: "你是专业的用户研究分析师..."  ← 来自 insight.md
+system: "你是专业的用户研究分析师..."  ← 来自 octo_insight.md
 tools:  [<insight 白名单内的工具>]    ← 见 mcp-contract.md
         ← LLM 只看到白名单的工具，根本无法调 bash / write_file
 ```

@@ -103,6 +103,6 @@ prompt cache 影响：DeepSeek 有 prompt cache，模板不变时多轮命中；
 
 - spec 数据模型从 `promptPrefix` 改为 `systemHint`，内容大幅精简（不写工具调用细节）
 - `handleSend` 用 `session.prompt({ system, parts })`，不再拼用户消息字符串
-- insight.md system prompt 不需要加"模板识别"段
+- octo_insight.md system prompt 不需要加"模板识别"段
 - 详细机制说明：[docs/learning/per-call-system-prompt.md](../learning/per-call-system-prompt.md)
 - 实现规格：[docs/specs/ui/insight-analysis-mode.md](../specs/ui/insight-analysis-mode.md)

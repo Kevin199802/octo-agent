@@ -1,6 +1,10 @@
-# 内外网对接说明
+# 内网服务端对接 + 联调说明
 
-> 外网（本仓库）与内网 `packages/app/` 保持相同目录结构，按图索骥对接。
+> insight 代码在 UXAI 仓开发。本文档面向**内网服务端**(MCP / 文件上传服务)的对接 + 联调实现。
+>
+> ⚠️ §1「代码合入边界」、§2「app.tsx 路由合并」是归档前两仓**代码同步**时代的内容,已失效
+> (不再做仓库合入);保留作历史。§3 起的 agent 部署 / LLM 配置 / MCP + 上传对接 / 联调验证
+> 仍是内网服务端实现的参考。前端对接契约见 [intranet-handoff.md](intranet-handoff.md)。
 
 ---
 
@@ -13,7 +17,7 @@
 | `packages/app/src/pages/chat/` | 直接同步目录 | Chat 页面 |
 | `packages/app/src/pages/studio/` | 直接同步目录 | Studio 页面 |
 | `packages/app/src/app.tsx`（OctoShell 路由分叉） | 手动合并变更 | 见 §2 |
-| `packages/agent/insight/agents/insight.md` | 注入 `octo.json`（主进程自动写入，见 §3） | 见 §3 |
+| `packages/agent/octo_insight/agents/octo_insight.md` | 注入 `octo.json`（主进程自动写入，见 §3） | 见 §3 |
 
 **不合入**：`packages/desktop-electron/` 的 Electron 接线改动（内网有自己的启动方式）。
 
@@ -49,7 +53,7 @@ const StudioPage  = lazy(() => import("@/pages/studio"))
 
 Agent 配置通过 Electron 主进程在首次启动时写入 `~/.config/octo/octo.json`，详见 §5 及 [learning/agent-deploy.md](learning/agent-deploy.md)。
 
-源文件：`packages/agent/insight/agents/insight.md`
+源文件：`packages/agent/octo_insight/agents/octo_insight.md`
 ```
 
 ---

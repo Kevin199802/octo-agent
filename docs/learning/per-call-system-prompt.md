@@ -73,7 +73,7 @@ system.push([
 最终 LLM 收到的 system 消息长这样：
 
 ```
-<agent.prompt 内容（insight.md 全文）>
+<agent.prompt 内容（octo_insight.md 全文）>
 <input.system 内容（本次模板指令）>
 <user.system 内容（罕见）>
 ```
@@ -95,7 +95,7 @@ system.push([
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ Layer 1：agent.prompt（系统提示词，per-agent 写死）          │
-│   位置：insight.md frontmatter                              │
+│   位置：octo_insight.md frontmatter                              │
 │   生效范围：这个 agent 的所有对话                              │
 │   内容：角色定位、工作流、MCP 工具选择规则、注意事项               │
 ├──────────────────────────────────────────────────────────┤
@@ -130,7 +130,7 @@ Layer 2 和 Layer 3 都是 per-call 的，区别在于：Layer 2 进 system role
 
 | 层 | 角色 | 文件路径 | 改了之后怎么生效 |
 |---|---|---|---|
-| L1 | agent.prompt 源（系统提示词） | `packages/agent/insight/agents/insight.md` | 重启 main 进程，cascading 自动注入到 runtime |
+| L1 | agent.prompt 源（系统提示词） | `packages/agent/octo_insight/agents/octo_insight.md` | 重启 main 进程，cascading 自动注入到 runtime |
 | L1 | agent 结构 / MCP URL 源 | `packages/desktop-electron/resources/default-config.json` | 重启 main 进程，cascading 自动合并 |
 | L2 | systemHint 定义（6 个模板） | `packages/app/src/pages/insight/store/prompt-template.ts` | HMR 即时生效（前端代码） |
 | L2 | systemHint 调用 | `packages/app/src/pages/insight/index.tsx` 的 `handleSend` | HMR 即时生效 |
@@ -198,7 +198,7 @@ DeepSeek 等支持 prompt cache 的模型：
 
 - ❌ 传文件内容（用 parts.file 或注入到 user 消息）
 - ❌ 传业务数据（dropdown 选项、表单字段等用 metadata 类机制，本项目暂不需要）
-- ❌ 替代 agent.prompt（agent 全局规则应该写在 insight.md，不要每次调用都重传）
+- ❌ 替代 agent.prompt（agent 全局规则应该写在 octo_insight.md，不要每次调用都重传）
 
 ---
 
