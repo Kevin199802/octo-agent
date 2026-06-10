@@ -1021,6 +1021,7 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 |---|---|---|
 | `[octo:sync] session.sync` | 切 session 触发原生 sync | 切 session 时 |
 | `[octo:sync] status` | session busy↔idle | 状态变化 |
+| `[octo:title] set` / `kept` | insight 会话标题护栏:`set`=收到真标题写入;`kept`=拦下默认标题倒灌(已是真标题时不让 `New/Child session - <iso>` 覆盖回去)。用于区分「标题已生成被倒灌(A)」与「标题根本没生成(B)」——只见 `set`/`kept`=A;一直不见 `set`=B | 每条 `session.updated`/`session.created` SSE 命中已存在会话时 |
 | `[octo:prompt] send` / **`send-full`** / `optimistic added` / `sent (async)` / `failed` | 发送消息全链路（`send-full` 含**未截断的完整输入文本**）| 发送/失败 |
 | **`[octo:assistant] turn-complete`** | 一条 assistant 消息流完 | busy → idle 切换那一刻 |
 | **`[octo:assistant] text-part-detail`** | 该消息每个 text part 的**完整原文**（不截断） | 同上 |
