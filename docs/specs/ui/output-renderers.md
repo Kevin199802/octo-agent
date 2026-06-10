@@ -965,7 +965,7 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 **触发**：跑一次会产出 xlsx 的业务工具（如多文件版的"观点解析"），等任务 completed，点任务卡片 [查看完整结果] → 切到 xlsx tab。
 
 **通用验收（不分平台）**：
-- [ ] FileFallback 显示 **2 个按钮**：「用本地应用打开」「下载到本地」
+- [ ] FileFallback 显示 **3 个按钮**：「本地打开」「文件夹打开」「下载」
 - [ ] **不再出现** target="_blank" 的空白 Octo 弹窗（旧 bug）
 - [ ] Console 看到 `[octo:office] download-start` + `[octo:office] open-path`
 
@@ -1034,6 +1034,7 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 | `[octo:task] openResult` / `auto-openResult` | 任务卡打开结果 | 点查看结果 / 自动开 |
 | `[octo:tab] openTab` / `dedupe-by-uri-and-type` / `dedupe-by-id` | tab 创建 / (uri,type) 复合去重 / id 去重 | openTab 调用 |
 | `[octo:office] download-start` / `download-ok` / `open-path` / `open-failed` | Office 唤起 | 点 FileFallback 按钮 |
+| `[octo:office] reuse-locked` (主进程 warn) | 覆盖写临时副本时 **EBUSY/EPERM**=文件正被本地应用占用,已回退复用已下载副本(不报错) | 文件已在 Word/Excel/WPS 打开后,再点「本地打开」/「在文件夹中打开」 |
 | `[octo:queue] enqueued` / `flushing` / `canceled` | busy 排队 | busy 时发送 / idle 后 flush |
 
 **定位"LLM 究竟返回了什么"的最快路径**:
