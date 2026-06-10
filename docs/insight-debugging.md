@@ -82,6 +82,7 @@
 | `server.connected` | ✓ | SSE(重)连上了 |
 | `global.disposed` / `server.instance.disposed` | ✓ | **server 实例没了** → 之后任何发送都不会有反馈 |
 | `session.created/updated/deleted`、`todo.updated`、`session.diff`、`vcs.branch.updated`、`lsp.updated` | verbose | 噪音类,精简模式不打,`verbose` 才打 |
+| `server.heartbeat` | **忽略** | 高频保活(每~10s),**不入 ring、不打印**(否则刷屏+占满缓冲+掩盖规则1)。只记最后心跳时间供 why 判断 SSE 存活 |
 
 - **正常**:发送后依次见 `session.status{busy}` → 若干 `message.updated`/`message.part.updated`/`delta 聚合` → `session.status{idle}`。
 - **异常**:① 发送后**一条 `[octo:event]` 都没有** → SSE 没把事件推回(连接断 / server 没启动该轮);先翻有没有上游原生的 **`[global-sdk] event stream error/failed`**(红字)——有=连接管道断了,没有=管道活着但 server 没产出该轮;② 见到 `permission.asked ⚠️`/`question.asked ⚠️` 后**再无下文** → 卡在等用户,需在 UI 响应(用 `octoDebug.pending()` 看是什么);③ 见到 `global.disposed`/`server.instance.disposed` → server 掉了。
@@ -301,30 +302,77 @@
 
 内网抓不到 Network/SSE 时,**不必预先开日志重现**:出 bug 后直接在 DevTools Console 敲命令,即可回放最近发生的一切、dump 当前 session 原始数据。来源 [lib/debug-observer.ts](../packages/app/src/pages/insight/lib/debug-observer.ts),进入 insight 页面即自动挂载(切走/重挂会清理重建)。
 
+> **阶段1(SPEC-INS-011)新增**:三个环形缓冲并存 —— **event ring**(SSE 事件,200条)、**send ring**(发送记录,30条)、**log ring**(console.error/warn 镜像 + `[octo:*` 前缀 console.log 链路日志 + window.onerror/unhandledrejection,200条)。全字段缓冲，展示时才精简。
+
 | 命令 | 作用 |
 |---|---|
 | `octoDebug.help()` | 列出所有命令 |
 | `octoDebug.state()` | 当前 session 状态摘要:`status` / 用户·assistant 消息数 / 未决 permission·question 数 / 当前 mode |
 | `octoDebug.dump()` | 当前 session **完整 message + part 原始 JSON**——出 bug 时让用户「复制这个发出来」,等价 `[octo:assistant] *-detail` 但随时可取 |
-| `octoDebug.events(n=50)` | 最近 n 条 SSE 事件(**环形缓冲**,默认存 200 条;即便没开 verbose 也留着,可回放) |
+| `octoDebug.events(n=50)` | 最近 n 条 SSE 事件(**event ring**,默认存 200 条;即便没开 verbose 也留着,可回放) |
+| **`octoDebug.logs(n=50)`** | **最近 n 条 log ring**:console.error/warn 镜像 + `[octo:*` 前缀 console.log 链路日志(prompt/upload/task…) + window.onerror/unhandledrejection 未捕获异常 |
 | `octoDebug.sends(n=10)` | 最近 n 次发送的完整入参 |
 | `octoDebug.lastSend()` | 上一次发送:`messageID` / `model` / `cleanText` / `uploadBlock` / `endpoint` |
 | `octoDebug.pending()` | 当前未回复的 permission / question——排查「卡住不动」(§2.2-D)直接看这个 |
-| **`octoDebug.snapshot()`** | **一键打包现场**(state + 事件环形缓冲 + 最近发送 + 当前 session 原始 message/part)为 JSON 并复制到剪贴板,直接粘给排查方/AI |
+| **`octoDebug.why()`** | **速诊**:对照 6 条规则自动分析当前现场,给「最可能方向 + 看哪条 + 下一步」(详见 §3.2) |
+| **`octoDebug.snapshot(opts?)`** | **一键参数化现场快照**,输出紧凑文本并复制到剪贴板(详见 §3.3) |
 | `octoDebug.mode('quiet'\|'compact'\|'verbose')` | 切 `[octo:event]` 日志详尽度(默认 `compact`) |
 | `octoDebug.verbose(true\|false)` | `verbose` 开关(等价 `mode`):`true` 逐条打 delta + 全部噪音事件,`false` 回 compact |
 
-三种 mode 的区别:`quiet` = 一条日志不打、只进环形缓冲(console 最干净,靠命令拉);`compact`(默认)= 打 §1.0 表里"精简打✓"的类型、delta 聚合;`verbose` = 全量逐条(含 delta 与噪音事件)。**环形缓冲在三种 mode 下都常驻**,所以哪怕全程 `quiet`,出问题后 `octoDebug.events()` 依旧能回放。
+三种 mode 的区别:`quiet` = 一条日志不打、只进环形缓冲(console 最干净,靠命令拉);`compact`(默认)= 打 §1.0 表里"精简打✓"的类型、delta 聚合;`verbose` = 全量逐条(含 delta 与噪音事件)。**三个环形缓冲在三种 mode 下都常驻**,所以哪怕全程 `quiet`,出问题后依旧能回放。
 
 ### 3.1 怎么把"现场"递给排查方(含 AI)
 
 排查方(外网同事 / AI 助手)**读不到你运行中 app 的 console**——它只活在你这台机器的 DevTools 里。所以必须由你把运行时状态"递"过去。三档,按省事程度:
 
-1. **首选 `octoDebug.snapshot()`**:复现后敲一行,现场(状态 + 最近 SSE 事件 + 发送记录 + 当前会话原始数据)打包成 JSON 并自动复制到剪贴板 → 直接粘给对方。信息密度最高、噪音最少。
-2. **针对性拉**:只想看某一块就 `octoDebug.dump()`(原始 message/part) / `octoDebug.events()`(SSE 回放) / `octoDebug.lastSend()`,复制结果粘过去。
+1. **首选 `octoDebug.snapshot()`**:复现后敲一行,现场(why 初判 + 最近 SSE 事件 + 发送记录 + console 异常)打包成**紧凑文本**并自动复制到剪贴板 → 直接粘给对方。信息密度最高、噪音最少。
+2. **针对性拉**:只想看某一块就 `octoDebug.dump()`(原始 message/part) / `octoDebug.events()`(SSE 回放) / `octoDebug.logs()`(console 异常) / `octoDebug.lastSend()`,复制结果粘过去。
 3. **全量兜底**:怀疑问题在我们埋点之外时,DevTools Console 空白处右键 → **Save as…** 导出整个 console 为 `.log`(含上游所有日志)发出去。最全但最杂。
 
 > 提示:`octoDebug.snapshot()` 已覆盖 90% 的排查所需,优先用它;真按 §2 对照表走完仍定位不了,再上全量导出。
+
+### 3.2 `octoDebug.why()` 规则表
+
+自动对照以下 6 条规则扫描当前现场,给出「最可能方向 + 下一步」。规则保守可解释,只给方向不下死结论。
+
+| # | 触发条件 | 输出方向 |
+|---|---|---|
+| 1 | 有 send 记录,且其后无实质 event(heartbeat 不计) | 有心跳→"无实质事件但 SSE 心跳仍在 → server 未启动该轮(非连接断)";无心跳→"无事件且无心跳 → 疑似 SSE 断 → 查 log 里 [global-sdk]" |
+| 2 | `pending`(未 reply 的 permission/question) > 0 | ⚠️ 卡在等用户 → `octoDebug.pending()` |
+| 3 | 最近 send.modelResolved === false | ⚠️ 发送时模型未解析 → §2.3 |
+| 4 | session.status 持续 busy 超 60s 且无新 message.part | ⚠️ 疑似生成卡死 |
+| 5 | 有 currentSessionID 但 `message[session]` 为空 | ⚠️ 疑似白屏/未加载 → §2.1 + `snapshot({full:true})` |
+| 6 | log ring 中有 window.error / unhandledrejection | ⚠️ 存在未捕获异常 → `snapshot({profile:'errors'})` |
+
+`snapshot()` 顶部**自动附 `why()` 结论摘要**,无需手动调用。
+
+### 3.3 `octoDebug.snapshot(opts?)` 参数与 profile
+
+缺省(不传参)= 时间窗取 **lastSend.ts → now**。输出为紧凑文本(非 JSON),每行带绝对时刻 + 相对 Δ,并附 `why()` 初判。
+
+**参数**:
+
+| 参数 | 含义 | 示例 |
+|---|---|---|
+| `last` | 最近一段时长 | `{last:'2m'}` |
+| `since` / `until` | 时间窗边界(绝对 `"14:30"` 或相对) | `{since:'14:30'}` |
+| `around` / `window` | 锚到某 messageID 前后 | `{around:'msg_x', window:'30s'}` |
+| `profile` | 预设场景过滤(见下表) | `{profile:'no-feedback'}` |
+| `types` | 按 event.type / 来源标签过滤 | `{types:['session.status']}` |
+| `full` | 附当前 session message/part 全量 | `{full:true}` |
+| `events` | event 导出条数上限 | `{events:80}` |
+
+**profile 预设**(与 §2 症状表对齐):
+
+| profile | 用于 | 选取内容 |
+|---|---|---|
+| `no-feedback` | §2.2 发消息无反应 | send(全部) + key events + log.error/window.error/rejected |
+| `stuck` | §2.2-D 卡在等用户 | permission/question 相关 events |
+| `errors` | 任意报错 | log(全部) + global.disposed/server.instance.disposed |
+| `blank` | §2.1 白屏 | session.status/message.updated + log.window_error/rejected |
+| `upload` | §2.4 上传失败 | 含 `[octo:upload]` 前缀的全部来源(console.log 链路 + console.error/warn) |
+
+常用组合:`snapshot({profile:'no-feedback'})` / `snapshot({last:'2m', profile:'errors'})` / `snapshot({full:true})`。
 
 ---
 

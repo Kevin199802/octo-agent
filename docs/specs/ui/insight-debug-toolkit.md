@@ -127,7 +127,8 @@ octo-agent 蓝本已验证可行的部分(UXAI 需照 §0 平移 + §4–5 增�
 1. 环形缓冲**存全字段**(原始 properties),展示时才精简。
 2. 挂 `window.onerror` / `unhandledrejection` → 进缓冲(**未捕获异常**是偶现 bug 头号线索)。
 3. 镜像 `console.error` / `console.warn` → 进缓冲(把 `[global-sdk]` 等其他模块/上游日志录进来);insight 挂载期生效、dispose 还原。
-4. delta 仍聚合(否则缓冲被冲爆)。
+4. 镜像 **`[octo:*` 前缀的 `console.log`**(白名单,排除 observer 自身的 `[octo:event]`)→ 进缓冲。让 snapshot 含 `[octo:prompt]`/`[octo:upload]`/`[octo:task]` 等**埋点链路日志**(这些链路本是 `console.log`,不录就拿不到——这是 `upload` profile 能工作的前提)。量可控(只录我们埋的前缀)。
+5. delta 仍聚合(否则缓冲被冲爆)。
 
 ### 4.7 输出格式
 紧凑文本(非 pretty JSON,省行数),复制到剪贴板;每行带**绝对时刻** + **相对 Δ**。样例见 §5.4。
@@ -163,12 +164,12 @@ octoDebug.snapshot(opts?: {
 | `stuck` | event:`permission.asked`/`question.asked`/`permission.replied`/`question.replied`/`question.rejected`/`session.status` |
 | `errors` | log:全部(`console.error`/`console.warn`/`window.error`/`unhandledrejection`)+ event:`global.disposed`/`server.instance.disposed` |
 | `blank` | event:`session.status`/`message.updated` + log:`window.error`/`unhandledrejection`（并依赖 §5.3 白屏规则;常配 `full:true` 看 `message[session]` 是否空）|
-| `upload` | log:`[octo:upload]` 前缀镜像 + 相关 `console.error` |
+| `upload` | log:含 `[octo:upload]` 前缀的全部来源(`console.log` 链路 + `console.error/warn`) |
 
 ### 5.3 `why()` 规则(条件 → 结论 → 下一步)
 | # | 条件 | 结论 / 下一步 |
 |---|---|---|
-| 1 | 有 send,且其后无任何 event | ⚠️ 发送后无服务器事件:疑似 SSE 断 / 未启动该轮 → 查 log 里 `[global-sdk]` |
+| 1 | 有 send,且其后无实质 event(`server.heartbeat` 等保活事件不入 ring) | 有心跳→"无实质事件但 SSE 心跳仍在 → server 未启动该轮";无心跳→"无事件且无心跳 → 疑似 SSE 断 → 查 log 里 `[global-sdk]`" |
 | 2 | `pending`(未 reply 的 permission/question)> 0 | ⚠️ 卡在等用户 → `octoDebug.pending()` |
 | 3 | 最近 `send.modelResolved === false` | ⚠️ 发送时模型未解析 → §2.3 |
 | 4 | `session.status` 持续 `busy` 超 60s 且无新 `message.part` | ⚠️ 疑似生成卡死 |
@@ -213,9 +214,20 @@ why: ⚠️ 发送后无服务器事件,疑似 SSE 断/未启动该轮 → 查 l
 ---
 
 ## 7. 验收
-- 阶段 1:`snapshot({last/profile/around/full})` 各参数正确裁剪;`why()` 对 §2 各症状给正确方向;未捕获异常 / `console.error` 进得了缓冲;输出可整段复制;`bun run typecheck` + 单测过。
+
+### 7.1 自动验证
+- 阶段 1:`snapshot({last/profile/around/full})` 各参数正确裁剪;`why()` 对 §2 各症状给正确方向;未捕获异常 / `console.error` / `[octo:*` console.log 进得了缓冲;`upload` profile 能抓到 `[octo:upload]` 链路;输出可整段复制;`bun run typecheck` + 单测过。
 - 阶段 2:reload / 重启后 `snapshot()` 仍带得出之前事件;IDB 容量有上限不膨胀。
 - 阶段 3:渲染崩溃前日志能在落盘文件里找到;文件不膨胀(沿用 5MB)。
+
+### 7.2 人工验证(外网即可,阶段 1 不依赖内网)
+阶段 1 纯前端、不依赖内网 MCP/上传/server 业务——**外网起 app、发普通消息就能验证**。以下几点单测覆盖不到,必须人工过一遍:
+
+1. **真实 SSE 下的事件流**:进 insight 发一条普通消息 → Console 应依次见 `[octo:event] session.status{busy}` → `message.updated`/`message.part.updated`/`delta ×聚合` → `session.status{idle}`。
+2. **snapshot 可用性**:`octoDebug.snapshot()` → 返回紧凑文本、**顶部 `why:` 给出方向**、**已写入剪贴板**(粘贴验证);`snapshot({profile:'no-feedback'})` 等各档只含对应子集。
+3. **why 准确性**:制造各症状(发消息后断网 / 触发 permission)→ `octoDebug.why()` 给的方向对得上 §2。
+4. **noise 控制**:`octoDebug.verbose(true)` 后 delta 逐条、信息全;`compact`(默认)不刷屏;`quiet` 完全静默但 `events()` 仍可回放。
+5. **镜像无副作用**:开着 observer 正常使用 insight,`console.*` 输出正常、页面无异常;离开 insight(dispose)后 `window.octoDebug` 消失、`console` 还原。
 
 ---
 
