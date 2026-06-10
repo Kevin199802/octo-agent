@@ -130,89 +130,94 @@ const trigger = Effect.fn(function* (name, input, output) {
 
 ---
 
-## 3. 本案例:URL 注入插件
+## 3. 本案例:URL 注入插件(纯 handle→URL 解析器)
 
-完整代码:`packages/opencode/src/agent/octo-upload-inject.ts`。逻辑分三步。
+完整代码:`packages/opencode/src/agent/octo-upload-inject.ts`。
 
-### 3.1 权威 URL 从哪来
+### 3.1 两个输入源(最关键的认知)
 
-页面上传后,URL 以 synthetic text part 注入 session,格式(见 [file-upload.md §注入格式](../specs/infra/file-upload.md)):
+插件有**两个不同来源的输入**,别混:
 
-```
-[已上传文件]
-- 林瑞钦.docx [upload_1]: http://s3-kp-kwe.../林瑞钦.docx
-```
+| 数据 | 来源 | 内容 |
+|---|---|---|
+| **权威 URL 总表**(全部文件 handle→url) | **session 消息里的 `[已上传文件]` 区块** | 字节级精确的 url 原文,**模型从不经手** |
+| **要替换哪些 handle** | **工具调用参数 args** | 只有模型挑中的那几个 handle |
 
-这份文本进了 server 的 message store,**模型只读不写**,所以是**字节级精确**的权威副本。插件在钩子里用 `client` 把它读回来:
+页面上传后,URL 以 synthetic text part 注入 session(`- <文件名> [upload_<8hex>]: <url>`,见 [file-upload.md §注入格式](../specs/infra/file-upload.md))。这份文本进 message store、**模型只读不写**,是权威副本。插件用 `client` 把它读回来、**聚合整个 session 的所有区块**建表:
 
 ```ts
 const res = await client.session.messages({ path: { id: input.sessionID } })
-// 从最近一条带 [已上传文件] 区块的 user 消息,解析出 [{handle, filename, url}]
+// 遍历所有 user 消息的所有 [已上传文件] 区块, parse 后 map.set(handle, url)
 ```
 
-> 关键认知:插件**不依赖模型传来的 URL**,而是自己回查 session 拿权威 URL。模型只负责"选哪个文件"(handle),URL 的搬运完全交给代码。
+> 为什么聚合"所有"区块而非"最近一条":用户可以**分多轮上传**(任务书一轮、逐字稿一轮),每轮一个区块,合起来才是全部文件。只读最近一条会漏掉前几轮的文件。
 
-### 3.2 两步改写
+### 3.2 一步替换(纯解析器)
 
 ```ts
-const map = new Map(uploads.map(u => [u.handle, u.url]))   // upload_1 -> 精确URL
-
-// ① 与字段名无关:递归遍历 args,把任意 upload_N 就地换成 URL
-replaceHandles(output.args, map)
-
-// ② 单桶工具完整性保险:把全量 URL 覆盖进规范字段(防漏列)
-if (urlField) output.args[urlField] = uploads.map(u => u.url)
+if (!hasHandle(output.args)) return            // 早退:args 没 handle 形态串就不拉消息(非文件工具零开销)
+const map = /* 聚合 session 所有区块 */
+replaceHandles(output.args, map)               // 递归就地把 args 里的 handle 换成 url
 ```
 
-- **① handle 替换**是主路径,**对字段名不敏感**——不管 MCP 把文件参数叫 `download_links` 还是别的,只要值是 `upload_N` 就被换掉。多角色工具(`download_links` + `outline_file_path`)的"谁是大纲/谁是逐字稿"角色映射,由模型决定、插件只换串。
-- **② 字段覆盖**只对**单桶工具**(`key_findings` / `mindmap`,全部文件都是访谈稿)加,防弱模型漏列某个 handle。多角色工具不能这么覆盖(其中一个文件属 `outline_file_path`,谁是哪个得靠模型判断)。
+`replaceHandles` 递归遍历 args,凡是值 `map.has(v)` 的字符串就换成对应 url。**只替换模型明确引用的 handle,不自作主张注入"全部文件"**——谁是哪类文件的角色归属完全由模型按文件名决定,插件不越权。
 
-### 3.3 为什么不直接让模型传 URL / 不改 MCP 合同
+- **不按工具名分支**:不管 MCP 把工具叫 `key_findings` 还是 `uxr-tool_key_findings`,插件都一样处理。
+- **不碰字段名**:不管文件参数叫 `download_links` 还是别的,只要值是已知 handle 就换。
+- **不做"全量覆盖"**:早期版本对单桶工具会把全量 url 覆盖进 `download_links`,在多轮 / 一个 session 多次分析时会错注他轮文件(见 §4),已废弃。
+
+### 3.3 handle 必须全局唯一稳定
+
+handle 由**文件 URL 派生**(`upload_` + FNV-1a 8 位 hex,在 `upload.ts` 的 `uploadHandle`),不是按 turn 的顺序号。原因见 §4.1——顺序号跨 turn 会撞。URL 派生 → 同一文件永远同一 handle、跨 turn 不撞、刷新不变。插件对 token 形态不挑,只按 session 区块建的表来认(`map.has`)。
+
+### 3.4 为什么不直接让模型传 URL / 不改 MCP 合同
 
 - **不靠 prompt 让模型"原样复制 URL"**:会改转码字符的弱模型,同样不会可靠遵守"逐字复制"。治标。
 - **不改 MCP 合同收 `file_ref`**:跨 UXR 团队、破坏协议。插件方案让 MCP **仍收 `url`**,UXR 零改动。
+- **为什么"只能"靠模型选文件**:多角色工具的角色映射(任务书 vs 逐字稿)是语义判断只有模型能做;"这次用哪些文件"也没法在代码里安全推断(多轮/多分析场景"全部上传"≠"这次要用")。模型本就在 loop 里要挑文件,handle 只是把它要传的从易碎 URL 换成安全 token。
 
-详见 [ADR-014 §方案对照](../adr/014-url-injection-via-plugin.md)。
+详见 [ADR-014](../adr/014-url-injection-via-plugin.md)。
 
 ---
 
 ## 4. 踩过的坑(实测内网才暴露)
 
-### 4.1 MCP 工具名带 server 前缀 ⚠️ 头号坑
+> 这套设计是迭代出来的:首版有更多"聪明"逻辑(按工具名匹配、单桶全量覆盖、顺序号 handle),内网验证逐一暴露问题,最后收敛成 §3 的"纯解析器"。下面按踩坑顺序记。
 
-钩子入参的 `input.tool` **不是裸工具名**。MCP 工具在 opencode 里的 id 是 `<mcp-server-key>_<tool>`,内网实测 = **`uxr-tool_key_findings`**,不是 `key_findings`。
+### 4.1 顺序号 handle 跨 turn 撞号 ⚠️ 驱动重设计的头号坑
 
-插件最初用裸名精确匹配 → 匹配不上 → 早早 return 放行 → 没注入 → MCP 收到字面量 `upload_1` 取不到文件 → 模型回退去自己 Webfetch URL(又撞限流)。
+首版 handle 是**按 turn 的顺序号** `upload_1/2/…`,`formatUploadsForPrompt` 每次发送只处理本 turn 附件、从 1 重排。于是用户**分多轮上传**时:
 
-**修法:按 bare 名"后缀 + 分隔符"匹配**:
+- turn1 传任务书 → `upload_1 = 任务书`
+- turn2 传逐字稿 → `upload_1 = 逐字稿`(又从 1 开始!)
 
-```ts
-function matchBareTool(toolId: string, bareNames: Iterable<string>): string | undefined {
-  for (const name of bareNames) {
-    if (toolId === name) return name
-    if (toolId.endsWith(name)) {
-      const prefixChar = toolId[toolId.length - name.length - 1]
-      if (prefixChar && /[_.\-/:]/.test(prefixChar)) return name  // 要求前一个字符是分隔符
-    }
-  }
-  return undefined
-}
-```
+模型看到两个区块里 `upload_1` 指向不同文件 → 判定「之前的 upload_1 已被替换为逐字稿」→ 以为任务书丢了,**对话层就崩,还没到工具调用**。
 
-- 命中 `uxr-tool_key_findings` → `key_findings`;
-- 校验 bare 名前一个字符是分隔符(`_./-:`),避免 `mindmap` 误中假想的 `xmindmap`。
+**修法:handle 从文件 URL 派生(`upload_<8hex>`)、全局唯一稳定**——同一文件永远同一 handle,跨 turn 不撞、刷新不变。配套:插件**聚合整个 session 的所有区块**(首版只读最近一条,也会漏掉前几轮文件)。
 
-**通用教训:任何按工具名分支的插件逻辑,都要考虑 MCP 的 server 前缀**,别假设 `input.tool` 是裸名。
+**通用教训:任何"占位符 ↔ 真实值"的映射,占位符必须在它的可见范围内全局唯一稳定**;按局部序号编号,一旦范围扩大(多 turn)就撞。
 
-### 4.2 字段名是 `download_links`,不是 `doc_urls`
+### 4.2 单桶"全量覆盖"在多分析场景错注
 
-早期 ADR(005/006/012)里写的 `analyze_interview(doc_urls=...)` 是工具拆分前的旧名。per-capability 工具的真实入参由 UXR 的 MCP server 自描述,2026-06-09 确认为 `download_links` / `outline_file_path`(见 [mcp-contract.md §工具入参](../specs/agents/mcp-contract.md))。
+首版对单桶工具做过"把全部已上传 url 覆盖进 `download_links`"的完整性保险。但一个 session 里可能**先传 A 跑一次、再传 B 跑一次**,"全部已上传"≠"这次要用",覆盖会把 A 的文件错塞进 B 的调用。
 
-正因为入参名可能漂移,插件的**主路径(handle 替换)才刻意做成不依赖字段名**;字段名只在"单桶完整性保险"那一处用到,错了改一个常量即可。
+**修法:去掉覆盖,插件只替换模型明确引用的 handle**(§3.2)。哪些文件属于这次调用,是模型的判断,代码别越权。
 
-### 4.3 插件日志在 server 进程,不在客户端 DevTools
+### 4.3 MCP 工具名带 server 前缀(首版按工具名匹配才会踩)
 
-`[octo:inject]` 是插件打的,**出在 opencode 服务进程的 console**,不在 Electron 客户端 DevTools。内网联调看不到客户端日志时别困惑——要看注入是否发生,得看 server 端日志(`bareTool` / `urlField` / `before` / `after` 字段)。已登记进 [insight-debugging.md 前缀总览](../insight-debugging.md)。
+钩子入参的 `input.tool` **不是裸工具名**:MCP 工具在 opencode 里的 id 是 `<mcp-server-key>_<tool>`,内网实测 = **`uxr-tool_key_findings`**,不是 `key_findings`。首版用裸名精确匹配 → 匹配不上 → 放行不注入 → MCP 收到字面量 handle 取不到文件。
+
+当时的修法是按 bare 名"后缀+分隔符"匹配。但**纯解析器(§3.2)根本不按工具名分支,这个坑直接消失**。
+
+**通用教训保留:任何按工具名分支的插件逻辑,都要考虑 MCP 的 server 前缀**,别假设 `input.tool` 是裸名;能不按工具名分支就别分支。
+
+### 4.4 字段名 `download_links`(首版按字段覆盖才会依赖)
+
+早期 ADR(005/006/012)的 `doc_urls` 是工具拆分前旧名;真实入参 2026-06-09 确认为 `download_links` / `outline_file_path`(见 [mcp-contract.md §工具入参](../specs/agents/mcp-contract.md))。首版"全量覆盖"依赖这个字段名;纯解析器只认 handle 不认字段名,**也不再依赖**。
+
+### 4.5 插件日志在 server 进程,不在客户端 DevTools
+
+`[octo:inject]` 是插件打的,**出在 opencode 服务进程的 console**,不在 Electron 客户端 DevTools。内网联调看不到客户端日志时别困惑——要看注入是否发生,得看 server 端日志(`changed` / `knownHandles` / `before` / `after` 字段)。已登记进 [insight-debugging.md 前缀总览](../insight-debugging.md)。
 
 ---
 
@@ -221,8 +226,8 @@ function matchBareTool(toolId: string, bareNames: Iterable<string>): string | un
 1. **建文件** `packages/opencode/src/<area>/xxx.ts`,导出 `export const XxxPlugin: Plugin = async (input) => ({ "<hook>": async (i, o) => {...} })`。
 2. **注册**:在 `packages/opencode/src/plugin/index.ts` import 它、加进 `INTERNAL_PLUGINS`。
 3. **改 args 用就地改写**(见 §2.2),别整体重赋值。
-4. **按工具名分支时**用 bare 名后缀匹配(见 §4.1),兼容 MCP 前缀。
-5. **要读 opencode 状态**(消息 / session / 文件)用 `input.client.*`。
+4. **能不按工具名分支就别分支**(见 §4.3);非要分支时按 bare 名后缀匹配、兼容 MCP `<server>_<tool>` 前缀。
+5. **要读 opencode 状态**(消息 / session / 文件)用 `input.client.*`;先用便宜的本地判断早退(如本插件 `hasHandle(args)`),别每次工具调用都拉消息。
 6. **打日志**记住是 server 端,前缀登记进调试手册。
 7. `bun run typecheck` 过;真值要内网/真实 MCP 才能验,日志里 dump `before`/`after` 便于隔空定位。
 
@@ -233,13 +238,13 @@ function matchBareTool(toolId: string, bareNames: Iterable<string>): string | un
 ## 6. 一句话总览图
 
 ```
-用户上传 → 页面注入 [已上传文件](含 handle, 权威URL 存 message store)
-         → 模型只填 handle(upload_N), 不碰 URL
-         → MCP 工具调用前: tool.execute.before 钩子
-              ├ client.session.messages 回查权威 URL
-              ├ replaceHandles: args 里 upload_N → 精确URL(与字段名无关)
-              └ 单桶工具: 覆盖 download_links 全量URL(完整性保险)
+用户上传(可分多轮) → 页面注入 [已上传文件](每文件一个全局唯一 handle, 权威URL 存 message store)
+         → 模型只填 handle(upload_<hex>), 不碰 URL; 自己按文件名分角色/挑文件
+         → 任意工具调用前: tool.execute.before 钩子
+              ├ hasHandle(args)? 否 → 早退(非文件工具零开销)
+              ├ client.session.messages 聚合整个 session 所有区块 → handle→url 总表
+              └ replaceHandles: args 里出现的 handle → 精确URL(不认工具名/字段名)
          → MCP 收到精确 URL, 取文件成功
 ```
 
-模型永远碰不到 URL 字符串 → 弱模型再怎么手抖也改不坏它。
+模型永远碰不到 URL 字符串 → 弱模型再怎么手抖也改不坏它。插件只做"已知 handle → url"的机械替换,不猜工具、不猜字段、不猜该用哪些文件。

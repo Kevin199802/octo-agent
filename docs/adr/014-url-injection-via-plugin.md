@@ -43,37 +43,63 @@ opencode 在工具执行前触发 `tool.execute.before` 钩子（[`packages/plug
 
 ---
 
-## 设计
+## 设计（纯 handle→URL 解析器）
 
-### 1. handle 取代 URL，模型只搬 handle
+插件**只做一件事**:把工具参数里出现的 handle 就地换成精确 URL。不按工具名分支、不碰字段名、不自作主张注入文件。
 
-页面注入的 `[已上传文件]` 区块每行带稳定 handle（按序，从 1 起）：
+### 1. handle：从 URL 派生、全局唯一稳定
+
+页面注入的 `[已上传文件]` 区块每行带一个 handle，token 由**文件 URL 派生**（`upload_` + FNV-1a 8 位 hex）：
 
 ```
 [已上传文件]
-- 任务书.docx [upload_1]: https://obs.../任务书.docx
-- 逐字稿-张三.docx [upload_2]: https://obs.../逐字稿-张三.docx
+- 任务书.docx [upload_9b94d620]: https://obs.../任务书.docx
+- 逐字稿-张三.docx [upload_3a1c5f0e]: https://obs.../逐字稿-张三.docx
 ```
 
-Prompt（[octo_insight](../../../UXAI/packages/opencode/src/agent/prompt/octo_insight.txt)）约束模型「文件参数只填 handle（`upload_N`），**永不填 URL**」。`upload_1` 这种短串弱模型几乎不会改错，即便改错也只影响角色映射、不会产出坏 URL。
+**为什么不用顺序号 `upload_1/2/…`**：顺序号是"按 turn"编的，用户分多轮上传时每个 turn 都从 1 重排 → 跨 turn 撞号（turn1 的 `upload_1`=任务书、turn2 的 `upload_1`=逐字稿），模型会误判"`upload_1` 被替换成别的文件"，对话层就崩（[实测 bug](#演进2026-06-10多轮上传修复)）。URL 派生 token：同一文件永远同一 handle，**跨 turn 不撞、刷新不变**（URL 含全局唯一的 S3 UUID 段）。
 
-### 2. 插件做两件事（`octo-upload-inject`）
+Prompt（[octo_insight](../../../UXAI/packages/opencode/src/agent/prompt/octo_insight.txt)）约束模型「文件参数只填 handle，**永不填 URL**」，并告知「多次上传会累积成多个区块、合起来才是全部文件，handle 固定不会被替换」。
 
-钩子里，从最近一条带 `[已上传文件]` 区块的 user 消息解析出权威 `{handle, filename, url}`（这份 URL 存在 server message store、**模型从不改写 → 字节级精确**），然后：
+### 2. 插件：聚合 session + 替换 handle（`octo-upload-inject`）
 
-1. **handle 替换（与字段名无关）**：递归遍历 args，把任意 `upload_N` 就地换成精确 URL。多角色工具（`run_guide_analysis` / `run_usability_analysis`，`download_links` 列表 + `outline_file_path` 单值分属不同字段）的角色映射靠这条——角色归属由模型按文件名判断，插件只换串。
-2. **单桶工具完整性保险**：把全量 URL 覆盖进 `download_links`，防弱模型漏列某个 handle。**仅对单桶工具**（`key_findings` / `mindmap`，全部上传都是访谈稿）；多角色工具不做覆盖（因为其中一个文件属 `outline_file_path`，谁是大纲/任务书要靠模型判断）。
+```
+tool.execute.before(input, output):
+  if output.args 里没有任何 handle 形态的串: return        # 非文件工具零开销放行
+  # 聚合整个 session 所有 user 消息的 [已上传文件] 区块 → handle→url 总表
+  map = {}; for 每条 user 消息的每个区块: map.update(parse(区块))
+  if map 空: return
+  replaceHandles(output.args, map)                          # 递归就地替换 args 里的 handle
+```
 
-### 工具分类（入参见 [mcp-contract.md §工具入参](../specs/agents/mcp-contract.md)，UXR 2026-06-09 确认）
+两个输入源（关键）：
 
-| 类别 | 工具 | 文件参数 | 插件行为 |
-|---|---|---|---|
-| 单桶 | `key_findings`、`mindmap` | `download_links: List[str]` | handle 替换 + 全量覆盖 `download_links` |
-| 多角色 | `run_guide_analysis`、`run_usability_analysis` | `download_links: List[str]` + `outline_file_path: str` | 仅 handle 替换（角色映射归模型） |
+| 数据 | 来源 | 说明 |
+|---|---|---|
+| 权威 URL 总表（全部文件 handle→url） | **session 消息的 `[已上传文件]` 区块** | 字节级精确，**模型从不经手** |
+| 要替换哪些 handle | **工具参数 args** | 只有模型挑中的那几个 handle |
 
-### 为什么 handle 替换是主路径（不依赖字段名）
+url 原文的唯一来源是 session 注入文本，**不经过参数、更不经过模型生成** —— 这是"无损"的根。
 
-ADR-012 把 `analyze_interview` 拆成 per-capability 工具后，**新工具的输入参数名定义在 UXR 的 MCP server 里**（现确认为 `download_links` / `outline_file_path`，早期 `doc_urls` 已废）。递归 handle 替换对字段名不敏感，UXR 改名也不受影响，是主路径；单桶的字段名覆盖只是附加完整性保险，字段名错了改一处常量即可（看 `[octo:inject]` 日志 + MCP 报错核对）。
+### 工具分类只决定「模型怎么填参数」，不决定插件行为
+
+入参见 [mcp-contract.md §工具入参](../specs/agents/mcp-contract.md)（UXR 2026-06-09 确认）。**插件对两类工具行为完全一致**（都只是 handle→url 替换）；分类只是给 prompt 指导模型往哪个参数填 handle：
+
+| 类别 | 工具 | 模型怎么填 handle |
+|---|---|---|
+| 单桶 | `key_findings`、`mindmap` | 所有访谈稿 handle 进 `download_links` 列表 |
+| 多角色 | `run_guide_analysis`、`run_usability_analysis` | 逐字稿 handle 进 `download_links`；大纲/任务书的单个 handle 进 `outline_file_path`（按文件名判断角色） |
+
+### 为什么必须靠模型选文件（不能纯代码注入）
+
+- **多角色工具**的「哪个是任务书 / 哪个是逐字稿」是语义判断，只有模型能从文件名做（否决了 UI 打标签，避免加用户负担）。
+- **「这次调用用哪些文件」**也没法在代码里安全推断：多轮上传 / 一个 session 多次分析时，"全部已上传文件" ≠ "这次要用的文件"。早期版本的"单桶全量覆盖 download_links"正因此出过 bug（见下方演进）。
+
+所以模型的显式选择是事实源；插件只把它要传的从"易碎 URL"换成"安全 handle"。模型本就在 loop 里（要调工具、挑文件），handle 没增加它的职责。
+
+### 为什么不依赖字段名 / 工具名
+
+纯 handle 替换递归遍历 args、**只认 handle 不认字段名**，所以 UXR 改字段名、或 MCP 工具 id 带 server 前缀（实测 `uxr-tool_key_findings`）都不影响。早期版本曾按工具名匹配 + 按字段名覆盖，踩过 server 前缀坑、又有字段名依赖；纯解析器把这两类依赖一并消除。
 
 ---
 
@@ -101,7 +127,21 @@ ADR-012 把 `analyze_interview` 拆成 per-capability 工具后，**新工具的
 
 ## 联调验证
 
-1. 内网弱模型复现"URL 被微调"的 case，确认 MCP 收到的是插件注入的精确 URL。
-2. 看 `[octo:inject] args rewritten` 日志的 `before` / `after`：`before` 是模型填的（含 handle 或被改坏的 URL），`after` 应是精确 URL；`urlField` 核对是否命中 MCP 真实字段名。
-3. 单桶工具（`key_findings`）传多文件，确认 `after` 的 URL 字段含全部文件、无遗漏。
-4. 多角色工具（`run_usability_analysis`）确认任务书 / 逐字稿各自字段的 handle 被正确替换、角色未串。
+看 server 进程 console 的 `[octo:inject] args rewritten` 日志(字段:`changed` / `knownHandles` / `before` / `after`):
+
+1. **单文件**:模型填 handle → `after` 里是精确 URL、`changed:true`。
+2. **多文件单桶**(`key_findings` 多逐字稿):`download_links` 里每个 handle 都被换成 URL。
+3. **多角色**(`run_usability_analysis`):`outline_file_path` 与 `download_links` 各自 handle 被换、角色未串。
+4. **多轮上传**(任务书 turn1 + 逐字稿 turn2 → 工具 turn3):`knownHandles` ≥ 2、两 turn 的 handle 都解析成功(验证 session 聚合)。
+5. **非文件工具**(`get_task_result`):无 `[octo:inject]` 日志(`hasHandle` 早退,不拉消息)。
+
+---
+
+## 演进（2026-06-10，多轮上传修复）
+
+首版(2026-06-09)用「按工具名匹配 + 单桶全量覆盖 + 顺序号 handle + 只读最近一条区块」,内网验证暴露两类问题:
+
+1. **顺序号 handle 跨 turn 撞号** → 用户分多轮上传(任务书一轮、逐字稿一轮)时 `upload_1` 被复用,模型误判文件被替换,对话层就崩。
+2. **单桶全量覆盖**在多轮 / 多次分析场景会错注他轮文件。
+
+改为本 ADR 现描述的设计:**URL 派生的全局唯一 handle + 插件聚合整个 session + 纯 handle 替换(去掉工具名匹配与字段覆盖)**。顺带消除了首版踩的 `uxr-tool_` 前缀坑与 `download_links` 字段名依赖。详见 learning [plugin-hooks-url-injection.md](../learning/plugin-hooks-url-injection.md)。

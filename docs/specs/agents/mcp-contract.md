@@ -46,7 +46,7 @@
 | `run_usability_analysis` | `download_links: List[str]`、`outline_file_path: str` | 访谈稿 URL 列表 + **单个**任务书文件 URL |
 | `search_reports` | `query: str` | 自然语言检索词，无文件参数 |
 
-**文件 URL 的传递方式**：模型**不直接生成 URL**（弱模型会改坏转码字符）——上述文件参数由模型填 handle（`upload_N`），server 端 `octo-upload-inject` 插件在工具执行前把 handle 换成精确 S3 URL。机制与决策见 [ADR-014](../../adr/014-url-injection-via-plugin.md)。`download_links` 是列表、`outline_file_path` 是单值，故 `run_guide_analysis` / `run_usability_analysis` 属"多角色"工具（角色映射由模型按文件名判断）。
+**文件 URL 的传递方式**：模型**不直接生成 URL**（弱模型会改坏转码字符）——上述文件参数由模型填 handle（`upload_<hex>`），server 端 `octo-upload-inject` 插件在工具执行前把 handle 换成精确 S3 URL。机制与决策见 [ADR-014](../../adr/014-url-injection-via-plugin.md)。`download_links` 是列表、`outline_file_path` 是单值，故 `run_guide_analysis` / `run_usability_analysis` 属"多角色"工具（角色映射由模型按文件名判断；插件只做 handle→url 替换，不关心字段名）。
 
 > 历史备注：早期 ADR（005/006/012）出现的 `doc_urls` / `analyze_interview(doc_urls=...)` 是拆分前的旧入参名，**现行字段名以本表为准**（`download_links`）。
 
@@ -400,7 +400,7 @@
   - 具体形态因工具而异：单文件列表 / 列表 + 单文件角色拆分 —— 具体字段名见上方 [§工具入参](#工具入参)
 - **search_reports**：自然语言 query 字符串
 
-> 字段名以 MCP tool 的 `inputSchema` 自描述为准；上方 §工具入参 表是 2026-06-09 与 UXR 对齐的快照，因 `octo-upload-inject` 插件的单桶完整性保险依赖 `download_links` 这个名字、故在此固化一份（字段名变更时同步插件常量 + 该表）。
+> 字段名以 MCP tool 的 `inputSchema` 自描述为准；上方 §工具入参 表是 2026-06-09 与 UXR 对齐的快照，固化一份方便 prompt 指导模型往哪个参数填 handle。`octo-upload-inject` 插件**不依赖字段名**（只认 handle、递归替换），故字段名变更只需同步 prompt 指导，不影响插件。
 
 ### 通用出参骨架
 

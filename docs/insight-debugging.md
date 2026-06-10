@@ -36,7 +36,7 @@
 
 > 约定:`⚠️` 出现在 `console.warn`,`✗`/红色出现在 `console.error`。正常链路只有 `console.log`。
 >
-> `[octo:inject]` 关键字段:`args rewritten` 的 `before`(模型填的,含 handle 或被改坏的 URL)/ `after`(注入后,应是精确 URL)/ `urlField`(单桶工具命中的 MCP 字段名,核对是否与 MCP schema 一致)/ `uploads`(解析到的文件数)。`no uploads found` = session 里没解析到 `[已上传文件]` 区块(模型在无文件时调了文件工具,或区块格式被破坏)。
+> `[octo:inject]` 关键字段:`args rewritten` 的 `before`(模型填的,含 handle)/ `after`(注入后,应是精确 URL)/ `changed`(是否真替换了,false=模型填的 handle 都不在已知表里)/ `knownHandles`(整个 session 已解析到的文件数)。**无该日志** = 工具 args 里没有 handle 形态串(`hasHandle` 早退,非文件工具都这样,正常)。`args 含 handle 但 session 无上传区块` = 模型瞎编了 handle 或区块格式被破坏。
 
 ---
 
