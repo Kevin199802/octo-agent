@@ -82,12 +82,19 @@ OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 
 |---|---|---|---|
 | `mindmap` | markmap 思维导图 | 原始 JSON(shiki) | ✅ |
 | `html` | iframe 渲染 | HTML 源(shiki) | ✅ |
-| `table` | 样式化表格 | Markdown 源(shiki) | ✅ |
+| `table` | 样式化表格(抽 table token) | **表格本体的 Markdown 源**(`extractTableMarkdown`,shiki) | ✅ |
 | `markdown` | 渲染后文档 | Markdown 源(shiki) | ✅ |
 | `json` | —(JSON 本身即"代码") | shiki 高亮 JSON | ❌ 单视图 |
 | `file` | —(不在应用内预览) | —(二进制无源) | ❌ 单视图,且 ActionBar 隐藏复制/下载(交给 FileFallback) |
 
 实现:`ResultTab.viewMode: "preview" \| "source"`(缺省 preview),`tab-store.setViewMode` 更新;`isToggleType()` 判定是否出切换控件;代码态统一走 `SourceCodeView`(把内容包 ```lang fence 喂上游 `<Markdown>` 获 shiki 高亮)。切换控件在 ActionBar 行左侧,与复制/下载同排。
+
+> **table 卡四视图一致性(2026-06-10)**:路径 B 嗅探出的 `table` 卡,其 `content` 是命中表格的那个 text part **全文**——可能含表格上方的对话/说明正文(典型:访谈逐字稿 + 末尾「对话要点提炼」表)。table 卡的定位是「摘要表的预览 + 导出」,故四个动作**统一只呈现表格本体**,不带出正文:
+> - 预览 `TableRenderer` 抽 `marked` 的 table token;
+> - 复制 / 下载(md/CSV/Excel)走 `extractTableMarkdown` / `parseMarkdownTable`;
+> - **代码态** `SourceCodeView` 同样喂 `extractTableMarkdown(content)`(而非原始全文),否则会单独露出正文、与其余三者不一致。
+>
+> 完整正文不丢:对话区始终全文渲染(§0),磁盘产物文件亦为全文。若需要「右栏呈现整份文档」而非仅摘要表,应让其走 `markdown` 卡(全文渲染/复制/下载),而非 `table` 卡。
 
 为什么改单卡:双卡占两个 tab、入口冗余,且"同一份产物的两种视图"本就该是一个对象的两个面(业界 Claude Artifacts / ChatGPT Canvas 都是单 artifact 内 预览/代码 切换)。
 
