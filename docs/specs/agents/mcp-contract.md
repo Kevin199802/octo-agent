@@ -32,7 +32,7 @@
 | `run_guide_analysis` | 产物型 | 大纲聚类分析（按提纲整理） | 上传的访谈材料 + 提纲 | 长任务，调用即提交，返回 task_id |
 | `key_findings` | 产物型 | 自由解析 — 提取用户观点、场景主体、痛点需求等 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id |
 | `mindmap` | 产物型 | 思维导图生成 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id；完成时 resource_link **必须**标 `business_type: "mindmap"` 触发双卡(原始 JSON + 思维导图可视化) |
-| `search_reports` | 同步检索 | 基于内网用研知识库的 RAG 检索 | 自然语言 query | 同步返回（< 5s）;**第一版按通用产物渲染**（resource_link 不填 business_type）;未来如需"引用 chip"形态再走 [insight-references.md](../ui/insight-references.md) 的 business_type 扩展 |
+| `search_reports` | 同步检索 | 基于内网用研知识库的 RAG 检索 | 自然语言 query | 同步返回（< 5s）;**当前按通用产物渲染**（resource_link 填 `business_type: "search_reports"`）;未来如需"引用 chip"形态再走 [insight-references.md](../ui/insight-references.md) 的 business_type 扩展 |
 
 ### 工具入参
 
@@ -387,16 +387,16 @@
 
 ## 入参 / 出参契约
 
-> 入参 / 出参的具体字段格式由 UXR 团队最终给到，并在另一轮对话中已对齐为通用形态（与具体工具名解耦）。本文档此处只描述**通用骨架**，详细字段以联调时 `GET /mcp` 返回的 schema 为准。
+> 入参 / 出参字段已于 2026-06-09 与 UXR 对齐并固化，见上方 [§工具入参](#工具入参) 表。UXR 按本文档实现 `inputSchema`，不再以"联调时 `GET /mcp` 拿到再看"为准。
 
 ### 通用入参骨架
 
-每个业务工具的**精确入参 schema**由 UXR 团队在 MCP tool 的 `inputSchema` + `description` 字段里自描述（通过 `GET /mcp` 能力发现下发），本文档**不预定义** per-tool 字段。
+每个业务工具的**精确入参 schema** 见上方 [§工具入参](#工具入参) 表（2026-06-09 已固化）。UXR 团队在 MCP tool 的 `inputSchema` + `description` 字段里实现对应字段，通过 `GET /mcp` 能力发现下发。
 
 只约束以下共性：
 
-- **业务工具**（除 search_reports）：入参为**已上传文件 URL** + 业务上下文字符串
-  - 文件 URL 来源：[file-upload.md](../infra/file-upload.md)，由 InsightPage 上传后注入 session context；模型填 handle，插件换成精确 URL（[ADR-014](../../adr/014-url-injection-via-plugin.md)）
+- **业务工具**（除 search_reports）：入参为**已上传文件 URL**（模型填 handle，插件替换为精确 URL，见 [ADR-014](../../adr/014-url-injection-via-plugin.md)）；**不含业务上下文字符串**（已于 2026-06-11 从所有工具入参中移除）
+  - 文件 URL 来源：[file-upload.md](../infra/file-upload.md)，由 InsightPage 上传后注入 session context
   - 具体形态因工具而异：单文件列表 / 列表 + 单文件角色拆分 —— 具体字段名见上方 [§工具入参](#工具入参)
 - **search_reports**：自然语言 query 字符串
 
@@ -465,9 +465,9 @@
 | 按提纲聚类 | `run_guide_analysis` | ✓ 已上 |
 | 思维导图 | `mindmap` | ✓ 已上 |
 | 可用性分析 | `run_usability_analysis` | ✓ 已上 |
-| 用研知识问答(引用型) | `search_reports` | △ 工具已实现且契约已定(见 §引用型工具契约);**本期不做预置入口**——引用型 UX(ReferenceList chip)与产物型(OutputCard 大卡)交互模型差异大,需作为独立"问答类预置"专题设计;当前用户可通过自由对话触发 |
+| 用研知识问答 | `search_reports` | △ 工具已实现且契约已定（见上方 [§工具入参](#工具入参) 和 [§search_reports 出参结构](#search_reports-出参结构第一版)）;**本期不做预置入口**——问答类 UX 需独立设计;当前用户可通过自由对话触发 |
 
-> 历史草案中的 `generate_persona` / `evaluation_summary` 在本轮内网定稿中未实现,待 UXR 团队后续支持。
+> 历史草案中的 `generate_persona` / `evaluation_summary` 已从当前版本移除，不在 MVP 范围内；如后续有需求再单独立项。
 
 ---
 
@@ -477,7 +477,6 @@
 
 - **何时调用该工具**（明确业务语义，避免和其他 tool 混淆）
 - **入参来源说明**（如文件 URL 来自 InsightPage 上传，不是文件名）
-- **必填项标注**（业务上下文 context 缺失会显著降低分析质量）
 - **多文件角色不明时主动追问用户**：当工具入参含多个角色分明的文件参数（如"大纲 vs 访谈"、"基线 vs 对照"）、而用户上传的文件命名 / 顺序无法可靠区分角色时，**在 description 里明确指示 LLM 先向用户确认对应关系，再发起 tool 调用**，不要硬猜
 - **返回为长任务还是同步**（长任务返回 task_id，详见 [§任务管理](#任务管理长任务通用)）
 
@@ -514,12 +513,12 @@
 
 ## 与 agent 配置的对应关系
 
-`packages/agent/octo_insight/agents/octo_insight.md` frontmatter 的工具白名单需覆盖本文档列出的所有业务工具 + `search_reports`，详见该文件。
+`packages/opencode/src/agent/prompt/octo_insight.md` frontmatter 的工具白名单需覆盖本文档列出的所有业务工具 + `search_reports`，详见该文件。
 
 工具名称如与 MCP server 实际提供的不一致，需**同时**修改：
 
 - 本文档工具清单
-- `packages/agent/octo_insight/agents/octo_insight.md` frontmatter
+- `packages/opencode/src/agent/prompt/octo_insight.md` frontmatter
 - 涉及对外契约的文档（[intranet-handoff.md](../../intranet-handoff.md)）
 
 其他文档（integration / learning / output-renderers / insight-analysis-mode 等）应通过引用本文档获取最新名称，不复述具体 tool 名。
