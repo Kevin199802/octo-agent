@@ -302,14 +302,14 @@
 
 内网抓不到 Network/SSE 时,**不必预先开日志重现**:出 bug 后直接在 DevTools Console 敲命令,即可回放最近发生的一切、dump 当前 session 原始数据。来源 [lib/debug-observer.ts](../packages/app/src/pages/insight/lib/debug-observer.ts),进入 insight 页面即自动挂载(切走/重挂会清理重建)。
 
-> **阶段1(SPEC-INS-011)新增**:三个环形缓冲并存 —— **event ring**(SSE 事件,200条)、**send ring**(发送记录,30条)、**log ring**(console.error/warn 镜像 + `[octo:*` 前缀 console.log 链路日志 + window.onerror/unhandledrejection,200条)。全字段缓冲，展示时才精简。
+> **阶段1/2(SPEC-INS-011)**:三个环形缓冲并存 —— **event ring**(SSE 事件,500条)、**send ring**(发送记录,50条)、**log ring**(console.error/warn 镜像 + `[octo:*` 前缀 console.log 链路日志 + window.onerror/unhandledrejection,200条)。全字段缓冲，展示时才精简。**阶段2 起持久化到 IndexedDB**(per-origin,与工作目录无关),**跨 reload/重启读回**——snapshot 顶部会标注「含 N 条重启前」。无 IndexedDB 时自动降级为纯内存([IndexedDB / happy-dom 科普](learning/happy-dom-and-indexeddb.md))。
 
 | 命令 | 作用 |
 |---|---|
 | `octoDebug.help()` | 列出所有命令 |
 | `octoDebug.state()` | 当前 session 状态摘要:`status` / 用户·assistant 消息数 / 未决 permission·question 数 / 当前 mode |
 | `octoDebug.dump()` | 当前 session **完整 message + part 原始 JSON**——出 bug 时让用户「复制这个发出来」,等价 `[octo:assistant] *-detail` 但随时可取 |
-| `octoDebug.events(n=50)` | 最近 n 条 SSE 事件(**event ring**,默认存 200 条;即便没开 verbose 也留着,可回放) |
+| `octoDebug.events(n=50)` | 最近 n 条 SSE 事件(**event ring**,默认存 500 条;持久化跨 reload/重启,可回放) |
 | **`octoDebug.logs(n=50)`** | **最近 n 条 log ring**:console.error/warn 镜像 + `[octo:*` 前缀 console.log 链路日志(prompt/upload/task…) + window.onerror/unhandledrejection 未捕获异常 |
 | `octoDebug.sends(n=10)` | 最近 n 次发送的完整入参 |
 | `octoDebug.lastSend()` | 上一次发送:`messageID` / `model` / `cleanText` / `uploadBlock` / `endpoint` |
@@ -327,7 +327,14 @@
 
 1. **首选 `octoDebug.snapshot()`**:复现后敲一行,现场(why 初判 + 最近 SSE 事件 + 发送记录 + console 异常)打包成**紧凑文本**并自动复制到剪贴板 → 直接粘给对方。信息密度最高、噪音最少。
 2. **针对性拉**:只想看某一块就 `octoDebug.dump()`(原始 message/part) / `octoDebug.events()`(SSE 回放) / `octoDebug.logs()`(console 异常) / `octoDebug.lastSend()`,复制结果粘过去。
-3. **全量兜底**:怀疑问题在我们埋点之外时,DevTools Console 空白处右键 → **Save as…** 导出整个 console 为 `.log`(含上游所有日志)发出去。最全但最杂。
+3. **全量兜底**:怀疑问题在我们埋点之外时——**阶段3 已把 renderer console 全量落盘**到独立文件 **`insight-debug.log`**(5MB 滚动,**偶现/渲染崩溃前的也在**);打开该文件按时间 / messageID 搜。或 DevTools Console 右键 → **Save as…** 导出当前 console。最全但最杂。
+
+**日志在哪**(electron-log 默认,`{appName}` = 运行时 `app.getName()`,dev = `Octo AI Dev`,详见 [App Name learning](learning/electron-app-name.md)):
+- macOS:`~/Library/Logs/{appName}/insight-debug.log`
+- Windows:`%USERPROFILE%\AppData\Roaming\{appName}\logs\insight-debug.log`
+- Linux:`~/.config/{appName}/logs/insight-debug.log`
+
+> 主进程自身日志在同目录 `main.log`(与 renderer 分开);两者互不污染。
 
 > 提示:`octoDebug.snapshot()` 已覆盖 90% 的排查所需,优先用它;真按 §2 对照表走完仍定位不了,再上全量导出。
 

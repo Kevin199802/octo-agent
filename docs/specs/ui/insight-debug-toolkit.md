@@ -62,7 +62,7 @@
 octo-agent 蓝本已验证可行的部分(UXAI 需照 §0 平移 + §4–5 增强):
 - `[octo:event]` SSE 事件旁路日志(compact + delta 聚合)。
 - `window.octoDebug`:`help / state / dump / events / sends / lastSend / pending / snapshot / mode / verbose`。
-- 事件 + 发送内存环形缓冲(200 / 30)。
+- 事件 / 发送 / 日志环形缓冲(500 / 50 / 200);阶段 2 起持久化到 IndexedDB。
 - 文档:[insight-debugging.md](../../insight-debugging.md) §0.5 数据流全貌、§1.0 事件字典、§2 症状表、§3 octoDebug、§4 Network 速查。
 
 ---
@@ -199,17 +199,17 @@ why: ⚠️ 发送后无服务器事件,疑似 SSE 断/未启动该轮 → 查 l
 
 | 阶段 | 内容 | 载体 | 触及边界 |
 |---|---|---|---|
-| **阶段 1** | 平移蓝本基础 + snapshot 参数化(§5.1/5.2)+ `why()`(§5.3)+ 捕获加强(§4.6)+ 紧凑输出(§5.4) | 内存 | 纯 insight 自包含,不碰壳 |
-| **阶段 2** | 缓冲持久化到 **IndexedDB**(§5.5),启动读回,snapshot 带出"重启前"段 | IndexedDB | 纯前端,不碰壳 |
-| **阶段 3** | renderer console **全量转发落盘** + 按时间窗/messageID 过滤读取 | 文件 | **限改** UXAI `packages/desktop`,§8 登记 |
+| 阶段 | 内容 | 载体 | 触及边界 | 状态 |
+|---|---|---|---|---|
+| **阶段 1** | 平移蓝本基础 + snapshot 参数化(§5.1/5.2)+ `why()`(§5.3)+ 捕获加强(§4.6)+ 紧凑输出(§5.4) | 内存 | 纯 insight 自包含,不碰壳 | ✅ 已落地 |
+| **阶段 2** | 缓冲持久化到 **IndexedDB**(§5.5),启动读回,snapshot 带出"重启前"段 | IndexedDB | 纯前端,不碰壳 | ✅ 已落地 |
+| **阶段 3** | renderer console **全量转发落盘**(兜底防漏) | 文件 | **限改** UXAI `packages/desktop` | ✅ 已落地(精简版) |
 
-**阶段 3 已摸清的 UXAI 落点**(2026-06-08 核对):
-- 壳主进程 `packages/desktop/src/main/`;`logging.ts` 已用 electron-log(`log.transports.file.maxSize = 5MB`)、且有 `tail()`(可复用读回)。
-- 转发钩子落点:`windows.ts` 创建 `BrowserWindow` 处加 `win.webContents.on("console-message", …) → log.info("[renderer] …")`。
-- **落地前再核对**:`initLogging()` 是否已在 `main/index.ts` 入口调用;窗口创建函数名;是否需过滤(只转发 `[octo:*]` 还是全量)。
-- electron-log 已有 5MB/文件上限 → **不膨胀**;7 天清理沿用蓝本 `cleanup()`(确认 UXAI 是否也有)。
+**阶段 3 落地实况**(2026-06-11):
+- 落点:`packages/desktop/src/main/windows.ts` 的 `createMainWindow()` 加 `win.webContents.on("console-message", …)`,**全量**转发。**写独立 logger**(`logging.ts` 的 `insightDebugLog = log.create({logId:"insight-debug"})`,`fileName = "insight-debug.log"`)——**不混进主进程 `main.log`**,各自独立 5MB 滚动。
+- 日志路径:`{logs目录}/insight-debug.log`(`logs目录` = `~/Library/Logs/{app.getName()}/`,dev = `Octo AI Dev`;各平台见 [insight-debugging §4](../../insight-debugging.md) / [App Name learning](../../learning/electron-app-name.md))。**精简版只做落盘**,「按时间窗/messageID 过滤读取」**未做**——排查方直接打开文件搜(或后续按需加 ipc 读取命令)。
 
-> 阶段 1 即大幅提升"现场敲"顺畅度;阶段 2 解决 reload/重启丢失;阶段 3 作"绝对不漏"兜底,按需上。
+> 阶段 1 提升"现场敲"顺畅度;阶段 2 解决 reload/重启丢失;阶段 3 作"绝对不漏"兜底(结构化没捕获到的、渲染崩溃前的全量 console 都落盘)。
 
 ---
 
@@ -217,7 +217,7 @@ why: ⚠️ 发送后无服务器事件,疑似 SSE 断/未启动该轮 → 查 l
 
 ### 7.1 自动验证
 - 阶段 1:`snapshot({last/profile/around/full})` 各参数正确裁剪;`why()` 对 §2 各症状给正确方向;未捕获异常 / `console.error` / `[octo:*` console.log 进得了缓冲;`upload` profile 能抓到 `[octo:upload]` 链路;输出可整段复制;`bun run typecheck` + 单测过。
-- 阶段 2:reload / 重启后 `snapshot()` 仍带得出之前事件;IDB 容量有上限不膨胀。
+- 阶段 2:**降级路径**(无 IndexedDB → 纯内存,install/push/dispose 不抛)由现有单测覆盖;持久化 round-trip 因测试环境(happy-dom)无 IndexedDB 无法单测,走 §7.2 人工验证。
 - 阶段 3:渲染崩溃前日志能在落盘文件里找到;文件不膨胀(沿用 5MB)。
 
 ### 7.2 人工验证(外网即可,阶段 1 不依赖内网)
@@ -228,6 +228,7 @@ why: ⚠️ 发送后无服务器事件,疑似 SSE 断/未启动该轮 → 查 l
 3. **why 准确性**:制造各症状(发消息后断网 / 触发 permission)→ `octoDebug.why()` 给的方向对得上 §2。
 4. **noise 控制**:`octoDebug.verbose(true)` 后 delta 逐条、信息全;`compact`(默认)不刷屏;`quiet` 完全静默但 `events()` 仍可回放。
 5. **镜像无副作用**:开着 observer 正常使用 insight,`console.*` 输出正常、页面无异常;离开 insight(dispose)后 `window.octoDebug` 消失、`console` 还原。
+6. **阶段2 持久化(reload/重启)**:发几条消息 → 整页刷新(或重启 app)→ 重新进 insight → `octoDebug.snapshot()` 顶部应出现「含 N 条重启前」、`events()` 能看到刷新前的事件;`server.heartbeat` 不应出现在 ring 里。
 
 ---
 
