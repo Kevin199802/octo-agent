@@ -183,9 +183,9 @@
 
 ### 1.5 `[octo:task]` — 长任务卡片
 
-#### `[octo:task] session switched, refresh state cleared`
-- **时机**:切会话时,重置 tabs / 防抖 / 自动开记录 / 队列 / 未发送附件。([index.tsx:432](../packages/app/src/pages/insight/index.tsx#L432))
-- **正常**:每次切会话一条。
+#### `[octo:task] session switched, view state reset (refresh cooldown preserved)`
+- **时机**:切会话时,重置 tabs / 自动开记录 / 队列 / 未发送附件;刷新冷却**不重置**(per task_id 延续倒计时,防切换绕过防抖)。([index.tsx:432](../packages/app/src/pages/insight/index.tsx#L432))
+- **正常**:每次切会话一条。(旧文案 `refresh state cleared`,2026-06-11 起更名)
 #### `[octo:task] aggregate diff`
 - **时机**:`taskCards` 聚合结果变化时打快照 diff。([index.tsx:932](../packages/app/src/pages/insight/index.tsx#L932))
 - **字段**:`total`、`changes[]`(`{taskId, from, to}`,`to` 形如 `status|message`,`"gone"` 表卡片消失)、`snapshot`。

@@ -359,7 +359,7 @@ LLM 调 `get_task_result` 后,新的 tool part 通过 SSE 进入 `dataStore.part
 - **冷却时长**:3 分钟(3 × 60 × 1000 ms)
 - **作用范围**:刷新按钮;终止按钮不防抖(终止是单次终态操作)
 - **存储**:进程内存 `Map<taskId, lastRefreshAt>`,**不持久化**
-- **session 切换**:`createEffect on(params.id)` 时清空 Map(对齐 [index.tsx:200](../../../packages/app/src/pages/insight/index.tsx#L200) 现有 `tabStore.reset()` 行为)
+- **session 切换**:**不清空** Map(`task_id` 全局唯一,无跨 session 误判;切走再切回必须延续倒计时,否则切换 session 可绕过防抖 — 2026-06-11 问题 #48 修正,原设计为切换时清空);过期条目由倒计时 tick 自动剔除,无需手动清理
 
 ### 7.2 冷却倒计时实现
 
@@ -437,7 +437,7 @@ function buildOutputCardFromTask(task: TaskCard): OutputCard {
 | `stop_task` 对已终态任务返回(非 isError) | 卡片状态保持当前终态;在对话流中 LLM 会有解释文字 |
 | inject prompt 时 session busy(`isBusy() === true`) | 按钮禁用,tooltip:"等待当前任务完成后再操作" |
 | inject prompt 失败(网络等) | 走现有 `sendMessage` 的 `console.error`,卡片状态不变,用户可重试(防抖不消耗) |
-| 防抖 Map 在 session 切换时未清干净 | 不致命,最多让另一 session 同 task_id 的卡片误判冷却;§7.1 `createEffect on(params.id)` 清空可避免 |
+| 防抖 Map 跨 session 常驻 | 预期行为(§7.1):`task_id` 全局唯一不会误判;切换 session 再切回延续倒计时,防止绕过防抖;过期条目随 tick 剔除,不累积 |
 | 同一 session 内同一 task_id 在多个 turn 都被识别 | 仅在最早出现的 turn 渲染卡片(§3.3),其余 turn 仅参与状态聚合 |
 | 用户手动输入"查询任务 xxx 进度"(不走刷新按钮) | LLM 仍会调 `get_task_result`,卡片状态正常更新;防抖不约束手输路径(用户自己负责) |
 
@@ -497,7 +497,7 @@ pages/insight/
 | **7** | 点 **📄 查看完整结果**(或自动 openTab 触发) | `[octo:task] openResult` → 切到 source: "uri" 时 `[octo:resource] fetch start` → `[octo:resource] fetch ok` 含 bytes 数 | `fetch failed` → 看 status / statusText;`fetch error` → 跨域 / 网络层 / URL 不可达 |
 | **8** | 点 **⏹ 终止** → "确定终止" | `[octo:task] stop click` → `[octo:task] stop confirmed` → `[octo:prompt] send` 带 `source: "task-stop"` | 同 step 4 排查 |
 | **9** | 点 **💬 在对话里继续讨论** | `[octo:task] followup seed` + 输入框出现种子文本 `基于 task xxx(...)的结果,我想…` | 输入框未填 → setPrompt 调用失败,看 SolidJS 报错 |
-| **10** | 切换 session | `[octo:task] session switched, refresh state cleared` | 无 → params.id 没变化,路由问题 |
+| **10** | 切换 session | `[octo:task] session switched, view state reset (refresh cooldown preserved)` | 无 → params.id 没变化,路由问题 |
 
 **特殊情况**:**操作后毫无 console 反应**(即上述任何 log 都不出现)→ SSE 通道断了或 globalSDK 初始化失败,看页面顶部网络状态 / 重启 app。
 
@@ -545,7 +545,7 @@ pages/insight/
 
 - [ ] session busy 时,刷新 / 终止按钮禁用
 - [ ] 失败任务(`failed`)卡片正确显示错误消息,无刷新 / 终止按钮
-- [ ] 切 session 后,防抖 Map 清空(在另一 session 同 task_id 不受影响)
+- [ ] 冷却中切到其他 session 再切回,刷新按钮仍显示剩余倒计时(不可借切换绕过防抖)
 - [ ] 关闭 app 重开后,历史 task_id 卡片正确渲染,刷新按钮可用(冷却 Map 不持久化,符合预期)
 
 ---
