@@ -34,6 +34,8 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 16. [electron-app-name.md](electron-app-name.md) — Electron app 的四种"名字"(运行时 `getName` / 打包 `productName` / `appId` / npm `name`)、channel 机制、为何 `~/Library/Logs` 有多个目录、怎么定位当前日志在哪
 17. [build-channel-injection.md](build-channel-injection.md) — 多渠道桌面应用如何把 channel 一致贯穿 build+package:渠道的四个消费者(prebuild/predev·electron-vite·electron-builder)/ 业界五类做法对比(shell 内联·cross-env·env-file·CI env·--mode·拆 config·产物 marker)/ 为何 opencode 原生 GitHub Actions+env 本地照搬不了 / 我们的 cross-env 决策 / 五个坑(win shell 失效·bun --env-file 不执行·生命周期钩子只认精确名致 prod 包带 dev 图标·bun 自动加载 .env 污染·三层优先级)
 > 配套速查见 [env-vars-and-build-modes.md](env-vars-and-build-modes.md)(命令/文件对应表 + 提交规则)
+18. [rag-mental-model.md](rag-mental-model.md) — RAG 心智模型:检索+生成两段 / 一堆 chunk 怎么变成带出处问答 / 引用下标 [1][2] 与参考文件列表怎么来(prompt 编号 + 客户端解析回源)/ 现有数据结构是否支持(支持,TOPIC_TITLE 不可当标题是唯一坑)/ 业界是不是"检索接口+LLM 生成"(是,两变体)/ 端到端走一遍
+19. [session-category-enum-400-crash.md](session-category-enum-400-crash.md) — 事故复盘:一个 `category="subagent"` 越界值炸掉整个会话列表。effect HttpApi 整列响应编码 / `Schema.Union` 严格枚举 / `fromRow` 的 `as` cast 骗过编译期 / "半截改动"(写入侧类型改了、响应 schema 漏改)/ 空 body 400 指纹 / 前端 `createResource` 无兜底致整页崩 / "db 脏行" vs "WAL 物理 malformed" 两种故障别混 / server 错误日志在 `opencode/log/` 不在 `main.log`
 
 > 后续可能补:
 >
