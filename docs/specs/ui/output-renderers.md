@@ -1021,6 +1021,7 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 |---|---|---|
 | `[octo:sync] session.sync` | 切 session 触发原生 sync | 切 session 时 |
 | `[octo:sync] status` | session busy↔idle | 状态变化 |
+| `[octo:sync] dir-switched` | 切项目目录后 url 仍停旧目录会话,守卫 replace 回新建空态(防旧会话跨目录串台;含 from/to 目录 + staleSessionID) | 切关联文件夹(或在其他页切目录后返回 insight)且 url 带旧会话 id 时 |
 | `[octo:title] set` / `kept` | insight 会话标题护栏:`set`=收到真标题写入;`kept`=拦下默认标题倒灌(已是真标题时不让 `New/Child session - <iso>` 覆盖回去)。用于区分「标题已生成被倒灌(A)」与「标题根本没生成(B)」——只见 `set`/`kept`=A;一直不见 `set`=B | 每条 `session.updated`/`session.created` SSE 命中已存在会话时 |
 | `[octo:prompt] send` / **`send-full`** / `optimistic added` / `sent (async)` / `failed` | 发送消息全链路（`send-full` 含**未截断的完整输入文本**）| 发送/失败 |
 | **`[octo:assistant] turn-complete`** | 一条 assistant 消息流完 | busy → idle 切换那一刻 |
