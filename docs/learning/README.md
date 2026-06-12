@@ -32,6 +32,8 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 14. [rag-chat-integration.md](rag-chat-integration.md) — 把内网知识库 RAG 接进 chat:RAG 数据流 / 三种触发策略(agentic·前置·路由·显式)/「内网模型弱」如何否掉纯 agentic /「噪音」是什么 / MCP vs HTTP 与触发耦合 / 三套可落地组合 / 业界标准呈现(内联答案+来源卡片)/ 待定问题清单
 15. [happy-dom-and-indexeddb.md](happy-dom-and-indexeddb.md) — 测试用的假浏览器(happy-dom,缺 IndexedDB)vs 真落盘存储(IndexedDB 有实体文件、跨重启);为何 debug-observer 阶段2 持久化只能人工验证、降级路径才能自动测
 16. [electron-app-name.md](electron-app-name.md) — Electron app 的四种"名字"(运行时 `getName` / 打包 `productName` / `appId` / npm `name`)、channel 机制、为何 `~/Library/Logs` 有多个目录、怎么定位当前日志在哪
+17. [build-channel-injection.md](build-channel-injection.md) — 多渠道桌面应用如何把 channel 一致贯穿 build+package:渠道的四个消费者(prebuild/predev·electron-vite·electron-builder)/ 业界五类做法对比(shell 内联·cross-env·env-file·CI env·--mode·拆 config·产物 marker)/ 为何 opencode 原生 GitHub Actions+env 本地照搬不了 / 我们的 cross-env 决策 / 五个坑(win shell 失效·bun --env-file 不执行·生命周期钩子只认精确名致 prod 包带 dev 图标·bun 自动加载 .env 污染·三层优先级)
+> 配套速查见 [env-vars-and-build-modes.md](env-vars-and-build-modes.md)(命令/文件对应表 + 提交规则)
 
 > 后续可能补:
 >
