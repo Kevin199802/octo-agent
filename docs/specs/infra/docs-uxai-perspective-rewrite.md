@@ -57,8 +57,10 @@
 | `specs/ui/insight-data-layer-reuse.md` | 20 | 数据层路径 UXAI 化;对照 UXAI 现状(白屏修复后)核对 |
 | `specs/infra/agent-config-deploy.md` | 20 | agent 部署路径 UXAI 化(`octo_insight` 源路径) |
 | `specs/ui/*`(standalone-extraction 13 / result-panel-reveal 12 / task-card 9 / prompt-redesign 9 / design-assets-needed 9 / output-renderers 8 / 其余) | — | 自研路径 UXAI 化;描述实现处对照 UXAI 核对;**设计意图层保留** |
-| `intranet-handoff.md` | 2 | `window.api` 清单 / MCP / 上传接口对照 UXAI 实际壳与服务校准 |
-| `integration.md` | 8 | 去掉失效 §1/§2 代码合入 sync;与 handoff 去重(handoff=前端对接,integration=服务端实现+联调) |
+| `intranet-handoff.md` | 2 | **存废评估**:window.api 清单 / MCP / 上传——核对与 architecture(壳)/ mcp-contract / file-upload 的重叠;有价值内容迁到 SOT 后,handoff 瘦身成"对接索引"或直接删 |
+| `integration.md` | 8 | **存废评估**:服务端 FastAPI 示例 + 联调步骤迁到 mcp-contract / file-upload 后删;sync 部分(§1/§2)直接去。被 [mcp-api-integration](../../learning/mcp-api-integration.md) 引用,删前改引用 |
+
+> **仓库精简原则**:借此轮逐文档判断现役价值——sync 时代产物 / 已被 SOT 覆盖的冗余文档,迁移有价值内容后**删**(归档已在 tag + 分支,dev 只留现役要用的)。
 
 ### 🟢 P2 — 顺手 / 基本不动
 

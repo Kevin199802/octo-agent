@@ -45,7 +45,7 @@
 
 ## 与 UXAI 仓的关系
 
-- 代码改动:在 **UXAI 仓**改、跑、提 PR;设计变化需落 spec / ADR / learning:在**本仓**提 PR
+- 代码改动:在 **UXAI 仓**改、跑、提 PR(遵守 [collab-pr-protocol](docs/collab-pr-protocol.md));设计变化落 spec / ADR / learning:在**本仓**直接 commit(无需 PR)
 - 两仓无代码同步;文档以本仓为准
 - UXAI 仓的 CLAUDE.md 是其**全仓共享**文件,**不要为 insight 单独改它**
 - **在 UXAI 开发 insight 的完整约束**(实施原则、查上游、工作目录、字典同步等)在
