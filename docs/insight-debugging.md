@@ -33,10 +33,18 @@
 | `[InsightPage]` | [index.tsx](../packages/app/src/pages/insight/index.tsx) | 兜底 error(session.create / upload 失败) |
 | `[dev:preview]` | [_dev/cards-preview.tsx](../packages/app/src/pages/insight/_dev/cards-preview.tsx) | **仅开发预览页**,mock 不连 SDK,排查线上问题时无视 |
 | `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前把 handle 换成精确 S3 URL([ADR-014](docs/adr/014-url-injection-via-plugin.md))。**注意:出在 opencode 服务进程 console,不在客户端 DevTools** |
+| `[octo:kb]` | [packages/opencode/src/tool/knowledge_search.ts](../packages/opencode/src/tool/knowledge_search.ts) | **server 端工具**:chat 内网知识库检索(getKnowledgeVector)。**出在 opencode 服务进程 console / sidecar 日志,不在客户端 DevTools**。spec 见 [specs/agents/chat-knowledge-search.md](docs/specs/agents/chat-knowledge-search.md) |
 
 > 约定:`⚠️` 出现在 `console.warn`,`✗`/红色出现在 `console.error`。正常链路只有 `console.log`。
 >
 > `[octo:inject]` 关键字段:`args rewritten` 的 `before`(模型填的,含 handle)/ `after`(注入后,应是精确 URL)/ `changed`(是否真替换了,false=模型填的 handle 都不在已知表里)/ `knownHandles`(整个 session 已解析到的文件数)。**无该日志** = 工具 args 里没有 handle 形态串(`hasHandle` 早退,非文件工具都这样,正常)。`args 含 handle 但 session 无上传区块` = 模型瞎编了 handle 或区块格式被破坏。
+>
+> `[octo:kb]` 四条(出在 server 进程,不在客户端 DevTools):
+> - `config`:**排查 env/路径首选**。`envBaseUrl`(server 读到的 `OCTO_KB_BASE_URL`,由 main 从 `VITE_OCTO_BASE_URL` 桥接)/ `usingMockDefault`(true=没读到 base、回落 localhost:8787 mock,内网出现这个=桥接没生效)/ `resolvedBase` + `resolvedPath`(env `OCTO_KB_PATH` 可覆盖)/ `url`(**实际请求的完整地址,拿它和 Insomnia 能跑通的 URL 逐字对比**)。
+> - `response`:`status`/`ok`/`bodyHead`。**404 + `path` 与预期不符 = base 或 path 拼错**(非服务问题);改 env `OCTO_KB_BASE_URL` / `OCTO_KB_PATH` 即可快速纠正,无需重打包。
+> - `parsed`:`totalDocs`/`topScores`/`titles`——检索成功但答非所问时看命中文档。
+> - `检索失败 url=…`(error):网络层失败(连不上 / 超时 / abort),带完整 url。
+> - **完全无 `[octo:kb]` 日志** = 模型没调用该工具(检查是否 octo_ai agent、问题是否被识别为内网问题)。
 
 ---
 
