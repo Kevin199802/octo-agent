@@ -40,8 +40,8 @@
 > `[octo:inject]` 关键字段:`args rewritten` 的 `before`(模型填的,含 handle)/ `after`(注入后,应是精确 URL)/ `changed`(是否真替换了,false=模型填的 handle 都不在已知表里)/ `knownHandles`(整个 session 已解析到的文件数)。**无该日志** = 工具 args 里没有 handle 形态串(`hasHandle` 早退,非文件工具都这样,正常)。`args 含 handle 但 session 无上传区块` = 模型瞎编了 handle 或区块格式被破坏。
 >
 > `[octo:kb]` 四条(出在 server 进程,不在客户端 DevTools):
-> - `config`:**排查 env/路径首选**。`envBaseUrl`(server 读到的 `OCTO_KB_BASE_URL`,由 main 从 `VITE_OCTO_BASE_URL` 桥接)/ `usingMockDefault`(true=没读到 base、回落 localhost:8787 mock,内网出现这个=桥接没生效)/ `resolvedBase` + `resolvedPath`(env `OCTO_KB_PATH` 可覆盖)/ `url`(**实际请求的完整地址,拿它和 Insomnia 能跑通的 URL 逐字对比**)。
-> - `response`:`status`/`ok`/`bodyHead`。**404 + `path` 与预期不符 = base 或 path 拼错**(非服务问题);改 env `OCTO_KB_BASE_URL` / `OCTO_KB_PATH` 即可快速纠正,无需重打包。
+> - `config`:**排查 env/域名首选**。`envBaseUrl`(server 读到的 `OCTO_KB_BASE_URL`,由 `.env.<channel>` 经 electron.vite define + createSidecarEnv 注入)/ `usingMockDefault`(true=没读到 base、回落 localhost:8787 mock,内网出现这个=没在对的 .env 里设 `OCTO_KB_BASE_URL`)/ `resolvedBase` / `url`(**实际请求的完整地址,拿它和 Insomnia 能跑通的 URL 逐字对比**)。
+> - `response`:`status`/`ok`/`bodyHead`。**404 = host 不对**(beta/prod 仅 host 不同、路径固定;非服务问题);在对应 `.env.<channel>` 改 `OCTO_KB_BASE_URL` 重打包即可。
 > - `parsed`:`totalDocs`/`topScores`/`titles`——检索成功但答非所问时看命中文档。
 > - `检索失败 url=…`(error):网络层失败(连不上 / 超时 / abort),带完整 url。
 > - **完全无 `[octo:kb]` 日志** = 模型没调用该工具(检查是否 octo_ai agent、问题是否被识别为内网问题)。

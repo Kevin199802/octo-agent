@@ -9,6 +9,28 @@
 
 ---
 
+## 0. 实施进度(交接锚点 · 2026-06-13)
+
+> 代码在分支 **`feat/chat-knowledge-search`**(已 merge `dev`,含 session 列表崩溃修复)。开新对话从这里看当前状态。
+
+**已完成(已提交、未上内网验证通过):**
+- ✅ `knowledge_search` 工具([UXAI packages/opencode/src/tool/knowledge_search.ts](../../../UXAI/packages/opencode/src/tool/knowledge_search.ts)):POST getKnowledgeVector,按文档(unique_id)去重整形 top-k、`projectModuleName` 标题、保留内嵌 `[文件名](链接)`,`metadata.sources` 供引用 UI。
+- ✅ registry 注册 + **仅网关 `octo_ai`**(`input.agent.name==="octo_ai"`)。
+- ✅ octo_ai prompt:工具说明 + 引用 `[[n]](链接)` 可点 + 紧跟句末 + 保持分段。
+- ✅ 行内文件链接(markdown 原生渲染,零 UI)。
+- ✅ 可点引用角标 `[n]`(模型输出 `[[n]](url)`,上游 Markdown 渲染)。
+- ✅ 底部「引用 N 篇资料」折叠列表([UXAI .../session/knowledge-references.tsx](../../../UXAI/packages/app/octoapp/pages/session/knowledge-references.tsx) + message-timeline 注入;兼容 DeepSeek R1 把 reasoning+tool 与正文拆多条 assistant 消息)。
+- ✅ host 配置:**独立 env `OCTO_KB_BASE_URL`**(`.env.<channel>` → electron.vite define → sidecar);其余(top_k/account/path/timeout)为代码常量。
+- ✅ `[octo:kb]` 诊断日志(见 insight-debugging.md)+ 本地 mock(kb-mock-server.ts)。
+
+**待办:**
+- ⏳ **内网 host 验证**:在 `.env.<channel>` 设 `OCTO_KB_BASE_URL` 为对的 host(beta/prod 当前都可先指 beta),打包后看 `[octo:kb] config` 的 `url` 与 Insomnia 对齐。**当前唯一卡点**。
+- ⏳ **真实工号/account**:现为常量 `""`(非必传不影响检索)。要按真实登录用户记账 → session 注入(§6,**已设计未实现**)。
+- ⏳ **引用角标真·上标定位**:现状是模型输出 `[[n]](url)`,可点但**位置由模型决定**(正文上游渲染,不可非侵入控制)。如需固定为右上标,只能对「含 sources 的轮次」做局部 DOM 后处理(评估为侵入/脆,**未做**;见 §12 已知限制)。
+- ⏳ 来源卡片富化(分类/作者/高亮/页码)、检索触发路由、多 KB `source` 筛选 —— 见 §8 扩展阶梯,均 additive。
+
+---
+
 ## 1. 目标与范围
 
 - **目标**:chat(通用助手)能顺带回答"内网网站知识库"问题。用户提问 → 工具检索内网 KB → LLM 基于检索片段合成答案。
@@ -154,27 +176,34 @@ output:
   - userIdx(身份):走 LLM 工具这条路时**直接用硬编码默认** `l00423136`;**真实身份只在 renderer 发起的 `/studio/generations` 路径**上有(renderer 把 `extra.userIdx = uiplusUserAccount()` 放进请求 body,见 [studio-page.tsx](../../../UXAI/packages/app/octoapp/pages/studio-page.tsx))。
   - **结论**:Studio 并未在"LLM 工具"这条路上解决真实身份 —— 那条路就是默认值。
 
-### BASE_URL(复用 `VITE_OCTO_BASE_URL` 的值,跨进程桥到 server)
+### BASE_URL(**独立变量 `OCTO_KB_BASE_URL`**,不复用 VITE_OCTO_BASE_URL)
 
-**值复用、不另设第二份配置**:base 域名和 renderer 的 `VITE_OCTO_BASE_URL` 是同一个,**不新增 .env 条目**。但 server 读不到 VITE 变量,需搭桥(代码确认):
-- `VITE_` 是 Vite/renderer 概念:renderer 自动注入 `import.meta.env.VITE_OCTO_BASE_URL`;但 **main 的 `define` 只注了 `OCTO_CHANNEL`**([electron.vite.config.ts:43](../../../UXAI/packages/desktop/electron.vite.config.ts#L43)),sidecar 继承的 main `process.env` 里**没有** `VITE_OCTO_BASE_URL`(打包后尤其没有)→ 工具 `process.env.VITE_OCTO_BASE_URL` 读不到。
-- **桥(两小步)**:① main `define` 补注 `import.meta.env.VITE_OCTO_BASE_URL`(仿现有 OCTO_CHANNEL);② main 启动 sidecar 前把它写进 sidecar env 的 `OCTO_KB_BASE_URL`(`createSidecarEnv` 已整体透传 main process.env)。
-- 工具内:`const base = process.env.OCTO_KB_BASE_URL`;**path 写死**:`${base}/main/rest.root/ucdAgent/ucdAgent/getKnowledgeVector`。
-- **外网** → `VITE_OCTO_BASE_URL` 指向本地 mock(env 已有这套机制);**内网** → 真实域名。代码内外网一致,只切 env(§11)。
+> **2026-06-13 修正**:初版复用 `VITE_OCTO_BASE_URL` 桥接,踩坑——`VITE_OCTO_BASE_URL` 是**渠道默认 base**(prod 包里=prod 域名),而内网只能用 prod 包验证、KB 却要打 beta 端点,导致 base 读成 prod。登录不受影响是因为它另走 channel 逻辑拼路径,不直接用这个 var。
+> **改为独立变量**,与 VITE/渠道完全解耦。
+
+- 新增**非 VITE_ 变量 `OCTO_KB_BASE_URL`**,写在 `.env[.beta/.prod]`(由使用方按渠道/验证需要填,**与 VITE_OCTO_BASE_URL 互不影响**)。
+- **为何仍需"注入"**:工具在 **opencode dist(sidecar 进程)** 跑,读不到 `.env`/`VITE_`/编译期常量,只能在运行时读 `process.env`。故链路:`.env` 的 `OCTO_KB_BASE_URL` → `electron.vite` main `define` 成 `import.meta.env.OCTO_KB_BASE_URL`([electron.vite.config.ts](../../../UXAI/packages/desktop/electron.vite.config.ts))→ `createSidecarEnv` 写进 sidecar `process.env.OCTO_KB_BASE_URL`([server.ts](../../../UXAI/packages/desktop/src/main/server.ts))→ 工具 `process.env.OCTO_KB_BASE_URL` 读到。
+- 这一步是**单一用途的直注**(不再耦合 VITE/渠道默认),且 shell/cross-env 已显式设 `OCTO_KB_BASE_URL` 时不覆盖(留 override)。
+- path:**固定** `/main/rest.root/ucdAgent/ucdAgent/getKnowledgeVector`(beta/prod 仅 host 不同、路径相同,无需做成可配置)。
+- 留空 → 工具回落本地 mock(`http://localhost:8787`)。外网/内网均只切这一个 env。
 
 ### account(已简化:非必传 → V1 写死工号兜底,免桥)
 
 > **2026-06-10 解套**:内网后台已把 `account` 改为**非必传**。V1 **不再需要** renderer→server 的 session 注入桥 —— 直接写死/env 给工号即可。下方"session 注入"整段**降级为后续可选**(仅当要"按真实登录用户记账/限流"时才做)。
 
 - 语义:**仅记录 + 可能按账号限流,非必传、无权限过滤** → 缺/错都不影响检索正确性。
-- **V1 取值**:`body.account = process.env.OCTO_KB_ACCOUNT ?? "<开发者工号>"`(同 internel 的 `env() ?? 默认` 套路;登录账号确认在 `localStorage.userInfo.account`,但 V1 不取它)。
+- **V1 取值**:**代码常量** `ACCOUNT = ""`(空串;account 与环境无关,**不放 env**)。如需按账号记账,改这个常量填工号,或走下方 session 注入。
 - **后续(可选)真实账号**:若要按真实登录用户记账,再走 **session 注入**——代码确认这是 LLM 工具路径下唯一可行通道(submit.ts 不传 extra、`ctx.extra` 是内部袋子;Studio 的 extra 走的是 `/studio/generations` 自定义端点不经 LLM;内网 background 登录服务仅 server 侧、外网无)。机制:renderer 发送时注入一个 part(`synthetic`+`metadata` 携带 account、正文留空),工具读 `ctx.messages`,同 [octo-upload-inject](../../../UXAI/packages/opencode/src/agent/octo-upload-inject.ts)。弊端:改共享 `submit.ts`、身份混进会话、隐藏 part 可见性需验证。**V1 不做。**
 
-### 其他
+### 其他(均为代码常量,与环境无关,不放 env)
 
-| 项 | 解析 |
+| 项 | 值 |
 |---|---|
-| top_k / timeout | `process.env.XXX ?? 默认`,默认 k=5~8、timeout 30s |
+| top_k | 代码常量 `TOP_K = 6` |
+| timeout | 代码常量 `DEFAULT_TIMEOUT_MS = 30s` |
+| path | 代码常量 `KB_PATH`(固定,见 §6) |
+
+> **env 旋钮只有一个:`OCTO_KB_BASE_URL`(host,随环境变)。** 其余全是代码常量。
 
 ---
 
