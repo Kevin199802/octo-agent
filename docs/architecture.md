@@ -1,151 +1,135 @@
-# Octo Agent — 架构
+# Octo Insight — 架构
 
-> 本文档描述 octo-insight 系统架构,服务在 UXAI 仓(<https://github.com/MyHeavenDyf/UXAI>)开发 insight。
-> 文中代码路径沿用 octo-agent 命名,与 UXAI 的对应见 [intranet-handoff §0](intranet-handoff.md)。
+> 本文档描述 octo-insight 系统架构。insight 的实现代码在 UXAI 仓
+> (<https://github.com/MyHeavenDyf/UXAI>)维护,本文按 UXAI 实际结构描述。
+> 设计契约(MCP / 上传 / 桌面壳能力)见 [intranet-handoff.md](intranet-handoff.md)。
 
 ---
 
 ## 1. 一图看懂
 
 ```
-┌─────────────────────── Electron 主进程 ───────────────────────┐
-│  packages/desktop-electron/  (上游壳，仅品牌+接线)               │
-│   ├─ 启动 BrowserWindow                                         │
-│   ├─ 内嵌 opencode Server (Node 模块，同进程)                    │
-│   └─ 注入 OPENCODE_CONFIG=~/.config/octo/octo.json       │
-│                                                                  │
-│   ┌─────────────────── Renderer ───────────────────┐             │
-│   │  packages/desktop-electron/src/renderer/        │             │
-│   │  (上游原版，不动)                                │             │
-│   │   └─ AppInterface → RouterRoot                   │             │
-│   │       ├─ isInsight()  → OctoShell                │             │
-│   │       │   └─ /insight/:id? ← InsightPage         │             │
-│   │       ├─ isOctoPage() → OctoPageShell            │             │
-│   │       │   ├─ /chat  ← ChatPage                   │             │
-│   │       │   └─ /studio  ← StudioPage               │             │
-│   │       └─ 其余路由 → AppShellProviders (上游原版)  │             │
-│   └─────────┬──────────────────────────────────────┘             │
-│             │ HTTP + SSE                                          │
-│             ▼                                                     │
-│   ┌──────────────────────────────────────┐                       │
-│   │  内嵌 opencode Server (动态端口)       │                       │
-│   │  来自 packages/opencode (上游冻结)     │                       │
-│   │   ├─ Hono HTTP routes                │                       │
-│   │   ├─ SSE event bus                   │                       │
-│   │   └─ SQLite (Drizzle ORM)            │                       │
-│   └─────────┬────────────────────────────┘                       │
-│             │ Vercel AI SDK                                       │
-└─────────────┼────────────────────────────────────────────────────┘
-              ▼
+┌──────────────── Electron 主进程：packages/desktop/（UXAI 自有壳）─────────────┐
+│  品牌 Octo Agent / ai.octo.desktop                                            │
+│   ├─ 启动 BrowserWindow，renderer 挂载 octoapp 的 AppInterface                 │
+│   ├─ sidecar 内嵌 opencode server（virtual:opencode-server，本地动态端口）     │
+│   └─ 配置目录 ~/.config/octo/                                                  │
+│                                                                               │
+│   ┌──── Renderer：packages/app/octoapp/（@opencode-ai/app，SolidJS）────────┐ │
+│   │  app.tsx → AppInterface → RouterRoot                                     │ │
+│   │   ├─ isOctoPage() → OctoSidebarLayout（OctoShell sidebar）               │ │
+│   │   │     ├─ /insight/:id? ← InsightPage   （pages/insight/）              │ │
+│   │   │     ├─ /make/:id?    ← MakePage       （pages/make/）                │ │
+│   │   │     └─ /skills       ← SkillsPage                                    │ │
+│   │   └─ 其余路由 → AppShellProviders（上游原版 Layout）                     │ │
+│   │           └─ /:dir/{chat,studio,session}                                │ │
+│   └────────┬───────────────────────────────────────────────────────────────┘ │
+│            │ HTTP + SSE                                                        │
+│            ▼                                                                   │
+│   ┌──────────────────────────────────────────┐                               │
+│   │  内嵌 opencode server（上游引擎）          │                               │
+│   │   ├─ Hono HTTP routes                     │                               │
+│   │   ├─ SSE event bus                        │                               │
+│   │   ├─ SQLite (Drizzle ORM)                 │                               │
+│   │   └─ agent 注册：octo_insight / octo_make │ ← src/agent/agent.ts + prompt/ │
+│   └────────┬─────────────────────────────────┘                               │
+│            │ Vercel AI SDK                                                     │
+└────────────┼───────────────────────────────────────────────────────────────────┘
+             ▼
    外部 LLM Provider (Anthropic / DeepSeek / 通义 / Google / ...)
 ```
 
-opencode 不是 sidecar 二进制，是 `import("virtual:opencode-server")` 加载的 Node 模块，**与 Electron 主进程同进程**，再开一个本地 HTTP 服务给 renderer 用。详见 [ADR-001](adr/001-electron-vs-tauri.md)；后端细节见 [learning/opencode-internals.md](learning/opencode-internals.md)。
+opencode 不是独立二进制 sidecar,而是经 `import("virtual:opencode-server")` 在壳内拉起的 Node 服务(UXAI 壳用 sidecar worker 承载),再开本地 HTTP 给 renderer 用。桌面壳选型见 [ADR-001](adr/001-electron-vs-tauri.md);后端细节见 [learning/opencode-internals.md](learning/opencode-internals.md)。
 
 ---
 
-## 2. 包总览（改动政策一表清）
+## 2. 自研边界（哪些是 octo 自研，哪些是 opencode 上游）
 
-> 定位任何代码归属的**唯一入口表**。不确定能不能改，先查这里。
+> insight 的演进只动 **octo 自研路径**;opencode 上游路径在两个 fork(外网 opencode / 内网 UXAI)里相同,跟随上游同步,不为 insight 单独改。
 
-### 2.1 Octo 自研 — 自由改
+### 2.1 Octo 自研
 
 | 路径 | 角色 |
 |---|---|
-| `packages/app/src/pages/_shell/` | OctoShell 框架层（sidebar + topbar） |
-| `packages/app/src/pages/insight/` | 用研 Agent 页面 |
-| `packages/app/src/pages/chat/` | Chat 页面 |
-| `packages/app/src/pages/studio/` | Studio 页面 |
-| `packages/agent/octo_insight/agents/` | opencode agent 配置文件（`.md`） |
-| `docs/`、`ROADMAP.md`、`CLAUDE.md` | 文档 |
+| `packages/app/octoapp/pages/_shell/` | OctoShell 框架层(sidebar + topbar) |
+| `packages/app/octoapp/pages/insight/` | 用研 Agent 页面(本文重点) |
+| `packages/app/octoapp/pages/{chat,make,studio,skills}/` | 其余 Octo 页面 |
+| `packages/opencode/src/agent/prompt/octo_insight.md` | insight agent 配置(`.md` + `.txt`) |
+| `docs/`、`ROADMAP.md`、`CLAUDE.md`(octo-agent 仓) | 设计文档主线 |
 
-> 其他 agent 各自在 `packages/app/src/pages/<name>/` 建立相同结构。  
-> **合入内网的操作清单见 [docs/intranet-handoff.md §1](intranet-handoff.md)**（避免双写漂移，此处不重复）。
+> `octoapp/` 是 UXAI 在 `@opencode-ai/app` 包内的 Octo 专属 app 入口(与上游 `packages/app/src/` 并存);各 Octo 页面在 `octoapp/pages/<name>/` 建立结构。
 
-### 2.2 上游核心 — 不动
+### 2.2 opencode 上游 — 跟随上游
 
-改了跟上游 diff 会乱，合入内网会冲突。
+下列路径两个 fork 相同,改了与上游 diff 会乱;insight 复用而不修改。
 
 | 包 / 路径 | 用途 |
 |---|---|
-| `packages/opencode/` | AI Agent 后端引擎 (Hono HTTP + SSE + SQLite) |
+| `packages/opencode/` | AI Agent 后端引擎(Hono HTTP + SSE + SQLite) |
 | `packages/sdk/` | OpenAPI 自动生成的 TS 客户端 |
-| `packages/ui/`（`@opencode-ai/ui`） | SolidJS 组件库 |
-| `packages/app/`（`pages/_shell/`、`insight/`、`chat/`、`studio/` 和 app.tsx 路由分叉除外） | SolidJS 完整 app；`@opencode-ai/app/vite` 提供 Tailwind + 主题 + SolidJS |
-| `packages/desktop-electron/src/renderer/` | 上游 renderer，不修改 |
-| `packages/desktop-electron/src/preload/` | IPC 桥 |
+| `packages/ui/`(`@opencode-ai/ui`) | SolidJS 组件库 |
+| `packages/app/src/`、`octoapp/context\|hooks\|components` 等公共层 | SolidJS app 公共设施;`@opencode-ai/app/vite` 提供 Tailwind + 主题 |
 
-### 2.3 上游接线壳 — 限改（品牌/接线/调试）
+> opencode agent 注册(`src/agent/agent.ts`)是 UXAI fork 对上游的少量改动:在内置 agent 之外注册 `octo_insight` 等,prompt 取自 `prompt/octo_insight.md`。`skills` / `mcp` 是 fork 私有扩展字段(见 [intranet-handoff §6](intranet-handoff.md))。
 
-仅允许"应用叫什么"、"如何启动"层面的修改，绝不改业务逻辑。**改动必须同步登记到 §5.4**。
+### 2.3 桌面壳 — UXAI 自有
 
-| 文件 | 改动政策 |
-|---|---|
-| `packages/desktop-electron/src/main/` | 主进程入口、品牌名、env 注入 |
-| `packages/desktop-electron/electron-builder.config.ts` | 打包品牌 |
-| `packages/desktop-electron/package.json` | 必要依赖调整 |
-| `packages/app/src/app.tsx` | **限改**：仅加路由注册行，不动其他 |
-| 仓库根 `package.json` | dev 脚本 |
-
-### 2.4 仓库内但完全不用 — 既不动也不删
-
-历史遗留或非桌面端形态，保留是为了便于跟上游同步。**不要 import，不要修改，不要"清理"**。
-
-| 路径 | 用途（仅为认知） |
-|---|---|
-| `packages/desktop/` | Tauri 壳（被 ADR-001 否决） |
-| `packages/web/` | opencode 官网/web 入口 |
-| `packages/console/*` | opencode 商业控制台 |
-| `packages/enterprise/` | 企业版 |
-| `packages/extensions/` | 扩展机制 |
-| `packages/containers/` | 容器化运行时 |
-| `packages/shared/` | 上游内部共享代码 |
-| `packages/storybook/` | UI 组件 storybook |
-| `sdks/vscode/` | VS Code 扩展 |
+UXAI 的 Electron 壳 `packages/desktop/`(品牌、配置注入、`window.api` IPC 能力)由 UXAI 自行组织。insight 业务代码运行时依赖的桌面能力以**契约**形式约定,见 [intranet-handoff §4](intranet-handoff.md)(`window.api` SOT 清单);本文不登记壳内部改动。
 
 ---
 
 ## 3. 渲染层定制策略
 
-UI 改动按下表从上往下依次尝试，绝不无理由下沉。
+UI 改动按下表从上往下依次尝试,绝不无理由下沉。
 
 | 层级 | 手段 | 例子 |
 |---|---|---|
-| **Layer 1** | 自研组件直接用 Tailwind 具名色 | `_shell/`、`insight/` 等 Octo 自研组件 **不继承上游 CSS 变量**，直接写死色值（见下方说明） |
-| **Layer 2** | 在 `insight/` 内自写组件，import `@opencode-ai/ui` 零件 | InsightPage 自写 PromptInput，复用 SessionTurn |
-| **Layer 3** | 单文件 fork 到 `insight/forks/` 自维护 | 某个上游组件行为差异大时 fork 一份 |
-| **Layer 4** | 直接修改上游（需 ADR 决议） | 正常工作流不应走到这里 |
+| **Layer 1** | 自研组件用 Octo 设计 token(`--octo-*`) | `_shell/`、`insight/` 等 Octo 自研组件,见 §3.1 |
+| **Layer 2** | 在 `insight/` 内自写组件,import `@opencode-ai/ui` 零件 | InsightPage 自写 PromptInput,复用 SessionTurn / DataProvider |
+| **Layer 3** | 单文件 fork 到 `insight/` 内自维护 | 某个上游组件行为差异大时 fork 一份 |
+| **Layer 4** | 直接修改上游(需 ADR 决议) | 正常工作流不应走到这里 |
 
-### 3.1 Octo Shell 样式独立原则
+### 3.1 Octo 设计 token 独立原则
 
-上游 `@opencode-ai/ui` 的 CSS 变量（`--background-base`、`--text-base` 等）在浅色模式下对比度不足（如 `--text-base: #6f6f6f`、`--background-base: #f8f8f8` 与 `--background-stronger: #fcfcfc` 几乎无差）。
+上游 `@opencode-ai/ui` 的 CSS 变量(`--background-base`、`--text-base` 等)随主题切换变化,且浅色模式下对比度不足(如 `--text-base: #6f6f6f` 与 `--background-base: #f8f8f8` 几乎无差),不适合 Octo 浅色单版设计稿。
 
-**决策：`_shell/` 和各 Octo 页面的自研组件，一律使用 Tailwind 具名色（如 `bg-gray-50`、`text-gray-900`、`text-blue-600`），不使用上游 CSS token。** 原因：
+**决策:Octo 页面与 Shell 维护一套独立的 `--octo-*` 设计 token,与上游 token 完全隔离。** 定义在 [`octoapp/pages/insight/octo-tokens.css`](../packages/app/octoapp/pages/insight/octo-tokens.css),`:root` 下声明品牌色 / 文字 / 表面 / 边框 / markdown 排版等具名变量,所有 Octo 组件通过 `var(--octo-*)` 引用,不直接写颜色值。原因:
 
-1. 上游 token 的实际解析值随主题切换变化，Octo 设计稿只有浅色一版，硬编码更可预期
-2. Octo 页面不复用上游组件样式，样式隔离不会产生冲突
-3. 设计师切图交付后只需替换 SVG/图片资产，不需要重新梳理 token 映射
+1. 与上游 token 隔离,主题切换不影响 Octo 浅色设计稿的预期表现
+2. 集中一处定义,改色 / 对齐设计稿只改 token 表,不散落各组件
+3. 设计师切图交付后只需替换 SVG/图片资产 + 调 token,不需重新梳理上游 token 映射
 
 ---
 
 ## 4. 自研代码地图
 
 ```
-packages/app/src/pages/
-├── _shell/            # OctoShell 框架层
-│   ├── index.tsx      # OctoShell + OctoPageShell 导出
-│   ├── sidebar.tsx    # 左侧导航栏（Insight/Chat/Studio 入口）
-│   └── topbar.tsx     # 顶部栏（Logo + Tab 切换）
-├── insight/           # 用研 Agent 页面
-│   └── index.tsx      # InsightPage（DataStore + PromptInput + SessionTurn）
-├── chat/              # Chat 页面（占位）
-│   └── index.tsx
-└── studio/            # Studio 页面（占位）
-    └── index.tsx
+packages/app/octoapp/pages/
+├── _shell/                    # OctoShell 框架层
+│   ├── index.tsx              # OctoShell 导出
+│   ├── sidebar.tsx            # 左侧导航(Octo Insight 会话段 + 技能库/资产库入口)
+│   ├── topbar.tsx             # 顶部栏
+│   └── icons/                 # 导航图标
+└── insight/                   # 用研 Agent 页面
+    ├── index.tsx              # InsightPage（SDKProvider + SyncProvider + 业务逻辑）
+    ├── sidebar.tsx            # insight 会话侧栏
+    ├── octo-tokens.css        # Octo 设计 token（§3.1）
+    ├── components/            # attachment-bar / conversation-header / insight-turn
+    │   ├── result-viewer/     # 结果面板（html/table/mindmap renderer + tab-bar）
+    │   ├── task-card/         # 任务卡
+    │   └── session-list/      # 会话列表
+    ├── lib/                   # upload.ts / electron-api.ts / debug-observer.ts
+    ├── utils/                 # task-detect / resource-link / mindmap-adapter 等
+    ├── store/                 # preset-prompts
+    ├── icons/                 # 页面图标 + 插图
+    └── __dev/                 # dev 预览页（routes.tsx 汇总，见 development.md）
 
-packages/agent/octo_insight/
-└── agents/octo_insight.md  # 用研 agent 配置，部署至 ~/.config/octo/agent/
+packages/opencode/src/agent/prompt/
+├── octo_insight.md            # insight agent 配置（frontmatter + prompt 正文）
+└── octo_insight.txt           # 同步的 .txt 变体
 ```
+
+> insight 数据层**完全复用** opencode 原生 globalSync / sync.session.sync / event-reducer,不自建本地 dataStore + SSE listener。外层 `InsightPage` 拼装 `SDKProvider + SyncProvider`(依赖 `projectDir` 就绪),内层 `InsightContent` 承载业务逻辑。详见 [SPEC-INS-005](specs/ui/insight-data-layer-reuse.md)。
 
 ---
 
@@ -154,24 +138,24 @@ packages/agent/octo_insight/
 ### 5.1 会话与消息
 
 1. 用户在 PromptInput 输入 → `client.session.message.send`
-2. opencode 向 LLM provider 发请求，持续推 SSE 事件
-3. UI 通过 `client.event.subscribe` 接收 SSE，事件类型：
+2. opencode 向 LLM provider 发请求,持续推 SSE 事件
+3. UI 通过 `client.event.subscribe` 接收 SSE,事件类型:
    - `message.part.updated` — 新增 part
    - `message.part.delta` — 文本/推理流式增量
-   - `session.idle` — 该轮结束，**触发 REST 重新拉取作为权威状态**
+   - `session.idle` — 该轮结束,**触发 REST 重新拉取作为权威状态**
    - `session.error` — 调用出错
-4. UI 仅在 `session.idle` 后用 REST 数据覆盖，SSE 只负责流式打字效果
+4. UI 仅在 `session.idle` 后用 REST 数据覆盖,SSE 只负责流式打字效果
 
 > "REST 为权威 + SSE 为体验"是为规避 SSE 事件乱序导致的复读 bug。详见 [learning/opencode-internals.md](learning/opencode-internals.md)。
 
 ### 5.2 配置文件
 
-opencode 后端启动时优先级：
+opencode 后端启动时配置优先级:
 
-1. `process.env.OPENCODE_CONFIG`（单文件路径）— Octo 主进程**强制注入**为 `~/.config/octo/octo.json`
+1. `process.env.OPENCODE_CONFIG`(单文件路径)— 桌面壳注入为 `~/.config/octo/octo.json`
 2. fallback 到默认 `~/.config/opencode/config.json`
 
-由于第 1 项被主进程注入，**Octo Agent 永远只读 `~/.config/octo/octo.json`**，与用户机器上可能装的 opencode CLI 完全隔离。
+由于第 1 项被壳注入,**Octo 永远只读 `~/.config/octo/octo.json`**,与用户机器上可能装的 opencode CLI 完全隔离。配置目录 `~/.config/octo/` 是壳约定(xdg-basedir 惯例);cascading 合并机制见 [ADR-008](adr/008-cascading-config.md)。
 
 ```jsonc
 {
@@ -189,291 +173,31 @@ opencode 后端启动时优先级：
 
 ### 5.3 持久化
 
-opencode 内置 SQLite（Drizzle ORM），数据在：
+opencode 内置 SQLite(Drizzle ORM),数据在:
 
-- macOS：`~/.local/share/opencode/opencode-local.db`
+- macOS:`~/.local/share/opencode/opencode-local.db`
 
-配置已隔离，数据库仍写到 opencode 默认目录（改路径需侵入上游，代价大）。
+配置已隔离,数据库仍写到 opencode 默认目录(改路径需侵入上游,代价大)。
 
-### 5.4 上游接线壳改动清单（octo-agent 本地壳）
+### 5.4 外部对接能力
 
-> 本节是 octo-agent 本地 Electron 壳(`packages/desktop-electron/`)的逐条改动,供 UXAI 壳开发对照参考([handoff §1.6](intranet-handoff.md) 引用本节)。
+insight 运行时依赖的外部能力均以**契约**形式约定(实现分属 UXAI 壳 / 内网服务端):
 
-#### `packages/desktop-electron/src/main/index.ts`
-
-| 改了什么 | 性质 |
-|---|---|
-| 应用名 OpenCode → Octo Agent；App ID | 品牌 |
-| 在 `initialize()` 最前调用 `initOctoConfig()`，将返回的 runtime 路径写入 `OPENCODE_CONFIG`（替换旧的直接赋值） | 配置隔离 + cascading 合并 |
-| 注入 `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=true` | 防读取用户 `~/.claude/CLAUDE.md` 污染 agent |
-
-#### `packages/desktop-electron/src/main/config-core.ts`（新增）
-
-| 改了什么 | 性质 |
-|---|---|
-| 纯逻辑层：`buildRuntimeConfig` + `deepMerge` + `STUB_USER_CONFIG`，**无 Electron 依赖** | cascading 配置核心（ADR-008）；可直接 `bun test` |
-
-#### `packages/desktop-electron/src/main/config.ts`（新增）
-
-| 改了什么 | 性质 |
-|---|---|
-| Electron 入口层：`initOctoConfig()` 解析路径、调用 `buildRuntimeConfig`、弹窗错误处理 | cascading 配置（ADR-008） |
-| `getDefaultConfigPath()` 用 `__dirname` 相对路径，dev/prod 统一——dev 指向源文件，prod 指向 asar 内（Electron 的 asar 补丁自动拦截） | 路径策略；不用 `process.resourcesPath`，避免 asar vs 物理路径混淆 |
-| `getAgentPromptPath()` prod 时用 `process.resourcesPath/agents/<name>.md`（extraResources 物理文件） | agent prompt 路径（与 `default-config.json` 不同，因为源路径结构差异需要 `isPackaged` 分支） |
-
-#### `packages/desktop-electron/src/main/config.test.ts`（新增）
-
-| 改了什么 | 性质 |
-|---|---|
-| 7 个 bun:test 用例：读**真实** `octo_insight.md` + `default-config.json` 源文件，验证 V-01/V-02/V-04 | 自动化验证；`bun run test` 触发，无需打包 |
-
-#### `packages/desktop-electron/src/main/windows.ts`
-
-| 改了什么 | 性质 |
-|---|---|
-| dev 模式自动开 DevTools；`OCTO_DEVTOOLS=1` 打开打包版 DevTools | 调试 |
-| 注入 `__OPENCODE__.windowChrome`（mac 红绿灯位置 + sidebar inset） | 接线 |
-| `createMainWindow` 加 `setWindowOpenHandler`：所有 `target="_blank"` 链接一律 `shell.openExternal` 跳系统浏览器，`deny` 阻止 Electron 内部新建窗口 — 修复点击工具卡 URL 同时触发下载和系统浏览器的双重行为 | 接线 |
-
-#### `packages/desktop-electron/electron-builder.config.ts`
-
-| 改了什么 | 性质 |
-|---|---|
-| 包名 / 图标 / 产品标识 | 品牌 |
-| 新增 `extraResources`：将 `packages/agent/octo_insight/agents/octo_insight.md` 打包到 `resources/agents/octo_insight.md` | cascading 配置（ADR-008）；dev 模式直读源文件，production 打包后从此路径读 |
-
-#### `packages/app/src/app.tsx`
-
-| 改了什么 | 性质 |
-|---|---|
-| 新增 `OctoShell`、`OctoPageShell` import（来自 `@/pages/_shell`） | OctoShell 路由分叉 |
-| 新增 `InsightPage`、`ChatPage`、`StudioPage` lazy import | 页面注册 |
-| `RouterRoot` 加 `isInsight()` / `isOctoPage()` 分支，insight 走 `OctoShell`，chat/studio 走 `OctoPageShell`，其余走原版 `AppShellProviders` | 路由分叉核心逻辑 |
-| 新增 `/`、`/insight/:id?`、`/chat`、`/studio` 路由声明 | 路由注册 |
-| 新增 `import { devRoutes, isDevPath } from "@/pages/insight/_dev/dev-routes"`；`isOctoPage()` 调 `isDevPath(p)`；路由列表加一行 `{import.meta.env.DEV && devRoutes()}` | dev 预览页接入 — **所有 `/_dev` 路由声明与隔离判断集中在 [_dev/dev-routes.tsx](../packages/app/src/pages/insight/_dev/dev-routes.tsx)**，app.tsx 仅引用,以后新增 dev 页**不再改 app.tsx**。当前 dev 页:`/_dev`（索引）、`/_dev/insight-cards`、`/_dev/typography`（见 [development.md §8](development.md)） |
-
-#### `packages/desktop-electron/package.json`
-
-| 改了什么 | 性质 |
-|---|---|
-| 移除 `@octo/app` workspace devDependency（随 octo-app 删除） | 清理 |
-| 新增 `test`（`bun test src/main/config.test.ts`）和 `check-bundle`（`bun ./scripts/check-bundle.ts`）脚本 | 配置合并验证（cascading 配置 ADR-008） |
-
-#### agent 改名 `insight` → `octo_insight`（SPEC-INS-010 D10，2026-06）
-
-| 改了什么 | 性质 |
-|---|---|
-| agent 目录/文件 `packages/agent/insight/agents/octo_insight.md` → `packages/agent/octo_insight/agents/octo_insight.md` | 命名统一 |
-| `resources/default-config.json`：`default_agent` 与 `agent` 键 `insight` → `octo_insight` | 命名统一 |
-| `electron-builder.config.ts` extraResources from/to、`scripts/check-bundle.ts` 校验路径、`config.test.ts` 断言、`script/octo-sync.ts` PROMPT.ext 同步改名 | 命名统一 |
-| **动因**：外网桌面壳按 `default-config.json` 的 agent 键名注册 agent（frontmatter `name` 不参与注册，仅作 prompt 文本）。发送链路 [index.tsx](../packages/app/src/pages/insight/index.tsx) 的 `const agent` 必须等于注册名,否则 server 不起轮（发送无反馈）。改名后外网/内网两仓 agent 名统一 `octo_insight`,octo-sync 的 prompt cp 不再需要改名,消除"发的 agent 名 ≠ 注册名"隐患 | 见 [SPEC-INS-010 §11.2](specs/ui/insight-standalone-extraction.md) |
-
-#### `packages/desktop-electron/icons/prod/`
-
-| 改了什么 | 性质 |
-|---|---|
-| `icon.icns`、`icon.png`、`dock.png`、`128x128.png`、`128x128@2x.png`、`32x32.png`、`64x64.png` 全部替换为设计师提供的 `OctoLogo-大-1.png`（800×800）导出尺寸 | 品牌 — 应用图标替换 |
-
-#### `packages/desktop-electron/icons/dev/` 和 `icons/beta/`
-
-| 改了什么 | 性质 |
-|---|---|
-| `icon.icns`、`icon.png`、`dock.png`、`128x128.png`、`128x128@2x.png`、`32x32.png`、`64x64.png` 替换为 Octo 新图标 | 品牌 — `predev.ts` 在 `bun dev` 前自动把 `icons/${channel}/` 覆盖 `resources/icons/`，所以**必须改各 channel 目录**；直接改 `resources/icons/` 会被覆盖 |
-
-#### `packages/desktop-electron/resources/icons/`
-
-| 改了什么 | 性质 |
-|---|---|
-| `icon.icns`、`icon.png`、`dock.png`、`128x128.png`、`128x128@2x.png` 替换（临时，每次 dev 启动会被 `copy-icons.ts` 覆盖） | 仅供当前运行实例使用，**持久改动应改 `icons/${channel}/`** |
-
-#### `packages/desktop-electron/package.json`（补充）
-
-| 改了什么 | 性质 |
-|---|---|
-| 新增 `productName: "OctoAI"` | 品牌 — Electron 在 dev 模式下读 `productName` 作为 macOS 菜单栏 app 名，不设则显示 "Electron" |
-
-#### `packages/desktop-electron/src/main/index.ts`（补充）
-
-| 改了什么 | 性质 |
-|---|---|
-| `APP_NAMES.dev` 改为 `"OctoAI"`，`APP_NAMES.prod` 改为 `"OctoAI"`，`APP_NAMES.beta` 改为 `"OctoAI Beta"`；`app.setName()` dev 分支改为 `"OctoAI"` | 品牌 — 应用名统一为 OctoAI |
-| `app.whenReady()` 入口处提前调用 `createMenu()`（空 deps）| 品牌 — 消除 server 启动期间菜单栏显示默认 "Electron" 的闪烁 |
-
-#### `packages/desktop-electron/src/main/menu.ts`
-
-| 改了什么 | 性质 |
-|---|---|
-| Application Menu 第一项 label 从硬编码 `"OpenCode"` 改为 `app.getName()` | 品牌 — **这才是 macOS 菜单栏显示名的真正来源**；electron-vite dev 模式不读 `.app` bundle 的 plist，菜单栏名来自 `Menu.setApplicationMenu()` 第一项的 label |
-
-#### `packages/desktop-electron/scripts/predev.ts`（补充）
-
-| 改了什么 | 性质 |
-|---|---|
-| 新增 `plutil` patch + `codesign --force --deep --sign -` + `lsregister -f` 步骤（保留，对 Dock label 有效） | 对 macOS 菜单栏名称**无效**：electron-vite dev 模式不加载 `.app` bundle，plist 完全不被读取 |
-| 用 `if (process.platform === "darwin") { ... }` 包裹 `plutil` / `codesign` / `lsregister` / `touch` / `killall Dock` 五行 macOS 专属调用（2026-05-28，dev 环境兼容） | 跨平台 — Windows/Linux 上 `plutil` 不存在导致 `bun run dev` 在 predev 阶段 exit 1；包裹后非 macOS 直接跳过 plist 补丁，`copy-icons` 和 `cd ../opencode && bun script/build-node.ts` 保留 |
-
-#### `packages/app/public/assets/insight/`
-
-| 改了什么 | 性质 |
-|---|---|
-| 新增 `IllustrationInsightEmpty.svg`、`IllustrationResultEmpty.svg` | Insight 页面插图静态资源；以 `<img src="/assets/insight/...">` 引用，避免 SVG `innerHTML` 内联无法渲染 base64 PNG |
-
-#### `packages/app/package.json`（补充）
-
-| 改了什么 | 性质 |
-|---|---|
-| 新增 `write-excel-file`（~30KB）依赖 | OutputCard Excel 导出（[spec](specs/ui/output-renderers.md) §3.3）；选 ESM/小体积库代替 SheetJS/exceljs |
-| 新增 `markmap-lib` + `markmap-view`（~300KB）依赖 | OutputCard 思维导图渲染器（[spec](specs/ui/output-renderers.md) §4.2）；视觉效果优于 jsmind/G6，bundle 桌面端可接受 |
-
-#### `packages/app/.env.example`（新增）
-
-| 改了什么 | 性质 |
-|---|---|
-| 新增环境变量模板，含 `VITE_OCTO_UPLOAD_ENDPOINT` 注释 | 文件上传服务端点配置入口（[spec](specs/infra/file-upload.md) §端点）。模板 commit 进 repo，内网集成时 `cp .env.example .env.local` 填实际地址；客户端 [`lib/upload.ts`](../packages/app/src/pages/insight/lib/upload.ts) 通过 `import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT` 读取 |
-
-#### `packages/app/src/env.d.ts`（补充）
-
-| 改了什么 | 性质 |
-|---|---|
-| `ImportMetaEnv` 接口加 `readonly VITE_OCTO_UPLOAD_ENDPOINT?: string` | 给上一条 `.env.example` 里新增的环境变量做 TypeScript 类型声明；与上游 `VITE_OPENCODE_SERVER_*` 并列追加，一行 diff，不破坏上游同步 |
-
-#### `.gitignore`（补充）
-
-| 改了什么 | 性质 |
-|---|---|
-| 在 `.env` 一行下追加 `.env.local` / `.env.*.local` 两行 | 配合 `.env.example` 模板使用；vite 官方标准忽略模式，让开发者复制出的本地配置（含真实端点）不会被误提交 |
-
-#### `packages/desktop-electron/electron.vite.config.ts`（补充）
-
-| 改了什么 | 性质 |
-|---|---|
-| `main.build.rollupOptions` 新增 `external: [/\.wasm$/]`（2026-05-28，dev/build 兼容） | 接线 — 主进程通过 `virtual:opencode-server` 引入 `packages/opencode/dist/node/node.js`，该 bundle 内含 `import("…tree-sitter.wasm")` 动态 wasm 导入；Vite 7 默认不处理 ESM-wasm，报 "ESM integration proposal for Wasm is not supported"。外置后 wasm 由运行时从 node_modules 解析（opencode build-node.ts 本身就把 `*.wasm` 列为 external），与 `opencode:copy-server-assets` 插件互补 |
-| `opencode:copy-server-assets` 插件在拷 `.wasm` 之后追加拷贝 `packages/opencode/node_modules/jsonc-parser/lib/umd/impl/*` 到 `out/main/chunks/impl/`，并在该目录写一份 `package.json: {"type":"commonjs"}` 局部 scope override（2026-05-29，Windows dev 验证发现） | 接线 — Windows dev 跑通后端到端测试时显现两层 bundle 重定位 bug：(1) Bun bundler 把 jsonc-parser 的 UMD `main.js` 内联进 opencode bundle，但没递归打包其 `./impl/{format,edit,parser,scanner}.js` 这四个相对 require，sidecar 启动报 `Cannot find module './impl/format'` unhandled rejection；(2) 拷过去后 `desktop-electron/package.json` 的 `"type":"module"` 让 Node 把 `chunks/impl/*.js` 当 ESM 拒绝 `require()` 加载（ERR_REQUIRE_ESM 被 bundle 内 commonJS shim 吞掉），`require_main()` 返回空对象，表现为 `TypeError: import_jsonc_parser.parse is not a function`，`/provider` `/global/config` 端点 500。修法：拷文件 + 同目录写 `{"type":"commonjs"}` 覆盖成 CJS scope（不影响 chunks 根的 ESM bundle）。**mac 端历史上未暴露原因未深查**（可能 Bun 版本差异 / Node 24 在 macOS 上 CJS-UMD 互操作行为不同 / 或某些 macOS 上的 require 路径 hook），修法本身跨平台幂等，mac 加上无害 |
-| `opencode:copy-server-assets` 插件追加拷贝 `packages/opencode/migration/` 整树到 `out/migration/`（2026-05-29，Windows dev 验证发现） | 接线 — opencode bundle 里 SQLite migrations 用 `path.join(import.meta.dirname, "../../migration")` 定位迁移目录。在 opencode 原位置 `packages/opencode/dist/node/` 解析为 `packages/opencode/migration/`（正确），但 electron-vite 把 bundle 重定位到 `out/main/chunks/` 后变成 `out/migration/`（不存在），`readdirSync` 抛 `ENOENT: scandir 'out/migration'`，opencode `/provider` `/global/config` `/path` `/project` 端点 effect chain 全 500。同样的相对路径资源问题模式（参见上一行 jsonc-parser）。**mac 端历史上 insight chat 端到端正常运行一个多月**（W 在 mac 上的事实证据），说明该路径在 mac 上未被触发或被某种机制绕过，原因未深查；修法跨平台无害 |
-
-#### `packages/desktop-electron/resources/default-config.json`（补充）
-
-| 改了什么 | 性质 |
-|---|---|
-| 删掉 `agent.interview-worker` 段（2026-05-29，dead reference 清理） | 配置卫生 — 该 agent 在 [ADR-005 §38](adr/005-prompt-template-vs-subagent.md#38-多文档并行执行) 是 fallback 设想，但 `packages/agent/interview-worker/` 目录在 git 历史里**从未创建过**，prompt 文件不存在。[config-core.ts:74-81](../packages/desktop-electron/src/main/config-core.ts) 合并时 prompt 缺失只 `console.warn` 不剔除 agent，runtime config 里留下一个无 prompt 的瘸腿 subagent。**事实证据**：mac 端 W 在 dev 环境 insight chat 已稳定运行一个多月（说明 opencode 实际接受这种瘸腿配置，对 subagent prompt 是宽松/可选的，而非如 zod `.strict()` 文档暗示的严格），且 [`octo_insight.md`](../packages/agent/octo_insight/agents/octo_insight.md) prompt 与 [insight 页面代码](../packages/app/src/pages/insight/) 内零调用 interview-worker。删除属于 dead reference 清理，验证依据：`bun test src/main/config.test.ts` 7 pass / 0 fail（W 在 mac 端跑过）。以后真要实现该 subagent，先创建 `packages/agent/interview-worker/agents/interview-worker.md`，再同步加回此 config |
-
-#### `packages/desktop-electron/src/preload/index.ts`（补充）
-
-| 改了什么 | 性质 |
-|---|---|
-| 新增 `downloadResource(url, destPath)` → IPC `download-resource` | 接线 — 给 InsightPage FileFallback 把远程 resource_link 落地本地文件（[ADR-009](adr/009-no-office-preview.md) 三按钮：「用本地应用打开」前置 download；「另存为」直接落用户选定路径）|
-| 新增 `showItemInFolder(path)` → IPC `show-item-in-folder`（fire-and-forget send） | 接线 — FileFallback「在文件夹中打开」按钮，让用户定位本地临时副本(打开过 / 改过的 Office 文件可手动 cp 或保留编辑内容,微信桌面端模式) |
-
-#### `packages/desktop-electron/src/preload/types.ts`（补充）
-
-| 改了什么 | 性质 |
-|---|---|
-| `ElectronAPI` 接口加 `downloadResource(url: string, destPath: string): Promise<void>` | 接线 — 给 `window.api.downloadResource` 提供 TS 类型 |
-| `ElectronAPI` 接口加 `showItemInFolder(path: string): void` | 接线 — 给 `window.api.showItemInFolder` 提供 TS 类型 |
-
-#### `packages/desktop-electron/src/main/ipc.ts`（补充）
-
-| 改了什么 | 性质 |
-|---|---|
-| 新增 `ipcMain.handle("download-resource", ...)`：node fetch 下载远程 URL，落地到指定本地路径（mkdir -p + fs.writeFile） | 接线 — 配合 FileFallback「用本地应用打开」前置步骤；通用底层能力（不仅限 office），未来视频 / 图片 / 任意二进制都可复用 |
-| 新增 `ipcMain.on("show-item-in-folder", ...)`：`shell.showItemInFolder(path)` 在系统文件管理器中定位文件 | 接线 — FileFallback「在文件夹中打开」按钮的主进程入口 |
-
-#### `packages/desktop-electron/package.json`
-
-| 改了什么 | 性质 |
-|---|---|
-| `electron` 依赖 `40.4.1` → `42` | 依赖升级（避免 native 模块预编译差异）。**已知 quirk**：bun 跨主版本升级 electron 时**不自动重跑** postinstall，导致 `node_modules/.bun/electron@<new>/node_modules/electron/dist/` 不存在，启动报 `Info.plist not found`。修复：手动跑 `node node_modules/.bun/electron@<version>/node_modules/electron/install.js`。typecheck 通过，未跑 dev/build/package。 |
-
-#### `bun.lock`
-
-随 `octo-app` workspace 条目删除自动更新；后续随 `packages/app/package.json` 新增 `write-excel-file` / `markmap-*` 自动更新；随 `packages/desktop-electron/package.json` electron 主版本升级自动更新。非手动修改。
-
-#### `.github/TEAM_MEMBERS`（补充）
-
-| 改了什么 | 性质 |
-|---|---|
-| 追加内部协作者登录名 `yuziyuan` / `yuanfayu`（2026-05-29） | PR 治理 — 上游 `pr-standards` / 合规检查对名单内作者跳过 conventional 标题、关联 issue、模板合规等检查（名单从 `dev` 分支读）。内部成员加入后,其 PR 不再被当外部贡献者拦(`needs:title` / `needs:issue` / `needs:compliance` / 2h 自动关)。owner `Kevin199802` 及后续成员按同格式自行追加。协作规则见 [collab-pr-protocol.md](collab-pr-protocol.md) |
-
-#### `script/octo-sync.ts`（新增）+ `.gitignore`
-
-| 改了什么 | 性质 |
-|---|---|
-| 新增 `script/octo-sync.ts`：外网→UX AI 项目合入工具（bun+TS，放上游 `script/` 目录复用 bun tsconfig）。**绿灯**（改动只落在 `pages/insight` + agent prompt）自动 `rsync`（exclude `_dev`）+ prompt 原样 `cp` + UX AI 项目 `packages/app` typecheck/build **双门禁** + 推进锚点；**非绿灯**（越界 `app.tsx`/壳/依赖）停手列清单交 AI。**不自动 commit** | 合入工作流自动化 |
-| 锚点状态写 UX AI 项目 `.insight-sync-state.json`（`lastSyncedExtSha`，记 UX AI 项目合到外网哪个 sha），范围判定靠 `git diff 锚点..HEAD`；忽略范围 `docs/` `CLAUDE.md` `script/` 等纯外网文件 | 合入工具状态 / 范围判定 |
-| `.gitignore` 新增 `script/.octo-sync.local.json`（各人 UX AI 项目绝对路径，配置优先 + 同级 `../UXAI` fallback） | 合入工具本地配置 |
-
-#### `packages/opencode/src/session/session.sql.ts`（2026-06-04）
-
-| 改了什么 | 性质 |
-|---|---|
-| `SessionTable` 加列 `agent: text()` | 上游核心 schema 补 agent 一等字段；见 [SPEC infra/session-agent-attribution](specs/infra/session-agent-attribution.md) |
-
-#### `packages/opencode/src/session/session.ts`（2026-06-04）
-
-| 改了什么 | 性质 |
-|---|---|
-| `Info` zod / `CreateInput` zod / `Interface.create` / `createNext` / `create` / `fork` / `fromRow` / `toRow` 全链路加 `agent?: string` | plumb agent 字段;`fork` 继承原会话 agent;见 [SPEC infra/session-agent-attribution](specs/infra/session-agent-attribution.md) |
-| **动因** | 修 2026-06-04 内网 insight 侧栏出现幽灵对话 + 工具子会话不可见 + 新建对话不显示三类 bug;agent 列长期缺失,业务侧只能靠"无 agent 就放行"的降级过滤,造成跨 agent 数据互泄 |
-
-#### `packages/opencode/src/tool/task.ts`（2026-06-04）
-
-| 改了什么 | 性质 |
-|---|---|
-| spawn 子会话时查父会话 agent 并传入 `sessions.create({ agent: parent?.agent })` | 工具子会话继承父 agent → 出现在父 agent 侧栏(用户语义优先,非子 agent 类型);见 [SPEC §5](specs/infra/session-agent-attribution.md) |
-
-#### `packages/opencode/migration/20260604121801_add_agent_to_session/`（新增,2026-06-04）
-
-| 改了什么 | 性质 |
-|---|---|
-| `ALTER TABLE \`session\` ADD \`agent\` text;` | Drizzle 自动生成的 schema 迁移;`ALTER TABLE ADD COLUMN` 是 SQLite 兼容操作,老数据 agent IS NULL 走 strict 过滤兜底 |
-
-#### `packages/app/src/hooks/use-project-dir.ts`(新增,2026-06-05)
-
-| 改了什么 | 性质 |
-|---|---|
-| 全栈统一 `useProjectDir()` hook:`:dir` 路由 → `server.projects.last()` → `globalSync.data.path.home` 兜底;并提供 `octoSessionsDir()` 给 chat/studio 等"agent 级配置态"用 | 修 insight 目录飘移 bug —— 之前 `pages/insight/*` 直接读 `globalSync.data.path.home`,与 _shell/sidebar / make / studio 行为不一致;切目录后 insight 不跟随。本 hook 与 UXAI `octoapp/hooks/use-project-dir.ts` 行为对齐(同事合入的 `dialog-project-onboarding` 调它 + 调 `server.projects.touch()` 即可联动) |
-
-#### `packages/app/src/utils/path-valid.ts`(新增,2026-06-05)
-
-| 改了什么 | 性质 |
-|---|---|
-| `isValidUserPath()`:过滤 `""` / `/` / Windows 盘符根等无效路径 | `useProjectDir()` 依赖,逐级 fallback 时跳过无效候选 |
-
-#### `packages/desktop-electron/src/main/ipc.ts`(补充,2026-06-05)
-
-| 改了什么 | 性质 |
-|---|---|
-| `download-resource-to-temp` IPC 加可选第 4 参 `baseDir`:提供时落 `<baseDir>/.octo/downloads/<ns>/<name>`,不传时 fallback 老逻辑(OS tmp) | MCP 工具产物("打开"/"在文件夹定位")可选落进用户的项目目录,持久可查/可备份 |
-
-#### `packages/desktop-electron/src/preload/types.ts` + `index.ts`(补充,2026-06-05)
-
-| 改了什么 | 性质 |
-|---|---|
-| `DesktopApi.downloadResourceToTemp` 签名加 `baseDir?: string`;preload 透传 | 同 IPC 改动,renderer 类型同步 |
-
-**撤回到纯上游**（合入内网最坏情况）：
-
-1. 上面所有改动逆向回滚
-2. → 仓库可跑通上游原版
+- **桌面壳 `window.api`**(文件打开 / 另存为 / 下载落地 / Finder 定位)— [intranet-handoff §4](intranet-handoff.md)
+- **MCP 工具**(用研分析能力)— [mcp-contract.md](specs/agents/mcp-contract.md)、[ADR-012](adr/012-mcp-tools-by-capability.md)
+- **文件上传**(`VITE_OCTO_UPLOAD_ENDPOINT` → 内网 S3)— [file-upload.md](specs/infra/file-upload.md)、[ADR-006](adr/006-upload-architecture.md)
 
 ---
 
-## 6. 上游同步策略
+## 6. 相关 ADR 与 learning
 
-所有上游目录不动（§2.2）。需要从上游同步新版时直接 git merge / pull，无冲突。
-
-接线壳（§2.3）有少量改动，新版上游出现时对照 §5.4 清单手动评估是否影响接线。
-
----
-
-## 7. 相关 ADR 与 learning
-
-- [ADR-001 — 桌面壳：Electron vs Tauri](adr/001-electron-vs-tauri.md)
-- [ADR-002 — Vue 3 替换 SolidJS](adr/002-vue3-ui-rewrite.md) **（已弃用）**
-- [ADR-003 — LLM Provider 接入方案](adr/003-openai-compat-provider.md)
-- [ADR-004 — 切回 SolidJS，复用上游 UI](adr/004-solidjs-ui-reuse.md) **（当前生效）**
+- [ADR-001 — 桌面壳:Electron vs Tauri](adr/001-electron-vs-tauri.md)
+- [ADR-004 — 切回 SolidJS,复用上游 UI](adr/004-solidjs-ui-reuse.md) **(当前生效)**
+- [ADR-008 — cascading 配置](adr/008-cascading-config.md)
 - [learning/opencode-internals.md](learning/opencode-internals.md)
 - [learning/agent-mental-model.md](learning/agent-mental-model.md)
 - [learning/skill-and-mcp.md](learning/skill-and-mcp.md)
 - [learning/provider-protocols.md](learning/provider-protocols.md)
 - [learning/context-and-memory.md](learning/context-and-memory.md)
+</content>
+</invoke>
