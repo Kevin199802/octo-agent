@@ -32,6 +32,7 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 14. [rag-chat-integration.md](rag-chat-integration.md) — 把内网知识库 RAG 接进 chat:RAG 数据流 / 三种触发策略(agentic·前置·路由·显式)/「内网模型弱」如何否掉纯 agentic /「噪音」是什么 / MCP vs HTTP 与触发耦合 / 三套可落地组合 / 业界标准呈现(内联答案+来源卡片)/ 待定问题清单
 15. [happy-dom-and-indexeddb.md](happy-dom-and-indexeddb.md) — 测试用的假浏览器(happy-dom,缺 IndexedDB)vs 真落盘存储(IndexedDB 有实体文件、跨重启);为何 debug-observer 阶段2 持久化只能人工验证、降级路径才能自动测
 16. [electron-app-name.md](electron-app-name.md) — Electron app 的四种"名字"(运行时 `getName` / 打包 `productName` / `appId` / npm `name`)、channel 机制、为何 `~/Library/Logs` 有多个目录、怎么定位当前日志在哪
+17. [file-card-depends-on-current-turn-tool-call.md](file-card-depends-on-current-turn-tool-call.md) — insight 文件卡片只渲染"本轮工具返回":模型凭上下文跳过 `get_task_result` 调用 → "详见下方文件卡片"话术与界面脱节;prompt 承诺 UI 存在的话术必须条件化
 
 > 后续可能补:
 >
