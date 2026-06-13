@@ -33,7 +33,7 @@ OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 
 | 路径 | 来源 | 触发机制 | 可靠性 | 收敛方向 |
 |---|---|---|---|---|
 | **A. MCP 强契约** | MCP tool 返回的 `resource_link` part | 严格按 [mcp-contract.md §completed](../agents/mcp-contract.md) 解析 `content[].type === "resource_link"`，**零嗅探** | 高（契约强约束）| 持续扩展业务工具白名单 |
-| **B. 自由文本嗅探** | assistant text part 里的 LLM 自由输出 | 启发式（fence / table / mindmap shape）兜底 | 中（业界 IDE 类工具标配，永远漏） | **窄而准**：仅 fence/shape 确定性场景，不再 length 兜底 |
+| **B. 自由文本嗅探** | assistant text part 里的 LLM 自由输出 | 启发式（html fence / mindmap shape）兜底 | 中（业界 IDE 类工具标配，永远漏） | **窄而准**：仅 html fence / mindmap shape 确定性场景；不再 length 兜底，**也不再嗅探 md 表格**(2026-06) |
 
 **路径 A 内部还分两类**(by [insight-references.md](insight-references.md)):
 - **A1. 产物型(artifact)** — `_octoDisplay` 缺省或 `"artifact"` → 本 spec 的 OutputCard 大卡
@@ -44,7 +44,7 @@ OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 
 **核心原则**：
 
 1. **业务长产物必须走路径 A** — 分析报告 / 思维导图 / HTML 可视化等正式产出，由 UXR MCP tool 返回 `resource_link`，前端按 `mimeType` 稳定路由开卡。这是 [ADR-011](../../adr/011-tool-result-resource-uri.md) 的根本决策。
-2. **路径 B 仅对 LLM 直答兜底** — 无 MCP 工具触发时，LLM 直接在对话里输出 markdown 表格 / mindmap JSON / HTML 可视化，由前端嗅探升级为卡片。
+2. **路径 B 仅对 LLM 直答兜底** — 无 MCP 工具触发时，LLM 直接在对话里输出 mindmap JSON / HTML 可视化，由前端嗅探升级为卡片。**md 表格不在此列**(2026-06 移除)：对话里 LLM 直出的 md 表格由上游 `<Markdown>` 原样渲染(带复制)即足够，再升级成卡属冗余入口；业务表格走路径 A(`text/csv` resource_link)。
 3. **同 turn A 命中 → B 不执行** — 已在 [insight-turn.tsx:130](../../../packages/app/src/pages/insight/components/insight-turn.tsx#L130) 实现（`taskCards.length > 0` 或 `findResourceLinks().length > 0` 抢占）。
 4. **改路径 B 不要影响路径 A** — §2.3 嗅探规则收紧只针对路径 B；路径 A 的解析逻辑（§2.5、`findResourceLinks`、`readTaskInfo`）独立稳定，bug 走 [task-card.md §12.0 console 节点表](task-card.md#120-联调速查--console-节点表粘-console-定位) 联调排查。
 
@@ -66,7 +66,7 @@ OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 
 
 | 类型 | 触发模板 / 来源 | 服务端返回形态 | 入口卡文案 | 渲染器（ResultViewer 内） | 状态 |
 |---|---|---|---|---|---|
-| `table` | 观点解析 / 按提纲聚类 / AI用户画像 / 评估问题整理 | Markdown 表格字符串 | 分析表格 | TableRenderer | ✅ 已实现 |
+| `table` | 路径 A `text/csv` resource_link（业务工具产出的表格文件） | CSV → Markdown 表格 | 分析表格 | TableRenderer | ✅ 已实现 |
 | `mindmap` | 思维导图 | JSON 结构（UXR 现有接口） | 思维导图 | MindmapRenderer（markmap-view）+ 预览/代码切换 | ✅ 已实现 |
 | `html` | 未来富展示类 MCP tool（如独立的用户画像/可视化 tool）| HTML 字符串（建议 ```html``` fence 包裹） | 可视化页面 | HtmlRenderer（iframe sandbox）| ✅ 已实现 |
 | `markdown` | 用研知识问答 + 走 MCP `text/markdown` resource_link | Markdown 纯文本 | Markdown 文档 | MarkdownRenderer（复用上游 `<Markdown>`）| ✅ 已实现 |
@@ -89,12 +89,12 @@ OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 
 
 实现:`ResultTab.viewMode: "preview" \| "source"`(缺省 preview),`tab-store.setViewMode` 更新;`isToggleType()` 判定是否出切换控件;代码态统一走 `SourceCodeView`(把内容包 ```lang fence 喂上游 `<Markdown>` 获 shiki 高亮)。切换控件在 ActionBar 行左侧,与复制/下载同排。
 
-> **table 卡四视图一致性(2026-06-10)**:路径 B 嗅探出的 `table` 卡,其 `content` 是命中表格的那个 text part **全文**——可能含表格上方的对话/说明正文(典型:访谈逐字稿 + 末尾「对话要点提炼」表)。table 卡的定位是「摘要表的预览 + 导出」,故四个动作**统一只呈现表格本体**,不带出正文:
+> **table 卡四视图一致性**:`table` 卡现在**只来自路径 A `text/csv` resource_link**(2026-06 起路径 B 不再嗅探 md 表格,见 §2.1)。其 `content` 是 csv 转换后的 md 表格,本就是纯表格;但 `TableRenderer` / 导出 / 代码态仍统一走 `extractTableMarkdown` 抽表格本体作防御(若上游 csv 前后混入说明行也只呈现表格),四个动作一致:
 > - 预览 `TableRenderer` 抽 `marked` 的 table token;
 > - 复制 / 下载(md/CSV/Excel)走 `extractTableMarkdown` / `parseMarkdownTable`;
-> - **代码态** `SourceCodeView` 同样喂 `extractTableMarkdown(content)`(而非原始全文),否则会单独露出正文、与其余三者不一致。
+> - **代码态** `SourceCodeView` 同样喂 `extractTableMarkdown(content)`,与其余三者一致。
 >
-> 完整正文不丢:对话区始终全文渲染(§0),磁盘产物文件亦为全文。若需要「右栏呈现整份文档」而非仅摘要表,应让其走 `markdown` 卡(全文渲染/复制/下载),而非 `table` 卡。
+> 若需要「右栏呈现整份文档」而非仅摘要表,应让其走 `markdown` 卡(全文渲染/复制/下载),而非 `table` 卡。
 
 为什么改单卡:双卡占两个 tab、入口冗余,且"同一份产物的两种视图"本就该是一个对象的两个面(业界 Claude Artifacts / ChatGPT Canvas 都是单 artifact 内 预览/代码 切换)。
 
@@ -121,13 +121,15 @@ OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 
 
 ```ts
 // 优先级从上到下（针对 assistant text part 内容）
-1. isMarkdownTable(text)             → table
+1. scanFencedHtml(parts)             → html  (每个 ```html fence 块 1 张卡，支持多卡)
 2. isMindmapJSON(text)               → mindmap
-3. scanFencedHtml(parts)             → html  (每个 ```html fence 块 1 张卡，支持多卡)
-4. isPlainJSON(text)                 → json  (收紧：≥80 字符 + (fence 或 ≥3 keys))
+                                     × md 表格嗅探 — 删除(2026-06)：对话里 md 表格由上游 <Markdown> 原渲染即够，业务表格走路径 A csv
                                      × markdown 长文本兜底 — 删除
+                                     × 通用 JSON 升级 — 删除：普通 JSON 有 shiki 高亮 + 复制即够，无追加预览价值
                                      × 其他语言 fence 升级 — 删除（复用上游 Markdown 高亮）
 ```
+
+> **路径 B 当前仅剩两条规则**：`html` fence（可 iframe 预览）+ `mindmap` shape（可 markmap 可视化）——只升级「能在右栏给出对话区给不了的可视化」的内容。md 表格 / 普通 JSON / 代码段在对话区已有足够呈现(渲染 / shiki + 复制)，不再出卡。
 
 **为什么删 `length > 200 → markdown` 兜底**：
 - 业界对照：Claude.ai Artifacts 要求 ≥1500 字 + 自包含可编辑；ChatGPT Canvas 由 LLM 显式工具触发；Cursor / VS Code Chat 只对 fence 升级。**没有一家**把"长一点的对话回复"自动升级成卡片。
@@ -144,16 +146,10 @@ OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 
 
 ### 2.2 检测实现
 
-```ts
-// 1. Markdown 表格（保留，识别准确率高）
-function isMarkdownTable(text: string): boolean {
-  if (/\|[\s]*[-:]+[-:\s|]*\|/.test(text)) return true
-  const tableLines = text.split("\n")
-    .filter((l) => l.trim().startsWith("|") && (l.match(/\|/g) ?? []).length >= 3)
-  return tableLines.length >= 2
-}
+> md 表格检测 `isMarkdownTable` 已于 2026-06 移除(路径 B 不再把对话里的 md 表格嗅探成 table 卡)。表格解析/导出函数 `parseMarkdownTable` / `tableToCSV` / `extractTableMarkdown` 保留在 `markdown-table.ts`,供路径 A 的 `text/csv → table` 复用。
 
-// 2. Mindmap JSON：检测 = 渲染。直接复用渲染适配函数,「能渲染成 markmap 才算命中」。
+```ts
+// 1. Mindmap JSON：检测 = 渲染。直接复用渲染适配函数,「能渲染成 markmap 才算命中」。
 //    实现在 mindmap-adapter.ts(detect 的上层,避免循环依赖),不再单独写一套 shape 嗅探。
 function isMindmapJSON(text: string): boolean {
   return uxrJsonToMarkdown(text) != null   // 实现见 mindmap-adapter.ts
@@ -183,23 +179,11 @@ function scanFencedHtml(parts: { text?: string }[]): string[] {
   }
   return blocks
 }
-
-// 4. 通用 JSON（收紧）：必须 ≥80 字符 且 (带 fence 或 ≥3 个 key)
-function isPlainJSON(text: string): boolean {
-  const stripped = stripCodeFence(text)
-  if (stripped.length < 80) return false
-  const json = tryParseJSON(stripped)
-  if (!json) return false
-  const hasFence = /```(?:json)?\s*\n/i.test(text)
-  const keyCount =
-    typeof json === "object" && !Array.isArray(json) && json !== null
-      ? Object.keys(json).length
-      : Array.isArray(json) ? json.length : 0
-  return hasFence || keyCount >= 3
-}
 ```
 
-**优先级理由**：mindmap JSON 在 HTML 之前，避免 HTML 内嵌 JSON-like 字符串误判；HTML 在 plainJSON 之前，因为 HTML 可能含 `<script>{...}</script>` 让 JSON 检测失败但应走 HTML 路径。
+> 通用 JSON 检测 `isPlainJSON` 已不在路径 B 实现中（普通 JSON 在对话区已有 shiki 高亮 + 复制，无追加预览价值，故不出 json 卡）。路径 A 的 `application/json` resource_link 仍可出 json 卡（服务端显式声明，零嗅探，见 §2.5.2）。
+
+**优先级理由**：路径 B 现仅剩 `scanFencedHtml`（html）与 `isMindmapJSON`（mindmap）两条规则，互不冲突——html fence 与 mindmap shape JSON 形态判然，同段同时命中也是各出各卡（多卡并列，见 §6.B）。
 
 ### 2.3 业界对照
 
@@ -223,7 +207,7 @@ function isPlainJSON(text: string): boolean {
 | tag | 触发点 | 字段 |
 |---|---|---|
 | `[octo:detect] start` | `detectCards` 入口 | msgID / partsCount / 前 80 字摘要 |
-| `[octo:detect] match` | 规则命中 | rule（table/mindmap/html/json）/ part 索引 / 摘要 |
+| `[octo:detect] match` | 规则命中 | rule（mindmap/html）/ part 索引 / 摘要 |
 | `[octo:detect] reject` | 全部规则未命中 | 拒绝理由 / 完整文本前 200 字 |
 | `[octo:detect] html-fence-found` | scanFencedHtml 命中 | fence 数量 / 每块字符数 / 是否闭合 |
 
@@ -282,10 +266,10 @@ opencode 将 MCP `CallToolResult.content[]` 中的 `resource_link` 项作为独�
 | mimeType | OutputCardType | 渲染策略 |
 |---|---|---|
 | `text/html` | `html` | fetch URI → 拿到 HTML → 走 HtmlRenderer 的 iframe sandbox（§5）|
-| `text/markdown` | `markdown` | fetch URI → 走 MarkdownRenderer |
+| `text/markdown` | `markdown` | fetch URI → 走 MarkdownRenderer。**含上游原 docx 文档产物**——2026-06 起 UXR 把原以 docx 返回的文档类产物改为 `text/markdown` 返回(详见 [mcp-contract.md](../agents/mcp-contract.md))，故走 markdown 卡(可应用内预览)而非 file fallback。后续将在此卡支持编辑(见 [insight-markdown-editor.md](insight-markdown-editor.md))|
 | `application/json` | `json` | fetch URI → 走 JsonRenderer(shiki 高亮)。**不做二次判断 retype**——是不是 mindmap 由服务端 `business_type` 显式声明,客户端不再嗅探 |
 | `text/csv` | `table` | fetch URI → 转 Markdown 表格 → 走 TableRenderer |
-| Office（xlsx / docx / pptx）/ PDF / 图片 / 二进制 | `file` | 不在 ResultViewer 内渲染，FileFallback 提供**双按钮**：①「用本地应用打开」`download-resource` IPC → 落地临时文件 → `window.api.openPath` 唤起 OS 关联应用（Excel/WPS/Numbers）②「下载到本地」`window.api.saveFilePicker` 用户选目录 → 落地。详见 §5 + [ADR-009](../../adr/009-no-office-preview.md) |
+| Office（xlsx / pptx）/ PDF / 图片 / 二进制 | `file` | 不在 ResultViewer 内渲染，FileFallback 提供**双按钮**：①「用本地应用打开」`download-resource` IPC → 落地临时文件 → `window.api.openPath` 唤起 OS 关联应用（Excel/WPS/Numbers）②「下载到本地」`window.api.saveFilePicker` 用户选目录 → 落地。详见 §5 + [ADR-009](../../adr/009-no-office-preview.md)。**注**：docx 文档产物 2026-06 起改以 `text/markdown` 返回(见上一行)，不再走 file fallback |
 | 其他未识别 | `file` fallback | 同上双按钮 |
 
 **为什么删除"`application/json` 内容二次判断 retype"**:
@@ -798,18 +782,15 @@ temp 路径策略：`app.getPath("temp") + "/octo/" + sessionId + "/" + sanitize
 
 ## 7. 与 systemHint 的协作
 
-提示词模板的 `systemHint` 已经隐式约束了 LLM 输出格式：
+> **现状(2026-06)**：业务分析(观点解析 / 按提纲聚类 / 可用性分析 / 思维导图)已改为**异步 MCP 工具**(调用即返回 task_id，结果经 `get_task_result` 拿到 resource_link)，产物**走路径 A** 按 `business_type` / `mimeType` 路由，**不依赖 systemHint + 路径 B 嗅探**。下表是路径 B 时代的历史期望映射，仅保留作背景。
 
-| 模板 | systemHint 约束 | 期望 detectCard 命中 |
-|---|---|---|
-| 观点解析 | "输出三列 Markdown 表格" | `table` |
-| 按提纲聚类 | "Markdown 表格" | `table` |
-| AI用户画像 | "画像维度..." | `table` |
-| 评估问题整理 | "输出三列..." | `table` |
-| 思维导图 | "返回 JSON 直接原样输出" | `mindmap` |
-| 用研知识问答 | "基于检索结果回答" | `markdown` |
+| 模板 | 旧 systemHint 约束 | 路径 B 时代期望命中 | 现状 |
+|---|---|---|---|
+| 观点解析 / 按提纲聚类 / AI用户画像 / 评估问题整理 | "输出 Markdown 表格" | ~~`table`~~ | 走路径 A 产物(csv→table 或 markdown 卡)；**路径 B 不再嗅探 md 表格** |
+| 思维导图 | "返回 JSON 直接原样输出" | `mindmap` | 路径 A `business_type: "mindmap"`；LLM 直答 JSON 时路径 B `isMindmapJSON` 仍可兜底命中 |
+| 用研知识问答 | "基于检索结果回答" | `markdown` | 走 `search_reports` 路径 A resource_link |
 
-如果 LLM 输出与预期不符（比如表格模板输出了纯文本），fallback 到 `markdown` 渲染器，不会渲染失败。
+路径 B 现仅剩 `html` fence 与 `mindmap` shape 两条规则(见 §2.1)；其余 LLM 直答内容(含 md 表格)由对话区上游 `<Markdown>` 原样渲染，不出卡。
 
 ---
 
@@ -892,13 +873,18 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 
 #### V0-C 表格 + Excel 导出
 
-**触发方式**：用现有"观点解析"提示词模板触发一次正常分析（systemHint 已约束 markdown 表格输出）。或粘这条 prompt：
+> **2026-06 变更**：路径 B 不再嗅探 md 表格出卡。本 case 改为验证**路径 A `text/csv` resource_link** 出的 table 卡（业务工具产出 csv 文件场景）；联调期无真 MCP 时，可临时 hardcode 一个 `text/csv` resource_link 注入验证渲染与导出。
+
+**反例先验（路径 B 不出表格卡）**：粘下方 prompt，确认对话区出表格但**不开 OutputCard**：
 
 ```
 输出一个 markdown 表格，3 列，第一列"观点"，第二列"频次"，第三列"代表用户"，至少 5 行真实示例内容（用研场景）。
 ```
+- [ ] 对话区由上游 `<Markdown>` 原样渲染该表格（带复制按钮）
+- [ ] **不开 OutputCard**（路径 B 表格嗅探已移除）
+- [ ] Console 看到 `[octo:detect] reject`
 
-**验收**：
+**正例（路径 A csv → table 卡 + 导出）**：触发/注入一个 `text/csv` resource_link 后：
 - [ ] OutputCard 类型图标为表格（`IconCardTable`）
 - [ ] 点开卡片 → ResultViewer 显示 HTML 表格（表头浅灰、行斑马纹）
 - [ ] ActionBar [下载 ▾] 下拉显示 **3 个选项**：Markdown / CSV / Excel
@@ -1064,10 +1050,9 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 
 下列项已在 `detect.test.ts` 验证，改代码会自动回归，不必每次手动跑：
 
-- detectCard 优先级（table > mindmap JSON > HTML > plain JSON > markdown）
+- 路径 B 现仅两条规则：`scanFencedHtml`（html）+ `isMindmapJSON`（mindmap）；~~`isMarkdownTable` / `isPlainJSON` 已移除~~
 - `isMindmapJSON` 对带 fence / 不带 fence / 单根 / 双层数组 shape 的识别
-- `isHTML` 对 fence / doctype / 富片段（≥3 标签）的识别
-- `isPlainJSON` 收紧后的最短长度 + key 数量阈值（新增）
+- `isHTML` 对 fence / doctype / 富片段（≥3 标签）的识别（保留供单测复用）
 - `scanFencedHtml` 多 fence / 未闭合 fence 行为（新增）
 - `parseMarkdownTable` 切分 + `tableToCSV` 引号转义
 - `uxrJsonToMarkdown` 双层数组 → markmap markdown 转换、空节点占位、空数组返回 null
@@ -1092,6 +1077,8 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 | **全链路 console 埋点（detect/tab/office/resource）** | 本轮（2026-05） | — |
 | **预览/代码 视图切换（mindmap 双卡→单卡 + html/table/markdown 加切换）+ file 隐藏复制/下载** | 2026-05-30 | tab-store `viewMode` / `linkToOutputType` / `SourceCodeView` |
 | **§9 验证步骤扩充（V0-D 反例 / V0-E office / V0-F dedupe / 模型差异栏）** | 本轮（2026-05） | mac + win 双平台手动跑 V0-E |
+| **路径 B 移除 md 表格嗅探（删 `isMarkdownTable`）+ docx 产物改 `text/markdown` 走 markdown 卡** | 2026-06（`feat/md-card-adjustments`） | insight-turn.tsx / detect.ts / mcp-contract.md |
+| **markdown 卡支持全文编辑（CodeMirror 6 源码模式，落盘本地 projectdir 文件）** | 规划中 | 单独 spec [insight-markdown-editor.md](insight-markdown-editor.md) |
 
 **联调期可能的小调整**：
 - resource_link：opencode 转发 MCP `resource_link` content 为 part 的实际字段名 / 形态，待联调时确认（spec 假设 `type === "resource_link"` 直接平铺，若被嵌在其他结构里需要调整 §2.5.1 的探测逻辑）。本轮在 `findResourceLinks` / `readTaskInfo` 加 console 埋点辅助联调

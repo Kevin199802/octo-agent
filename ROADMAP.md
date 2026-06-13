@@ -13,6 +13,7 @@
 |---|---|---|
 | `[M]` | **chat 接内网知识库 RAG** | spec [chat-knowledge-search](docs/specs/agents/chat-knowledge-search.md) + learning [rag-chat-integration](docs/learning/rag-chat-integration.md)/[rag-mental-model](docs/learning/rag-mental-model.md)。**V1 代码已落 UXAI**(knowledge_search 工具 + registry 网关 octo_ai + octo_ai prompt + base_url 桥 + mock,typecheck 通过、未 commit)。**待**:真机 chat 验证、引用角标/参考卡片 UI(后续迭代)、真实 account 的 session 注入(后续) |
 | `[L]` | **文档视角迁移到 UXAI** | architecture / development / 各 spec / ADR 里的代码路径、开发流程逐篇调成 UXAI 视角(路径映射见 [handoff §0](docs/intranet-handoff.md)),让文档直接服务 UXAI 开发,而非要求读者心算映射。执行清单见 [spec docs-uxai-perspective-rewrite](docs/specs/infra/docs-uxai-perspective-rewrite.md)。**进度**:✅ architecture.md(全文 UXAI 化 + 删本地壳台账 §5.4);⬜ insight-debugging / development / 各 spec / ADR |
+| `[S]` | **markdown 卡编辑 spec** | 立 `docs/specs/ui/insight-markdown-editor.md`:CodeMirror 6 源码模式编辑(框架无关、无损往返)、落盘本地 projectdir 文件(跟随 useProjectDir,不走 MCP/云端)、混合分屏交互(参考 Claude,轻量,后续找设计师对齐)。背景:[output-renderers §2.5.2 路由表](docs/specs/ui/output-renderers.md) markdown 卡 + docx→md 契约([mcp-contract](docs/specs/agents/mcp-contract.md))。**注**:路径 B 移除 md 表格嗅探 + docx→md 文档已对齐(2026-06,`feat/md-card-adjustments`) |
 | `[M]` | **learning 笔记补全** | SQLite / Drizzle / Effect / Solid 响应式 / IPC / SDK 生成机制等,沉淀给未来 |
 | `[S]` | **ADR 体系梳理** | 已落地但未立 ADR 的决策补全(session.agent 字段化、useProjectDir 全栈抽象等);交叉引用清理 |
 | `[S]` | **specs 现役 / 历史分层** | 运行一段时间后看是否需要按"现役 / 历史"分子目录 |
