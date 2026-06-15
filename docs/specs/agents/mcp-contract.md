@@ -459,6 +459,8 @@
 
 > 客户端从 [SPEC-INS-007](../ui/insight-prompt-redesign.md) 起改为**预置提示词按钮(单 turn)**,不再走 session 级模板下拉。完整定义见 spec。  
 > 此处仅列出 MCP 侧对应关系。客户端配置见 [packages/app/src/pages/insight/store/preset-prompts.ts](../../../packages/app/src/pages/insight/store/preset-prompts.ts)。
+>
+> **2026-06-15**:客户端预置文案改纯业务中文、**不再明示工具名**(SPEC-INS-007 §3.1.2)。选对工具由 agent 提示词「工具选择指南」+ **本节各工具的 MCP description** 共同决定——故弱模型场景下,下方 [§Tool 描述写法原则](#tool-描述写法原则给-uxr-团队参考) 对调用准确性的权重更高,UXR 团队写 description 时尤需写清"何时用/何时不用"。
 
 | 预置按钮 | MCP 工具 | 客户端状态 |
 |---|---|---|
