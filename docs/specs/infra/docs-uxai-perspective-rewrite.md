@@ -15,7 +15,7 @@
 准确的架构 / 开发流程 / 日志字典必须对照 UXAI 实际代码(目录、壳组织、配置注入、日志埋点)。
 凭空写会编造不存在的结构。
 
-**执行建议:在 UXAI workspace 做**(`/Users/huowenkai/Desktop/projects/UXAI`)——代码在手边,
+**执行建议:在 UXAI workspace 做**(`/Users/huowenkai/projects/UXAI`)——代码在手边,
 `CLAUDE.uxai.md` 已就位,读 UXAI 代码 + 写回 octo-agent docs(docs 改完直接 commit dev,无需 PR)。
 
 ## 2. UXAI 实际结构(已验证 2026-06-08)

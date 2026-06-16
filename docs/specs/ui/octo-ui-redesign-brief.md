@@ -8,7 +8,7 @@
 
 ## 1. 目标
 
-把 octo-ui 的视觉刷新到接近设计师的浅色风格(参考 `/Users/huowenkai/Desktop/projects/Octo-AI-UI/octo-client-shell`),**复用现有组件结构,不大重构**。同时引入 Tailwind CSS 4,为后续 P1 spec(provider-config / multi-agent / skill-system / mcp-integration)的页面落地铺好基础。
+把 octo-ui 的视觉刷新到接近设计师的浅色风格(参考 `/Users/huowenkai/projects/Octo-AI-UI/octo-client-shell`),**复用现有组件结构,不大重构**。同时引入 Tailwind CSS 4,为后续 P1 spec(provider-config / multi-agent / skill-system / mcp-integration)的页面落地铺好基础。
 
 ---
 
@@ -149,7 +149,7 @@ bun add -D tailwindcss @tailwindcss/vite
 
 ## 5. 设计师代码包速查
 
-设计师代码:`/Users/huowenkai/Desktop/projects/Octo-AI-UI/octo-client-shell`
+设计师代码:`/Users/huowenkai/projects/Octo-AI-UI/octo-client-shell`
 
 关键文件:
 
@@ -188,11 +188,11 @@ bun add -D tailwindcss @tailwindcss/vite
 如果要丢给 Codex CLI / Antigravity 等工具,直接复制下面这段:
 
 ```
-我在 /Users/huowenkai/Desktop/projects/octo-agent 这个 Vue 3 + Electron 项目里需要做 UI 风格刷新。
+我在 /Users/huowenkai/projects/octo-agent 这个 Vue 3 + Electron 项目里需要做 UI 风格刷新。
 
 任务详细要求见 docs/specs/ui/octo-ui-redesign-brief.md。
 
-设计师参考代码在 /Users/huowenkai/Desktop/projects/Octo-AI-UI/octo-client-shell(React + Tailwind 4,只看视觉,不抄逻辑)。
+设计师参考代码在 /Users/huowenkai/projects/Octo-AI-UI/octo-client-shell(React + Tailwind 4,只看视觉,不抄逻辑)。
 
 约束:
 1. 严格遵守 brief 的"必须做 / 不要做"清单
