@@ -134,6 +134,17 @@ opencode 源没改时第一次跑过即可(后续 dev 仍重复)。
 
 > insight 自带运行时调试工具(`window.octoDebug` / `[octo:*]` 日志 / 错误信标),用法与日志字典见 [insight-debugging.md](insight-debugging.md)。
 
+#### 日常 debug 工作流(内网→外网)
+
+排查方(Claude / 外网同事)读不到你运行中 app 的 console——内网现场只能由你"递"出去,且通常**只能复制文本段落**。标准流程按省事程度,从上往下试:
+
+1. **先看错误信标(首选,日常 90%)**:出错后敲 `octoDebug.lastError()` → 自动捕获的「HTTP 失败 + 响应体 / 未捕获异常 / 整页崩」精炼成一小段纯文本,自动复制到剪贴板。**整页崩**(白屏、console 够不着)时,页面 fallback 直接给「复制错误」按钮。信标同步落 `localStorage`、**跨刷新/重启/崩溃**,所以哪怕用户已经刷新也还在。
+2. **要更全的 SSE 上下文再补**:`octoDebug.snapshot()`(缺省=最近一次发送→现在),顶部自带 `why()` 初判。怀疑某症状就带 `profile`(`no-feedback`/`stuck`/`errors`/`blank`/`upload`)。
+3. **怀疑问题在埋点之外**:回查全量落盘 `insight-debug.log`(渲染崩溃前 / 偶现的也在),按时间或 `messageID` 搜。
+4. **递给外网**:把上面任一步复制出的纯文本(剪贴板可外发)贴给 Claude → 对照 [insight-debugging.md](insight-debugging.md) 的日志字典 + 症状表定位。
+
+> 工作流 SOT 在 [insight-debug-toolkit.md §3](specs/ui/insight-debug-toolkit.md)(取数流程)+ §9(错误信标);命令字典、`why()` 规则、症状对照表在 [insight-debugging.md](insight-debugging.md)。本节只给入口,不重复细节。
+
 ---
 
 ## 4. 构建与打包

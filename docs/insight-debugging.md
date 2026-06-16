@@ -324,6 +324,7 @@
 | `octoDebug.pending()` | 当前未回复的 permission / question——排查「卡住不动」(§2.2-D)直接看这个 |
 | **`octoDebug.why()`** | **速诊**:对照 6 条规则自动分析当前现场,给「最可能方向 + 看哪条 + 下一步」(详见 §3.2) |
 | **`octoDebug.snapshot(opts?)`** | **一键参数化现场快照**,输出紧凑文本并复制到剪贴板(详见 §3.3) |
+| **`octoDebug.lastError(n=1)`** | **错误信标(事故黑匣子)**:带出最近 n 条**自动捕获**的 HTTP 失败(含响应体)/ 未捕获异常 / 整页崩,输出纯文本并复制到剪贴板(详见 §3.4) |
 | `octoDebug.mode('quiet'\|'compact'\|'verbose')` | 切 `[octo:event]` 日志详尽度(默认 `compact`) |
 | `octoDebug.verbose(true\|false)` | `verbose` 开关(等价 `mode`):`true` 逐条打 delta + 全部噪音事件,`false` 回 compact |
 
@@ -388,6 +389,18 @@
 | `upload` | §2.4 上传失败 | 含 `[octo:upload]` 前缀的全部来源(console.log 链路 + console.error/warn) |
 
 常用组合:`snapshot({profile:'no-feedback'})` / `snapshot({last:'2m', profile:'errors'})` / `snapshot({full:true})`。
+
+### 3.4 `octoDebug.lastError(n=1)` —— 错误信标 / 事故黑匣子(阶段 4)
+
+`snapshot` 是**人工**抓 SSE 上下文;`lastError` 是**自动**抓「真实高频 bug」——**HTTP 4xx/5xx(含响应体)、未捕获异常、整页崩**。三类信号在出错那一刻就被写进 `localStorage`(key `octo:insight:error-beacons`,环形最近 5 条;**同步写,抗刷新/抗关 app/抗整页崩**)。
+
+- **取数**:`octoDebug.lastError()` 带最近 1 条、`lastError(5)` 带 5 条 → 纯文本 + 自动复制到剪贴板 → 直接粘给 Claude 定位。
+- **整页崩时**:console 往往够不着(白屏),insight 自己的 `ErrorBoundary` fallback 会显示一个**「复制错误」按钮**(等价 `lastError()`),崩溃态也能一键带出。
+- **每条带** `directory` + `sessionID`(出错时的上下文)。HTTP 条目含 `method`/`url`/`status`/响应体(截断 ~2KB);异常/整页崩条目含 `message`/`stack`。
+- **与 snapshot 的分工**:日常出错**先看 `lastError()`**(精炼、不用懂);要更全的 SSE 上下文再 `snapshot()` 补。
+- 来源 [lib/error-beacon.ts](../packages/app/src/pages/insight/lib/error-beacon.ts)。
+
+> 这是 SPEC-INS-011 §1.4 方向纠偏的产物:此前观测维度押在 SSE,但真实高频 bug 是「HTTP 失败 + 异常 + 整页崩」,完全在 SSE 维度之外。
 
 ---
 
