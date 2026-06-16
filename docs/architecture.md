@@ -93,7 +93,7 @@ UI 改动按下表从上往下依次尝试,绝不无理由下沉。
 
 上游 `@opencode-ai/ui` 的 CSS 变量(`--background-base`、`--text-base` 等)随主题切换变化,且浅色模式下对比度不足(如 `--text-base: #6f6f6f` 与 `--background-base: #f8f8f8` 几乎无差),不适合 Octo 浅色单版设计稿。
 
-**决策:Octo 页面与 Shell 维护一套独立的 `--octo-*` 设计 token,与上游 token 完全隔离。** 定义在 [`octoapp/pages/insight/octo-tokens.css`](../packages/app/octoapp/pages/insight/octo-tokens.css),`:root` 下声明品牌色 / 文字 / 表面 / 边框 / markdown 排版等具名变量,所有 Octo 组件通过 `var(--octo-*)` 引用,不直接写颜色值。原因:
+**决策:Octo 页面与 Shell 维护一套独立的 `--octo-*` 设计 token,与上游 token 完全隔离。** 定义在 `packages/app/octoapp/pages/insight/octo-tokens.css`,`:root` 下声明品牌色 / 文字 / 表面 / 边框 / markdown 排版等具名变量,所有 Octo 组件通过 `var(--octo-*)` 引用,不直接写颜色值。原因:
 
 1. 与上游 token 隔离,主题切换不影响 Octo 浅色设计稿的预期表现
 2. 集中一处定义,改色 / 对齐设计稿只改 token 表,不散落各组件
