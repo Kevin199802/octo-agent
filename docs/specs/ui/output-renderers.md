@@ -26,14 +26,17 @@
 
 ---
 
-## 0.1 两类卡片来源 — 职责边界(原 §0)
+## 0.1 卡片来源 — 职责边界(原 §0)
 
-OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 / 收敛策略都不同。改 detect / 渲染逻辑前必须先认清属于哪条路径:
+OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 / 收敛策略都不同。改 detect / 渲染逻辑前必须先认清属于哪条路径:
 
 | 路径 | 来源 | 触发机制 | 可靠性 | 收敛方向 |
 |---|---|---|---|---|
 | **A. MCP 强契约** | MCP tool 返回的 `resource_link` part | 严格按 [mcp-contract.md §completed](../agents/mcp-contract.md) 解析 `content[].type === "resource_link"`，**零嗅探** | 高（契约强约束）| 持续扩展业务工具白名单 |
 | **B. 自由文本嗅探** | assistant text part 里的 LLM 自由输出 | 启发式（html fence / mindmap shape）兜底 | 中（业界 IDE 类工具标配，永远漏） | **窄而准**：仅 html fence / mindmap shape 确定性场景；不再 length 兜底，**也不再嗅探 md 表格**(2026-06) |
+| **C. write 工具产物** | Agent 调 `write` 工具写到本地的文件 | 严格按 `type:"tool"` + `tool === write` + `state.status:"completed"` 解析,按 `state.input.filePath` **扩展名**路由,**零嗅探** | 高（tool part 强信号）| **全部出卡**:文本→应用内预览(md/html/json/code),表格/office/二进制→file 卡拉本地应用 |
+
+> **路径 C 是 2026-06 新增**(详见 §2.6)。动机:Agent 用 `write` 工具写本地分析文档 / 可视化 HTML 时,与 MCP `resource_link` 产物对等,也应给出预览入口卡——但内容在**本地磁盘**(不是内网 S3),靠 opencode SDK `file.read({ path })` 读盘,**不走 http fetch**。
 
 **路径 A 内部还分两类**(by [insight-references.md](insight-references.md)):
 - **A1. 产物型(artifact)** — `_octoDisplay` 缺省或 `"artifact"` → 本 spec 的 OutputCard 大卡
@@ -62,7 +65,7 @@ OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 
 
 ## 1. 输出类型 taxonomy
 
-当前支持 6 种 OutputCard 类型（与 6 个提示词模板的对应见 [insight-analysis-mode.md §2](insight-analysis-mode.md)）：
+当前支持 7 种 OutputCard 类型（前 6 种与 6 个提示词模板的对应见 [insight-analysis-mode.md §2](insight-analysis-mode.md)；`code` 为路径 C 新增）：
 
 | 类型 | 触发模板 / 来源 | 服务端返回形态 | 入口卡文案 | 渲染器（ResultViewer 内） | 状态 |
 |---|---|---|---|---|---|
@@ -72,6 +75,7 @@ OutputCard 入口卡有两条**完全独立**的生成路径,机制 / 可靠性 
 | `markdown` | 用研知识问答 + 走 MCP `text/markdown` resource_link | Markdown 纯文本 | Markdown 文档 | MarkdownRenderer（复用上游 `<Markdown>`）| ✅ 已实现 |
 | `json` | 路径 A `application/json` resource_link（非 mindmap shape）/ 路径 B 嗅探到独立 JSON | JSON 字符串 | JSON 数据 | JsonRenderer（**上游 `<Markdown>` ```json fence 获 shiki 高亮**） | ✅ 已实现 |
 | `file` | 路径 A Office / PDF / 图片 / 二进制 resource_link | 二进制 URI | 文件名 | FileFallback（"用本地应用打开"+"下载"双按钮）| ✅ 已实现 |
+| `code` | **路径 C** write 工具写的代码/纯文本(.py/.ts/.txt/.sql/无扩展名…;csv/office/二进制走 `file`) | 本地文本文件 | 文件名 | SourceCodeView(上游 `<Markdown>` ```lang fence 获 shiki 高亮,lang 按扩展名 `langFromPath`)单视图 | ✅ 已实现 |
 
 **视图切换(预览/代码) — 单卡内切换,取代旧"双卡"(2026-05-30 调整)**：
 
@@ -267,7 +271,7 @@ opencode 将 MCP `CallToolResult.content[]` 中的 `resource_link` 项作为独�
 |---|---|---|
 | `text/html` | `html` | fetch URI → 拿到 HTML → 走 HtmlRenderer 的 iframe sandbox（§5）|
 | `text/markdown` | `markdown` | fetch URI → 走 MarkdownRenderer。**含上游原 docx 文档产物**——2026-06 起 UXR 把原以 docx 返回的文档类产物改为 `text/markdown` 返回(详见 [mcp-contract.md](../agents/mcp-contract.md))，故走 markdown 卡(可应用内预览)而非 file fallback。后续将在此卡支持编辑(见 [insight-markdown-editor.md](insight-markdown-editor.md))|
-| `application/json` | `json` | fetch URI → 走 JsonRenderer(shiki 高亮)。**不做二次判断 retype**——是不是 mindmap 由服务端 `business_type` 显式声明,客户端不再嗅探 |
+| `application/json` | `mindmap` | fetch URI → 走 mindmap 卡:`isMindmapJSON` 真→markmap,否则降级 json 源(shiki)。**2026-06 起统一走 mindmap 卡**(与路径 C `.json` 一套规则);`business_type:"mindmap"` 也汇到这里。普通 json 数据点开看到的是降级的 json 源视图,等价于旧 json 卡 + 一个预览/代码切换 |
 | `text/csv` | `table` | fetch URI → 转 Markdown 表格 → 走 TableRenderer |
 | Office（xlsx / pptx）/ PDF / 图片 / 二进制 | `file` | 不在 ResultViewer 内渲染，FileFallback 提供**双按钮**：①「用本地应用打开」`download-resource` IPC → 落地临时文件 → `window.api.openPath` 唤起 OS 关联应用（Excel/WPS/Numbers）②「下载到本地」`window.api.saveFilePicker` 用户选目录 → 落地。详见 §5 + [ADR-009](../../adr/009-no-office-preview.md)。**注**：docx 文档产物 2026-06 起改以 `text/markdown` 返回(见上一行)，不再走 file fallback |
 | 其他未识别 | `file` fallback | 同上双按钮 |
@@ -346,6 +350,187 @@ async function loadResourceText(uri: string): Promise<string> {
 | URI 网络不可达（404 / 超时） | OutputCard 显示"加载失败，点击重试"占位，ActionBar 提供"复制链接"按钮供手动排查 |
 | mimeType 未识别 | 走 `file` fallback，仅提供下载链接 |
 | `resource_link` 缺 `mimeType` 字段 | 视作 `application/octet-stream` → `file` fallback；日志输出 `[mcp:invalid-resource]` 警告 |
+
+---
+
+## 2.6 write 工具产物来源（路径 C —— 本地文件出卡）
+
+> 2026-06 新增。与 §2.5（MCP resource_link）平行的第三条出卡路径。两者都是"强信号、零嗅探",区别仅在**内容位置**:resource_link 指向内网 S3 URI(http fetch),write 产物在**本地磁盘**(SDK `file.read` 读盘)。
+
+### 2.6.1 规则总览(权威分类,SOT)
+
+Agent 用写文件工具(opencode `write` 新建 / `edit` 修改)把分析结论、可视化页面、脚本、数据表写到本地时,用户应能在应用内查看或拉本地应用打开。
+
+**核心原则:write 产物全部出卡。** 与路径 B(对话里 LLM 直出的代码段,内容已在对话区有 shiki 高亮,故不升级)不同——write 产物的文件内容**根本不在对话流里**(对话区只有"写入 xxx"摘要),出卡是查看该文件的**唯一入口**。`extToOutputType` 不返回 `null`,按"**哪种查看方式对用户最好**"分三类:
+
+| 类 | OutputCardType | 查看方式 | 判据 |
+|---|---|---|---|
+| **应用内渲染** | `markdown` / `html` / `mindmap` | 专用 renderer(预览/代码切换) | 我们渲染得好的格式 |
+| **应用内代码预览** | `code` | `SourceCodeView` shiki 高亮 | 能读到文本内容的代码/配置/纯文本(编辑器不一定人人装,内预览兜底) |
+| **拉本地应用** | `file` | FileFallback 本地打开 / 文件夹打开 | office/表格/图片/媒体等,应用内渲染无价值或无法渲染(用户多半装了 Excel/Numbers 等) |
+
+**扩展名清单(代码实现 SOT 在 [write-output.ts](../../../packages/app/src/pages/insight/utils/write-output.ts),改这里务必同步):**
+
+| OutputCardType | 扩展名 |
+|---|---|
+| `markdown` | `md` `markdown` `mdown` `mkd` |
+| `html` | `html` `htm` `xhtml` |
+| `mindmap`(json) | `json`(是思维导图 shape→markmap,否则降级 json 源) |
+| `file`(拉本地应用) | **表格** `csv` `tsv` `xls` `xlsx` `xlsm` `xlsb` `ods` · **文档** `doc` `docx` `ppt` `pptx` `odt` `odp` `rtf` `pdf` `pages` `numbers` `key` `epub` · **图片** `png` `jpg` `jpeg` `gif` `webp` `bmp` `tiff` `tif` `ico` `svg` `heic` `heif` `avif` `psd` `ai` `sketch` `fig` · **音视频** `mp4` `mov` `avi` `mkv` `webm` `flv` `wmv` `m4v` `mp3` `wav` `flac` `m4a` `aac` `ogg` `opus` · **压缩/镜像/包** `zip` `tar` `gz` `tgz` `bz2` `xz` `zst` `rar` `7z` `iso` `dmg` `pkg` `deb` `rpm` `msi` `apk` · **字体** `woff` `woff2` `ttf` `otf` `eot` · **可执行/库** `exe` `dll` `so` `dylib` `bin` `o` `a` `lib` `obj` `class` `wasm` `app` |
+| `code`(兜底) | **以上之外的一切**:`py` `ts` `tsx` `js` `jsx` `go` `rs` `c` `h` `cpp` `cc` `cxx` `hpp` `cs` `java` `kt` `swift` `rb` `php` `lua` `r` `sql` `sh` `bash` `yaml` `toml` `xml` `css` `scss` `vue` … + 无扩展名(Makefile/Dockerfile)+ 未知扩展名 |
+
+> **设计要点:`code` 是兜底,不靠穷举。** 只需把 `file`(office/二进制)和 `markdown`/`html`/`json` 列全,**其余一律 `code`**——新语言、冷门扩展名零维护自动走代码预览。这样"任何能读到文本的代码/配置文件都能内预览",不用一个个补。
+>
+> **`canOpenLocally`**:`file` 卡里可执行/库类(`exe` `dll` `so` `dylib` `bin` `o` `a` `lib` `obj` `class` `wasm`)隐藏"本地打开",只留"文件夹打开"(唤起无意义/不安全)。
+>
+> **为什么 `.json` 走 mindmap**:write 产物无 `business_type`(不像路径 A),出卡阶段也拿不到内容(只有 path)。统一走 mindmap 卡 + 渲染时 `isMindmapJSON` 判断 = "是思维导图就可视化,不是就退回 json 源",无需出卡前读盘。与 §2.5.2「路径 A 内容违约兜底」对称,也让 A/C 的 json 一套规则。
+>
+> **为什么 `.csv` 走 file 而路径 A 的 `text/csv` 走 table**:A/C **唯一的来源差异**(见 §2.6.8)。路径 A 的 csv 是服务端业务分析表格(应用内 TableRenderer + Excel 导出,成熟);路径 C 的 csv 是 Agent 写的原始逗号数据,TableRenderer 渲染不了,用 Excel/Numbers 打开更好。
+
+#### 已知边界
+
+1. **真二进制 write 出来是损坏的**:`write` 工具 content 是**字符串**,写不出有效的 `.xlsx`/`.docx`/图片等二进制——出 file 卡能点"本地打开"但 Excel 会报损坏。**这是 write 工具的固有限制**:要真正生成 xlsx,Agent 得用脚本(python `openpyxl` 等),那属下一条。
+2. **脚本(bash/python)产生的文件抓不到**:`findWriteCards` 只认 `write`/`edit` tool part;Agent 用 `bash`(`cat > x.cpp` / 跑 python 生成 xlsx)产生的文件不是写文件 tool part,**无法可靠识别**(bash 输出里扒路径太脆弱),目前不出卡。如需覆盖再议(见 ROADMAP)。
+
+### 2.6.2 触发与解析
+
+```
+对于每条 assistant 消息的 parts:
+  收集所有满足以下条件的 tool part:
+    p.type === "tool"
+    && bareTool(p.tool) ∈ {write, edit}        // 防御前缀: 结尾 _write / _edit、mcp:write 等
+    && p.state.status === "completed"
+  对每个命中:
+    filePath = p.state.input.filePath          // 防御读: filePath ?? path ?? file_path
+    type = extToOutputType(filePath)           // 扩展名 → OutputCardType(不返回 null,全部出卡)
+    建一张 OutputCard { source: "path", filePath, type }
+  同一 filePath 多次写(覆盖) → 去重保留最后一次(内容读盘总取最新,只需避免重复卡)
+```
+
+`extToOutputType` 实现见 §2.6.1 清单。与 §2.5.2 `mimeToOutputType` 的差异:mimeType 未识别兜底到 `file`,路径 C 未识别(文本)兜底到 `code`(应用内预览)。
+
+### 2.6.3 内容来源:本地读盘(不是 fetch)
+
+路径 A 渲染时 `fetch(uri)` 拉内网 S3。路径 C 文件在本地,改用 opencode SDK:
+
+```ts
+// sdk.client.file.read({ path }) → FileContent { type: "text"|"binary", content, mimeType }
+const res = await sdk.client.file.read({ path: filePath })
+const data = res.data as unknown
+const text = typeof data === "string" ? data : ((data as { content?: string })?.content ?? "")
+```
+
+- 已有先例:[review-tab.tsx](../../../packages/app/src/pages/session/review-tab.tsx) 的 `readFile` 即走 `sdk.client.file.read`(传 `{ path }` 而非 `{ query: { path } }`,客户端封装已处理)。
+- **零新增 IPC / preload**——这是选「读本地文件路径」而非「快照 part.content」的关键收益:**tab 挂载时读盘 = 拿当前磁盘内容**,文件被后续 write 覆盖后、关掉 tab 重开(组件重挂)即反映最新。
+- **`createResource` 的 source 必须返回稳定的 path 字符串(不能返回新对象字面量)**:否则 `onCacheContent` 回写 content → `props.tab` 换新对象引用 → source 重跑返回新对象 → createResource 按引用判不等 → 重新 fetch → 又回写 → **死循环**(path 分支用 `Match source==="path"` 常挂载,不像 uri 分支缓存后被父层 `Show !content` 卸载而自然断开)。返回 `props.tab.filePath` 这个 string、id 在 fetcher 里用闭包 `props.tab.id` 取,即可让值相等检查阻止重 fetch。
+- 缓存:读到后 `onCacheContent(tab.id, text)` 回写 store,供 ActionBar 复制/下载取内容。同一 `(filePath, type)` 再次点入口卡走 openTab 去重激活已有 tab(不重挂、不重读,与 uri 行为一致);要看覆盖后的新内容关掉 tab 重开即可。
+
+### 2.6.4 OutputCard / ResultTab 的 `source: "path"` 扩展
+
+§2.5.3 的 `OutputCard` 增加第三种 source:
+
+```ts
+export type OutputCard = {
+  // ...现有字段...
+  source: "inline" | "uri" | "path"   // 新增 "path"
+  filePath?: string                    // source === "path" 时必填(write 的目标路径)
+  // uri / mimeType 仅 source === "uri" 用;content 仅 source === "inline" 用
+}
+```
+
+`tab-store.ts` 的 `ResultTab` 同步加 `filePath` 与 `"path"` source;ResultViewer 加 `PathTabBody`(对照现有 `UriTabBody`),区别只是把 `fetchResourceText(uri)` 换成 `sdk.client.file.read({ path })`(返回 `FileContent` 取 `.content`,兼容直返 string),拿到 text 后走与 uri 模式**完全相同**的按 type 分发(markdown/html/json/code renderer)。
+
+> **path 源的 `file` 类型卡不读盘**:csv/xlsx/二进制走 file 卡,内容是二进制 / 无应用内渲染价值,`TabBody` 的 path 分支条件加 `&& type !== "file"`,file 类型直接 fallback 到 `TabContent` → `FileFallback`(见 §2.6.8)。
+
+卡片标题取 `basename(filePath)`(如 `分析结论.md`),`fileName` 也设为 basename(供入口卡按扩展名命中图标 + file 卡下载默认名)。
+
+### 2.6.4.1 path 源的本地打开能力(file 卡 + 预览卡)
+
+write 产物在**本地磁盘**,有 `filePath`——所以"用本地应用打开 / 文件夹中打开"对 path 源**比路径 A 还简单**(不用 `downloadResourceToTemp` 先下载,直接传本地路径):
+
+| 能力 | path 源(write 产物) | uri 源(MCP 产物) |
+|---|---|---|
+| 用本地应用打开 | `openPath(filePath)` 直接 | `downloadResourceToTemp(uri,…)` → `openPath(tempPath)` |
+| 文件夹中打开 | `showItemInFolder(filePath)` 直接 | 先 download-to-temp 再 reveal |
+| 另存为 | **不支持**(无本地文件复制 IPC;文件已在磁盘,用"文件夹中打开"代替) | `saveFilePicker` → `downloadResource(uri,dest)` |
+
+- **file 卡**(csv/office/二进制):`FileFallback` 按 `tab.source === "path"` 走本地分支——「本地打开」`openPath(filePath)`(`canOpenLocally(filePath)` 为 false 的可执行/库类隐藏此按钮)、「文件夹打开」`showItemInFolder(filePath)`、**无另存为**。
+- **预览卡**(md/html/mindmap/code):内容已在应用内预览,`ActionBar` 对 path 源**额外**给「本地打开 / 文件夹打开」两个小按钮(方便用 Typora / VSCode 等原生应用编辑)。零成本(同样直接传 filePath)。
+
+### 2.6.5 与路径 A/B 的优先级
+
+`outputCards` memo 的合并次序(在 [insight-turn.tsx](../../../packages/app/src/pages/insight/components/insight-turn.tsx) 实现):
+
+```
+1. taskCards.length > 0  → return [](长任务卡接管,见 task-card.md §3.4)
+2. links = findResourceLinks(parts)   (路径 A)
+   writes = findWriteCards(parts)     (路径 C)
+   若 links.length || writes.length → return [...links, ...writes]   // A 与 C 并列追加,不互斥
+3. 否则走路径 B 嗅探(html fence / mindmap)
+```
+
+- **A 与 C 并列**:resource_link 来自 MCP、write 来自 tool part,来源不重叠,同 turn 都有就都出(各自的卡)。
+- **C 抢占 B**:write 是强信号,命中后不再跑路径 B 嗅探(同 A 抢占 B 的逻辑)。
+- 改路径 C 不影响 A/B,反之亦然(三条解析逻辑独立)。
+
+### 2.6.6 console 调试埋点(路径 C)
+
+| tag | 触发点 | 字段 |
+|---|---|---|
+| `[octo:write-card] scan` | findWriteCards 每条消息(只要有 tool part 就打) | cardCount / cards / **toolParts**(每个工具 part 的 tool/status/filePath/判定 type/skip 原因)——"写了文件却不出卡"时看这条定位是哪一环断的 |
+| `[octo:path] read start/ok/error` | PathTabBody 读盘(预览卡) | path / bytes / err |
+| `[octo:path] open-local` / `open-failed` | file 卡 / ActionBar 本地打开 | filePath / reason |
+| `[octo:path] reveal-local` / `reveal-failed` | 文件夹中打开 | filePath |
+
+### 2.6.7 人工验证步骤
+
+> 前置:insight 页面能正常对话;opencode server 的工作目录能访问到 write 的目标路径(相对路径相对 server cwd,联调出 `[octo:path] read error` 时改用绝对路径)。桌面壳需有 `openPath` / `showItemInFolder`。
+
+| # | 操作 | 预期 |
+|---|---|---|
+| 1 | 让 Agent「用 write 写 `测试报告.md`,含三级标题」 | 出入口卡(md 图标);点开右栏 markdown 渲染,「预览/代码」可切换;ActionBar 有 复制/下载 + **本地打开/文件夹打开**;控制台 `[octo:write-card] found` `[octo:path] read ok` |
+| 2 | 让它写 `.html` | 出卡 → iframe 预览,可切源 |
+| 3 | 让它写思维导图 shape 的 `.json`(单根 `{name,children}` 或双层数组) | 出卡 → 点开 **markmap 思维导图**,切代码看原始 json |
+| 4 | 让它写**普通数据** `.json`(非 mindmap) | 出卡 → 点开退回 json 源视图(不报错/不空白) |
+| 5 | 让它写 `.py` / `.txt` / `.sql` | 出 `code` 卡 → shiki 高亮;ActionBar 有"本地打开/文件夹打开"(可用 VSCode 打开) |
+| 6 | 让它写 `.cpp` / `.py` / 任意冷门代码扩展名 | 出 `code` 卡 → shiki 高亮(冷门语言走 text 也正常显示);**验证"任何文本都内预览"兜底** |
+| 7 | 让它写 `.csv`(关键:表格走本地) | 出 **file 卡** → 「本地打开」唤起 Excel/Numbers、「文件夹打开」定位;控制台 `[octo:path] open-local` |
+| 8 | path 源 file 卡 | **没有「另存为/下载」按钮**(本地无复制 IPC,与 uri 源区分);uri 源 MCP 产物仍有另存为 |
+| 9 | 写 `a.md` → 覆盖写新内容 → **关 tab** 再点入口卡重开 | 显示**最新内容**(组件重挂重读);同一 tab 反复点是去重激活、沿用已读 |
+| 10 | (若有 MCP 业务工具)同轮既触发 resource_link 又触发 write | 两类卡**并列**,互不顶替(§2.6.5) |
+
+> **关于 `.xlsx`/`.docx` 等真二进制**:见 §2.6.1 已知边界——`write` 写不出有效二进制,出卡能点本地打开但文件损坏;Agent 用 python 生成的则是 bash 产物,当前抓不到。**这两种都不是路径 C 的 bug,是工具能力边界**,验证时不必纠结。
+>
+> **纯逻辑单测**:`extToOutputType`(md/html→渲染 / `.json`→mindmap / 任意代码→code / office-二进制→file)、`canOpenLocally`、`langFromPath`、`basename`、`findWriteCards`(全部出卡 / write+edit 工具 / 去重 / 防御字段)见 `packages/app/src/pages/insight/utils/write-output.test.ts`(19 cases),与 §2.6.1~§2.6.2 对齐。
+
+### 2.6.8 路径 A(MCP 产物)vs 路径 C(write 产物)规则对照
+
+> 两条路径**共用同一套渲染体系**(同一组 OutputCardType + 同一组 renderer + 同一 tab-store),差异只在"内容从哪来"和由此派生的少数按钮。
+
+**共用规则(完全一致):**
+
+| 维度 | 规则 |
+|---|---|
+| 卡类型体系 | 同一组 `OutputCardType`(table/mindmap/markdown/html/json/file/code) |
+| html / markdown | text/html ↔ `.html` → html 卡;text/markdown ↔ `.md` → markdown 卡 |
+| json / 思维导图 | application/json ↔ `.json` → **mindmap 卡**(`isMindmapJSON` 真→markmap,否则降级 json 源);business_type:"mindmap" 也汇入 |
+| 二进制(office/pdf/图片/媒体) | → `file` 卡,FileFallback 本地应用打开 + 文件夹打开 |
+| 视图切换 / 渲染器 | mindmap/html/table/markdown 的「预览/代码」切换、各 renderer 完全共用 |
+| 出卡并列 | 同 turn A、C 卡并列追加,互不顶替;长任务卡(taskCards)优先接管 |
+
+**差异规则(来源决定,刻意保留):**
+
+| 维度 | 路径 A(`source:"uri"` MCP 产物) | 路径 C(`source:"path"` write 产物) |
+|---|---|---|
+| 内容位置 | 内网 S3 URI | 本地磁盘 filePath |
+| 取内容 | `fetch(uri)`(http) | `sdk.client.file.read({ path })`(读盘) |
+| **csv** | `text/csv` → **table 卡**(业务分析表格,应用内渲染 + Excel 导出) | `.csv` → **file 卡**(原始数据,拉本地 Excel/Numbers) |
+| **code 类型** | 无(MCP 不返回代码文件) | 有(任意代码/文本 → code 卡 shiki 预览,兜底) |
+| 触发工具 | MCP tool 返回 resource_link | `write`(新建)/ `edit`(修改)tool part;bash/python 产物抓不到 |
+| 用本地应用打开 | 先 `downloadResourceToTemp` 下载再 `openPath` | `openPath(filePath)` 直接 |
+| **另存为** | ✅ `saveFilePicker` → `downloadResource` | ❌ 不支持(无本地复制 IPC),用「文件夹中打开」代替 |
+| 预览卡本地打开 | ❌(无本地文件,要先下载) | ✅ ActionBar 额外给「本地打开/文件夹打开」 |
+| 缓存 | session 内 URI 懒缓存(§2.5.5) | tab 挂载时读盘;关 tab 重开则重读 |
 
 ---
 
