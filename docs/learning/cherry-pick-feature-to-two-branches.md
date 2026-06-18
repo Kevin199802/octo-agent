@@ -26,6 +26,8 @@ cherry-pick 是把"某个提交引入的 diff"重放到目标分支的 tip 上�
    ```
    本案 7 个已存在文件 main 全是 0 → 干净。
 
+> **核查要对每一个 base 分支都做一遍,别只查你以为会冲突的那个。** 本案教训:cherry-pick 到 `main` 零冲突(main 没动过那些文件),但"现成特性分支直接 merge 到 `dev`"反而冲突了——因为 `dev` 也前进了 179 个提交,其中有人在 `registry.ts` 紧挨着我们的位置加了另一个工具。**会不会冲突取决于"那条目标分支自共同祖先以来动没动过这些文件",跟你用 cherry-pick 还是 merge 无关。** 所以 main 和 dev 两侧都要各查一遍。
+
 > 注意 merge-base 可能很老:`main` 自共同祖先以来可能已经前进了几十个文件。"diff 只有 +457"是 **3-dot**(`main...feat`,以 merge-base 为基准)给的假象,不代表 main 没前进。判冲突要看的是 **main 有没有动过特性碰的那几个具体文件**,不是看特性 diff 大小。
 
 ## 什么时候**别**用 cherry-pick(改用 merge / rebase)
@@ -56,7 +58,18 @@ git worktree remove /tmp/wt-xxx                              # 用完即删,原�
 
 要点:
 - cherry-pick 只摘**非 merge 的真实提交**(`git log --no-merges base..feat`),顺序老→新。
-- 给 dev 的那个 PR 通常**不用 cherry-pick**——现成的特性分支本就基于共同祖先,直接 `gh pr create --base dev --head feat/xxx` 即可。
+- 给 dev 的那个 PR 通常**不用 cherry-pick**——现成的特性分支本就基于共同祖先,直接 `gh pr create --base dev --head feat/xxx` 即可。但**若 dev 自共同祖先以来动过特性碰的文件,PR 仍会报冲突**(本案就撞了 `registry.ts`)。解法:在 worktree 里把 `origin/dev` merge 进特性分支、解冲突、push 更新该 PR(不要在 main 工作区操作):
+  ```bash
+  git worktree add /tmp/wt-dev feat/xxx
+  git -C /tmp/wt-dev merge origin/dev --no-edit       # 解冲突
+  git -C /tmp/wt-dev add -A && git -C /tmp/wt-dev commit --no-edit
+  git -C /tmp/wt-dev push origin HEAD:feat/xxx         # 自动更新已开的 PR
+  git worktree remove /tmp/wt-dev
+  ```
+
+### "both-add" 冲突:最良性的一种,两边都留
+
+最常见的冲突是两条分支**各自在相邻位置新增了独立内容**(本案:dev 加 `load_components_docs` 工具,我们加 `knowledge_search`,在 `registry.ts` 的 import/声明/init/列表四处各加一行)。它们语义上毫不相干,git 只是因为行相邻判成重叠。**解法就是把冲突块里两边的新增都保留**(删掉 `<<<<<<< ======= >>>>>>>` 三个标记、两段内容都留),不是二选一。解完用 `grep -n '<<<<<<<\|>>>>>>>'` 确认无残留标记再提交。
 - worktree 让"拉第二个分支"这件事不落到主工作目录,所谓"很乱"不会发生。
 
 ## 分支会不会满天飞?——会,所以要当一次性资源管
