@@ -38,6 +38,7 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 19. [session-category-enum-400-crash.md](session-category-enum-400-crash.md) — 事故复盘:一个 `category="subagent"` 越界值炸掉整个会话列表。effect HttpApi 整列响应编码 / `Schema.Union` 严格枚举 / `fromRow` 的 `as` cast 骗过编译期 / "半截改动"(写入侧类型改了、响应 schema 漏改)/ 空 body 400 指纹 / 前端 `createResource` 无兜底致整页崩 / "db 脏行" vs "WAL 物理 malformed" 两种故障别混 / server 错误日志在 `opencode/log/` 不在 `main.log`
 20. [file-card-depends-on-current-turn-tool-call.md](file-card-depends-on-current-turn-tool-call.md) — insight 文件卡片只渲染"本轮工具返回":模型凭上下文跳过 `get_task_result` 调用 → "详见下方文件卡片"话术与界面脱节;prompt 承诺 UI 存在的话术必须条件化
 21. [mock-server-patterns.md](mock-server-patterns.md) — mock server 两种模式:Vite 插件 middleware(renderer 侧,自动降级)vs 独立进程(Node.js sidecar 侧,显式配置);选型依据、对比表、MSW 定位说明
+22. [cherry-pick-feature-to-two-branches.md](cherry-pick-feature-to-two-branches.md) — 一份自包含功能同时进两条分叉分支(main 打包 / dev 给测试):cherry-pick vs merge 何时干净何时别用 / 冲突只看"目标分支动没动过那几个文件"(每个 base 各验一遍)/ cherry-pick 产生重复 SHA 的副作用 / both-add 冲突两边都留 / git worktree 旁路不污染当前工作区 / feature 分支当一次性资源:auto-delete + fetch --prune + worktree prune 的清理节奏
 
 > 后续可能补:
 >
