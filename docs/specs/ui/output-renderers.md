@@ -72,7 +72,7 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 | `table` | 路径 A `text/csv` resource_link（业务工具产出的表格文件） | CSV → Markdown 表格 | 分析表格 | TableRenderer | ✅ 已实现 |
 | `mindmap` | 思维导图 | JSON 结构（UXR 现有接口） | 思维导图 | MindmapRenderer（markmap-view）+ 预览/代码切换 | ✅ 已实现 |
 | `html` | 未来富展示类 MCP tool（如独立的用户画像/可视化 tool）| HTML 字符串（建议 ```html``` fence 包裹） | 可视化页面 | HtmlRenderer（iframe sandbox）| ✅ 已实现 |
-| `markdown` | 用研知识问答 + 走 MCP `text/markdown` resource_link | Markdown 纯文本 | Markdown 文档 | MarkdownRenderer（复用上游 `<Markdown>`）| ✅ 已实现 |
+| `markdown` | 用研知识问答 + 走 MCP `text/markdown` resource_link | Markdown 纯文本 | Markdown 文档 | MarkdownRenderer（**2026-06 起复用 Vditor 渲染引擎 `MarkdownPreview`**，与全屏编辑器同源、效果一致；~~旧:上游 `<Markdown>`~~，见 [insight-markdown-editor §6.3.1](insight-markdown-editor.md)）| ✅ 已实现 |
 | `json` | 路径 A `application/json` resource_link（非 mindmap shape）/ 路径 B 嗅探到独立 JSON | JSON 字符串 | JSON 数据 | JsonRenderer（**上游 `<Markdown>` ```json fence 获 shiki 高亮**） | ✅ 已实现 |
 | `file` | 路径 A Office / PDF / 图片 / 二进制 resource_link | 二进制 URI | 文件名 | FileFallback（"用本地应用打开"+"下载"双按钮）| ✅ 已实现 |
 | `code` | **路径 C** write 工具写的代码/纯文本(.py/.ts/.txt/.sql/无扩展名…;csv/office/二进制走 `file`) | 本地文本文件 | 文件名 | SourceCodeView(上游 `<Markdown>` ```lang fence 获 shiki 高亮,lang 按扩展名 `langFromPath`)单视图 | ✅ 已实现 |
@@ -92,6 +92,8 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 | `file` | —(不在应用内预览) | —(二进制无源) | ❌ 单视图,且 ActionBar 隐藏复制/下载(交给 FileFallback) |
 
 实现:`ResultTab.viewMode: "preview" \| "source"`(缺省 preview),`tab-store.setViewMode` 更新;`isToggleType()` 判定是否出切换控件;代码态统一走 `SourceCodeView`(把内容包 ```lang fence 喂上游 `<Markdown>` 获 shiki 高亮)。切换控件在 ActionBar 行左侧,与复制/下载同排。
+
+> ⚠️ **`SourceCodeView` 的 `stripCodeFence` 只对 json/html 生效**(2026-06 修):这两类内容可能被 LLM 整段 ```lang 包裹,需剥壳;但 **markdown / code 源不可 strip** —— md 源里合法含代码围栏,`stripCodeFence` 会把整篇抠成第一个围栏的内容(曾致 markdown「代码」视图只剩一行)。markdown 卡「预览」态自 2026-06 改用 Vditor `MarkdownPreview`(与编辑器同源,见 [insight-markdown-editor §6.3.1](insight-markdown-editor.md))。
 
 > **table 卡四视图一致性**:`table` 卡现在**只来自路径 A `text/csv` resource_link**(2026-06 起路径 B 不再嗅探 md 表格,见 §2.1)。其 `content` 是 csv 转换后的 md 表格,本就是纯表格;但 `TableRenderer` / 导出 / 代码态仍统一走 `extractTableMarkdown` 抽表格本体作防御(若上游 csv 前后混入说明行也只呈现表格),四个动作一致:
 > - 预览 `TableRenderer` 抽 `marked` 的 table token;

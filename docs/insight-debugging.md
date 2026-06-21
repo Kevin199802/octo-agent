@@ -29,6 +29,7 @@
 | `[octo:tab]` | [components/result-viewer/tab-store.ts](../packages/app/src/pages/insight/components/result-viewer/tab-store.ts) | 产物 tab 打开 / 去重 |
 | `[octo:office]` | [components/result-viewer/index.tsx](../packages/app/src/pages/insight/components/result-viewer/index.tsx) | Office 文件下载 / 打开 / 另存 / 定位 |
 | `[octo:mindmap]` | [components/result-viewer/mindmap-renderer.tsx](../packages/app/src/pages/insight/components/result-viewer/mindmap-renderer.tsx) | 脑图渲染 |
+| `[octo:mdedit]` | [components/markdown-editor/index.tsx](../packages/app/src/pages/insight/components/markdown-editor/index.tsx) | markdown 全屏编辑器(Vditor):open / save-start / save-ok / save-failed / close([spec](specs/ui/insight-markdown-editor.md)) |
 | `[insight:session-list]` | [components/session-list/index.tsx](../packages/app/src/pages/insight/components/session-list/index.tsx) | 会话重命名 / 删除失败 |
 | `[InsightPage]` | [index.tsx](../packages/app/src/pages/insight/index.tsx) | 兜底 error(session.create / upload 失败) |
 | `[dev:preview]` | [_dev/cards-preview.tsx](../packages/app/src/pages/insight/_dev/cards-preview.tsx) | **仅开发预览页**,mock 不连 SDK,排查线上问题时无视 |
@@ -243,6 +244,7 @@
 - `[octo:tab] openTab / dedupe-by-uri-and-type / dedupe-by-id` — 产物 tab 打开与去重。([components/result-viewer/tab-store.ts](../packages/app/src/pages/insight/components/result-viewer/tab-store.ts))
 - `[octo:office] download-start/ok · open-path/failed · saveas-* · reveal-*` — Office 文件下载、`window.api.openPath` 唤起本地应用、另存、文件夹定位。([components/result-viewer/index.tsx](../packages/app/src/pages/insight/components/result-viewer/index.tsx))
 - `[octo:mindmap] render failed` — 脑图渲染失败,带 `mdPreview` 前 200 字。([components/result-viewer/mindmap-renderer.tsx:36](../packages/app/src/pages/insight/components/result-viewer/mindmap-renderer.tsx#L36))
+- `[octo:mdedit] open · save-start/ok/failed · close` — markdown 全屏编辑器(Vditor):进入(含 `path`/`persistent`)、自动保存防抖写盘(含 `path`/`bytes`)、关闭回写 tab。写盘走新增 `window.api.writeFile`(主进程校验:`.octo/downloads`/临时目录,或白名单外但已存在的普通文件——覆盖 write 工具产物)。`open-failed` = 定位本地文件失败(uri 未落地 / inline 无本地文件)。**不做「还原初始内容」**(要回原始版本重新从 MCP 下载即可)。([components/markdown-editor/index.tsx](../packages/app/src/pages/insight/components/markdown-editor/index.tsx))
 - `[insight:session-list] rename failed / delete failed` — 会话重命名 / 删除失败。([components/session-list/index.tsx](../packages/app/src/pages/insight/components/session-list/index.tsx))
 
 ---
