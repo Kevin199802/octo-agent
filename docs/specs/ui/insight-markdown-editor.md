@@ -216,6 +216,7 @@ Vditor 默认运行时从公网 CDN（`https://unpkg.com/vditor@x`）按需加�
 **工具栏 tooltip**：Vditor 自带 tooltip = `.vditor-tooltipped::after { content: attr(aria-label) }`，但默认多**朝上**（`__n/__ne/__nw`：`bottom:100%`），工具栏在编辑器顶部 → 气泡向上溢出被顶栏 / `overflow:hidden` 裁掉看不到。
 - ~~曾试「补原生 `title`」~~：Chromium/Electron 原生 title 气泡不稳定（闪一下就消失、再 hover 不复现），且与 Vditor 的 `::after` 气泡打架，**放弃**。
 - 落地做法：**CSS 把工具栏 tooltip 强制朝下**（`.octo-md-editor-host .vditor-toolbar .vditor-tooltipped::after { top:100%; bottom:auto }` + 隐藏 `::before` 箭头）。气泡本身自带 `z-index:1000000`，朝下后落在内容区、不被裁，hover 稳定显示功能名。在 `octo-tokens.css`。
+- **仅 hover 显示**：Vditor 默认 `:focus`/`:active` 也显示 tooltip，点「导出」展开面板后 tooltip 仍挂着、朝下正好压住下拉项（Markdown/HTML）→ 抑制 `:focus`/`:active`，只留 `:hover`。
 
 落地时**额外去掉**（除上传 `upload`/录音 `record`/`@` 外）：
 
@@ -224,11 +225,14 @@ Vditor 默认运行时从公网 CDN（`https://unpkg.com/vditor@x`）按需加�
 | `content-theme` / `code-theme`（换肤） | 与「跟随 app 明暗」（§6.4）冲突，给用户徒增困惑 |
 | `fullscreen` | 本就是全屏 overlay，且 Vditor 进全屏后无可见退出入口，冗余 |
 | `edit-mode`（所见即所得/即时渲染/分屏） | 固定用分屏 `sv`；纯预览用工具栏末「预览」👁 切换即可。三选项里「所见即所得」「即时渲染」对本场景区分意义不大，去掉减少困惑（撤销 §2.2 顶栏模式切换 + §9 P2 模式偏好持久化） |
-| `export`（Vditor 自带导出） | 其 **PDF 导出走 `window.print()` 会弹系统打印框**（非静默存盘），体验差。改由**顶栏自建「导出 ▾」**，见下 |
 | 预览面板设备/平台切换栏 | `preview.actions: []` 清空 Desktop/Tablet/Mobile-Wechat/知乎/刷新——写作场景用不到 |
 
-**自建「导出 ▾」（顶栏）**：当前只给 **Markdown (.md)**（`vditor.getValue()`）与 **HTML (.html)**（`vditor.getHTML()` 包整页），走浏览器 `<a download>` 落 OS 下载目录。
-- **PDF 暂不做**（用户决策 2026-06）：后续要做时走现成的 `html-to-pdf` IPC（Electron 离屏 `printToPDF`，**静默返回 buffer、不弹打印框**）→ `saveFilePicker` 选位置 → `writeFileBuffer` 存盘。零新增主进程能力。
+**导出 = Vditor 原生入口（工具栏内）+ CSS 隐藏 PDF**（2026-06 修订）：
+- ~~曾改「顶栏自建导出 ▾」~~：放右上角在 **Windows 上与原生窗口控件（最小化/最大化/关闭）位置重合**，弃用。
+- 落地：保留 Vditor 工具栏原生 `export`（在工具栏左侧，不与窗口控件冲突）。其面板是 `.vditor-hint`，含 `<button data-type="markdown|pdf|html">` 三项；**CSS 隐藏 `data-type="pdf"`**（`.octo-md-editor-host .vditor-hint button[data-type="pdf"]{display:none}`），只留 Markdown / HTML。
+- **PDF 暂不做**（其走 `window.print()` 弹系统打印框）：后续要做走现成 `html-to-pdf` IPC（Electron 离屏 `printToPDF`，**静默返回 buffer、不弹打印框**）→ `saveFilePicker` → `writeFileBuffer`。零新增主进程能力。
+
+**顶栏窗口控件避让**：无边框窗口下顶栏作拖拽区，**mac 左侧避让红绿灯（80px）、Windows 右侧避让 titleBarOverlay 控件（138px）**，使文件名/关闭 ✕ 不与原生控件重合；交互按钮设 `-webkit-app-region: no-drag`。
 
 ### 6.3.1 卡片预览与编辑器预览同源（2026-06）
 
@@ -263,7 +267,7 @@ markdown 卡的「预览」态原走上游 `<Markdown>`，与编辑器内的 Vdi
 - **B2 预览一致 + 代码源完整**：卡片「预览」与编辑器预览**渲染效果一致**（Vditor 同源，§6.3.1）；切「代码」显示**完整 md 源**（含代码围栏，不再被 strip 成一行）
 - **C 自动保存**：编辑停手约 1s → 顶栏 `保存中…`→`已保存`；到 `<projectDir>/.octo/downloads/` 下确认**本地 .md 文件真被覆盖写入**且内容一致；重开同卡 / 用「本地应用打开」看到的都是这一份；重开编辑器内容延续
 - **D 兜底**：① 误删后 Cmd+Z 可撤销（不再有「还原初始内容」按钮，§4.2）；② mock writeFile 拒绝 / 文件被占用 → toast「保存失败」+ 状态红 + 内容不丢；③ projectDir 为空 → 落临时目录 + 顶栏提示（不硬禁编辑）
-- **H 导出 / 外链**：顶栏「导出 ▾」→ Markdown / HTML 落盘正常（**无 PDF**，§6.3）；预览里点 http 外链 → **系统浏览器**打开（不在 webview 内导航，§6.5）
+- **H 导出 / 外链**：工具栏原生「导出」→ 面板只有 Markdown / HTML（**PDF 已 CSS 隐藏**，§6.3）；预览里点 http 外链 → **系统浏览器**打开（不在 webview 内导航，§6.5）。Windows 下顶栏右侧不与原生窗口控件重合
 - **E ★ 离线资源（成败项）**：**断网**下打开编辑器 → 代码高亮 / 表格 / 公式 / mermaid / echarts / 流程图 预览全部正常；DevTools Network **无任何 `unpkg.com` / 公网请求**（全走本地 `/vendor/vditor`）
 - **F 主题**：切 app 明暗 → 编辑器与预览主题跟随
 - **G 安全**：内容含 `<script>` / onerror 图片 → 预览不执行（sanitize 生效）；尝试 `../` 文件名 → 写盘被拒
