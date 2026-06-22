@@ -314,7 +314,7 @@ export const PROVIDER_TEMPLATES = [
 - 边框:`--border`(常态)、`--border-input`(focus)、`--border-error`(校验失败)
 - 强调色:`--accent`(按钮、active 项)、`--accent-hover`、`--success`、`--danger`
 
-参考设计师包(`/Users/huowenkai/Desktop/projects/Octo-AI-UI/octo-client-shell`)的浅色主题。
+参考设计师包(`/Users/huowenkai/projects/Octo-AI-UI/octo-client-shell`)的浅色主题。
 
 ---
 

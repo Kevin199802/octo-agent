@@ -1,6 +1,9 @@
 # SPEC-INS-005 — 对接 opencode 原生数据层（Data Layer Reuse）
 
-> 状态：草案 · 优先级 P0 · 规模 [M] · 领域 ui/insight
+> 状态：✅ 已落地（保留为设计记录）· 优先级 P0 · 规模 [M] · 领域 ui/insight
+>
+> InsightPage 已复用 opencode 原生 globalSync / sync.session.sync / event-reducer，自建 dataStore 已移除（见 [architecture.md §4](../../architecture.md)）。
+> 代码在 UXAI 仓 `packages/app/octoapp/pages/insight/`；本文行号为实现时快照，仅作定位参考。
 >
 > 上游已实现：✓ `useGlobalSync` 共享 store；✓ `useSync().session.sync(id)` 消息加载（带 inflight 去重 / optimistic / cache / prefetch）；✓ `event-reducer` SSE 事件归约；✓ `session.promptAsync` 异步发送；✓ `sync.session.optimistic.add/remove` 乐观消息；✗ 无新增
 
@@ -10,14 +13,14 @@
 
 ### 1.1 现状
 
-InsightPage（[index.tsx](../../../packages/app/src/pages/insight/index.tsx)）的**数据层**完全自建：
+InsightPage（[index.tsx](../../../packages/app/octoapp/pages/insight/index.tsx)）的**数据层**完全自建：
 - 自建 `dataStore`（`createStore<DataStore>`）
 - 自建 `globalSDK.event.listen` SSE 事件监听
 - 自建 REST `session.messages` 初始加载
 - 同步 `session.prompt`（阻塞到 LLM 完成）发消息
 - `<DataProvider data={dataStore}>` 传给子组件
 
-而 opencode 原生 chat（[directory-layout.tsx](../../../packages/app/src/pages/directory-layout.tsx)）走的是另一条路径：
+而 opencode 原生 chat（[directory-layout.tsx](../../../packages/app/octoapp/pages/directory-layout.tsx)）走的是另一条路径：
 - 共享 `globalSync` store（`sync.data`）
 - 复用 global-sync 内部 `event-reducer` 处理 SSE
 - 用 `sync.session.sync(id)` 加载（带去重 / cache / prefetch）
@@ -62,11 +65,11 @@ seq:5 deltaPreview:", 我先" lenBefore:11 → lenAfter:14 tailAfter:"\n\n\n\n�
 
 | 能力 | 自建实现（当前） | opencode 原生 | 状态 |
 |---|---|---|---|
-| 消息/部分状态 store | 本地 `dataStore`（[index.tsx:54-65](../../../packages/app/src/pages/insight/index.tsx)） | `sync.data`（来自 [global-sync.tsx](../../../packages/app/src/context/global-sync.tsx)） | **改** |
-| 初始消息加载 | `globalSDK.client.session.messages()` REST 直调（[index.tsx:75-116](../../../packages/app/src/pages/insight/index.tsx)） | `sync.session.sync(id)`（带 inflight 去重 + cache + optimistic 合并） | **改** |
-| SSE 事件订阅 | 自建 `globalSDK.event.listen`（[index.tsx:118-242](../../../packages/app/src/pages/insight/index.tsx)） | global-sync 内部 [event-reducer.ts](../../../packages/app/src/context/global-sync/event-reducer.ts) | **删** |
+| 消息/部分状态 store | 本地 `dataStore`（[index.tsx:54-65](../../../packages/app/octoapp/pages/insight/index.tsx)） | `sync.data`（来自 [global-sync.tsx](../../../packages/app/octoapp/context/global-sync.tsx)） | **改** |
+| 初始消息加载 | `globalSDK.client.session.messages()` REST 直调（[index.tsx:75-116](../../../packages/app/octoapp/pages/insight/index.tsx)） | `sync.session.sync(id)`（带 inflight 去重 + cache + optimistic 合并） | **改** |
+| SSE 事件订阅 | 自建 `globalSDK.event.listen`（[index.tsx:118-242](../../../packages/app/octoapp/pages/insight/index.tsx)） | global-sync 内部 [event-reducer.ts](../../../packages/app/octoapp/context/global-sync/event-reducer.ts) | **删** |
 | `<DataProvider data>` | `dataStore` | `sync.data` + `onNavigateToSession` + `onSessionHref` | **改** |
-| 发送消息 | `await session.prompt(...)` 同步阻塞（[index.tsx:298-342](../../../packages/app/src/pages/insight/index.tsx)） | `session.promptAsync(...)` 立即返回 + optimistic message（[submit.ts](../../../packages/app/src/components/prompt-input/submit.ts)） | **改** |
+| 发送消息 | `await session.prompt(...)` 同步阻塞（[index.tsx:298-342](../../../packages/app/octoapp/pages/insight/index.tsx)） | `session.promptAsync(...)` 立即返回 + optimistic message（[submit.ts](../../../packages/app/octoapp/components/prompt-input/submit.ts)） | **改** |
 | 业务发送 wrapper | `doSendPrompt` / `sendInjectedPrompt` | 同样保留，仅替换内层调用 | **保留** |
 | `sending()` 信号 | `setSending(true/false)` 包 await prompt | 监听 `sessionStatus().type === "busy"` | **改** |
 | 错误处理 | `try/catch` on prompt | 监听 `session.error` SSE 事件（通过 globalSync 派发到 `notification` 通道） | **改** |
@@ -81,7 +84,7 @@ seq:5 deltaPreview:", 我先" lenBefore:11 → lenAfter:14 tailAfter:"\n\n\n\n�
 ### 3.1 PR1：数据层切换到 sync.data
 
 **删除**：
-- `type DataStore` 类型定义（[index.tsx:38-44](../../../packages/app/src/pages/insight/index.tsx)）
+- `type DataStore` 类型定义（[index.tsx:38-44](../../../packages/app/octoapp/pages/insight/index.tsx)）
 - `const [dataStore, setDataStore] = createStore<DataStore>({...})`（L54-65）
 - `__octoListenerSeq` / `__octoEventSeq` 全局调试计数器（L46-49）
 - `InsightPage mounted/unmounted` 调试日志（L67-73）
@@ -135,7 +138,7 @@ createEffect(() => {
 
 > **修订（2026-05-25）**：原伪代码中三处与现状不符已修正,详见 §12.1。
 
-**改动范围**：`doSendPrompt` / `handleSubmit` / `handleTaskRefresh` / `handleTaskStop` / `inputDisabled` / `createAndNavigate`(均在 [index.tsx](../../../packages/app/src/pages/insight/index.tsx))。
+**改动范围**：`doSendPrompt` / `handleSubmit` / `handleTaskRefresh` / `handleTaskStop` / `inputDisabled` / `createAndNavigate`(均在 [index.tsx](../../../packages/app/octoapp/pages/insight/index.tsx))。
 
 **当前**(PR1 后):
 
@@ -154,7 +157,7 @@ async function doSendPrompt(sessionId, text, opts) {
 }
 ```
 
-**改为**(参考 [submit.ts:53-171 `sendFollowupDraft`](../../../packages/app/src/components/prompt-input/submit.ts)):
+**改为**(参考 [submit.ts:53-171 `sendFollowupDraft`](../../../packages/app/octoapp/components/prompt-input/submit.ts)):
 
 ```typescript
 import { Identifier } from "@/utils/id"
@@ -171,7 +174,7 @@ async function doSendPrompt(sessionId, text, opts) {
   )
   const textPart: TextPartInput = { type: "text", text: fullText }
   const messageID = Identifier.ascending("message")
-  const agent = "insight"
+  const agent = "octo_insight"   // 注册名(见 agent-config-deploy);旧稿写 "insight"
 
   // optimistic user message —— 立即显示在消息列表
   // directory 不传,走 SDKProvider 注入的当前 dir(InsightContent 已在 SDKProvider 内)
@@ -223,17 +226,17 @@ async function doSendPrompt(sessionId, text, opts) {
 **注意点**:
 - **附件状态在 try 外**清(进 try 后异步发出失败 toast,附件应已经清空—对齐 chat 的语义);失败时附件不复原(用户重新选)。如要求复原可放 try/catch 内,但 chat 不复原。
 - **optimistic.remove 在 catch 内**调一次即可,promptAsync 失败本身已说明消息没送出。
-- `errorDescription` 实现参考 [submit.ts:216-223](../../../packages/app/src/components/prompt-input/submit.ts) `errorMessage` 函数。
+- `errorDescription` 实现参考 [submit.ts:216-223](../../../packages/app/octoapp/components/prompt-input/submit.ts) `errorMessage` 函数。
 
 **`sending()` 信号去除**:
-- 删 `const [sending, setSending] = createSignal(false)` ([index.tsx:157](../../../packages/app/src/pages/insight/index.tsx))
+- 删 `const [sending, setSending] = createSignal(false)` ([index.tsx:157](../../../packages/app/octoapp/pages/insight/index.tsx))
 - 所有 `sending()` 使用点改成 `isBusy()`(`isBusy` 已经反映 `sessionStatus.type === "busy"`,promptAsync 立即返回后 SSE `session.idle/busy` 事件接管):
-  - `inputDisabled() = sending() || isBusy()` → `inputDisabled() = isBusy()` ([L548](../../../packages/app/src/pages/insight/index.tsx))
-  - `if (!text || sending()) return` ([L288](../../../packages/app/src/pages/insight/index.tsx) handleSubmit) → `if (!text || isBusy()) return`
-  - `if (isBusy() || sending())` ([L403/418](../../../packages/app/src/pages/insight/index.tsx) 任务卡片操作) → `if (isBusy())`
-  - send 按钮 `disabled={!prompt().trim() || inputDisabled() || hasUploadingAttachments()}`([L666](../../../packages/app/src/pages/insight/index.tsx)) 不改
-  - send 按钮 loading 文案 `{sending() ? "…" : <IconSend size={14} />}` ([L670](../../../packages/app/src/pages/insight/index.tsx)) → `{isBusy() ? "…" : <IconSend size={14} />}`
-- `createAndNavigate` ([L212-229](../../../packages/app/src/pages/insight/index.tsx)) 当前用 setSending(true/false) 包 session.create:
+  - `inputDisabled() = sending() || isBusy()` → `inputDisabled() = isBusy()` ([L548](../../../packages/app/octoapp/pages/insight/index.tsx))
+  - `if (!text || sending()) return` ([L288](../../../packages/app/octoapp/pages/insight/index.tsx) handleSubmit) → `if (!text || isBusy()) return`
+  - `if (isBusy() || sending())` ([L403/418](../../../packages/app/octoapp/pages/insight/index.tsx) 任务卡片操作) → `if (isBusy())`
+  - send 按钮 `disabled={!prompt().trim() || inputDisabled() || hasUploadingAttachments()}`([L666](../../../packages/app/octoapp/pages/insight/index.tsx)) 不改
+  - send 按钮 loading 文案 `{sending() ? "…" : <IconSend size={14} />}` ([L670](../../../packages/app/octoapp/pages/insight/index.tsx)) → `{isBusy() ? "…" : <IconSend size={14} />}`
+- `createAndNavigate` ([L212-229](../../../packages/app/octoapp/pages/insight/index.tsx)) 当前用 setSending(true/false) 包 session.create:
   - 删 setSending,因 create 调用极快(< 100ms),即使瞬时未禁也基本无副作用;
   - 失败的 toast 替换原 console.error。
 
@@ -241,9 +244,9 @@ async function doSendPrompt(sessionId, text, opts) {
 
 **错误处理(修订)**:
 - promptAsync 失败(网络断 / 4xx / 5xx)→ `await` reject → 调用方 catch → `optimistic.remove` + `showToast`。**这是 toast 唯一来源**。
-- SSE 中途 LLM 错误(如 model 401)→ `session.error` 事件被 [NotificationProvider](../../../packages/app/src/context/notification.tsx) 捕获 → append 到 `notification.list`(右上角铃铛红点)+ 系统级 `platform.notify`,**但不弹页面 toast**。
-- InsightPage **已经挂了** `<Toast.Region />`([L559](../../../packages/app/src/pages/insight/index.tsx)),`showToast` 可直接用。
-- InsightPage **没有自挂 NotificationProvider**,但全 app 共用一个挂在 [app.tsx:97](../../../packages/app/src/app.tsx),铃铛红点在 OctoShell topbar 暂未对接;**本 PR 不处理铃铛 UI**,只确认数据流不丢。
+- SSE 中途 LLM 错误(如 model 401)→ `session.error` 事件被 [NotificationProvider](../../../packages/app/octoapp/context/notification.tsx) 捕获 → append 到 `notification.list`(右上角铃铛红点)+ 系统级 `platform.notify`,**但不弹页面 toast**。
+- InsightPage **已经挂了** `<Toast.Region />`([L559](../../../packages/app/octoapp/pages/insight/index.tsx)),`showToast` 可直接用。
+- InsightPage **没有自挂 NotificationProvider**,但全 app 共用一个挂在 [app.tsx:97](../../../packages/app/octoapp/app.tsx),铃铛红点在 OctoShell topbar 暂未对接;**本 PR 不处理铃铛 UI**,只确认数据流不丢。
 - **不引入对 SSE session.error 的额外 toast 监听**:与 chat 行为对齐(chat 也不在前台 toast 中途错误,理由是会刷屏并跟 NotificationProvider 重复)。如内网调试发现"用户根本不知道出错了",再单独评估。
 
 ### 3.3 任务卡片操作链路
@@ -315,7 +318,7 @@ PR1 / PR2 各自合入后，**必须人工跑一遍**：
 **删除**：
 - `[octo:sse] InsightPage mounted/unmounted` —— globalSync 全局唯一 listener，多实例排查失去意义
 - `[octo:sse] REST messages loaded` —— REST 调用本身被删掉了
-- `[octo:sse] part.updated text` / `part.delta` / `delta DROPPED` —— 我们不再监听 SSE，无法获取这些数据；如需观测应去 [event-reducer.ts](../../../packages/app/src/context/global-sync/event-reducer.ts) 加，但**那是全应用共享**，不适合插业务日志
+- `[octo:sse] part.updated text` / `part.delta` / `delta DROPPED` —— 我们不再监听 SSE，无法获取这些数据；如需观测应去 [event-reducer.ts](../../../packages/app/octoapp/context/global-sync/event-reducer.ts) 加，但**那是全应用共享**，不适合插业务日志
 - `[octo:sse] session.status` / `tool part` / `new part` —— 同上
 
 **原则**：日志埋在业务层（我们写的代码里），不污染上游或共享代码。
@@ -324,7 +327,7 @@ PR1 / PR2 各自合入后，**必须人工跑一遍**：
 
 ## 7. 输入区评估（保留自实现 + 理由更新）
 
-**结论**：**保留** [insight/index.tsx](../../../packages/app/src/pages/insight/index.tsx) 自实现的 textarea + AttachmentBar + PromptTemplateSelector，**不切换**到上游 [PromptInput](../../../packages/app/src/components/prompt-input.tsx)。
+**结论**：**保留** [insight/index.tsx](../../../packages/app/octoapp/pages/insight/index.tsx) 自实现的 textarea + AttachmentBar + PromptTemplateSelector，**不切换**到上游 [PromptInput](../../../packages/app/octoapp/components/prompt-input.tsx)。
 
 **复评原因**：CLAUDE.md 当前理由是 "上游 PromptInput 深耦合 packages/app context"。**这个理由部分失效**（PR1 之后我们用 globalSync 的 sync.data，理论上 packages/app context 不再是障碍）。但实际盘点发现复用仍不划算，理由变成下面这样。
 
@@ -389,7 +392,7 @@ PR1 / PR2 各自合入后，**必须人工跑一遍**：
 
 PR1 内网验证通过、流式重复 bug 修复。但发现**输入框在 session busy 时被 disable**这一行为**与原生 opencode / Claude Code 不一致**——原生都允许"边响应边输入"，甚至 queue 后续消息。
 
-**当前实现位置**：[index.tsx](../../../packages/app/src/pages/insight/index.tsx) `inputDisabled = () => sending() \|\| isBusy()`，以及 textarea 的 `disabled={inputDisabled()}`、send 按钮的 `disabled` 条件。
+**当前实现位置**：[index.tsx](../../../packages/app/octoapp/pages/insight/index.tsx) `inputDisabled = () => sending() \|\| isBusy()`，以及 textarea 的 `disabled={inputDisabled()}`、send 按钮的 `disabled` 条件。
 
 **整改方向**：移除 `disabled={inputDisabled()}` 对输入的影响（光标/键入），保留对 send 按钮的影响（busy 时禁止发送），或参考 chat 实现"queue 待发消息"模式（点击 send 时如果 busy 则入队，busy 结束后自动发出）。
 
@@ -425,15 +428,15 @@ PR1 内网验证通过、流式重复 bug 修复。但发现**输入框在 sessi
 
 ### 12.1 PR1 后再读源码,发现 §3.2 原稿三处与实际不符,已修订:
 
-1. **Identifier 路径错误**:原稿 `import { Identifier } from "@opencode-ai/shared/util/identifier"`,实际 octo 用 [packages/app/src/utils/id.ts](../../../packages/app/src/utils/id.ts) 本地 wrapper,统一 `import { Identifier } from "@/utils/id"`(参考 [submit.ts:16](../../../packages/app/src/components/prompt-input/submit.ts) / [session.tsx:61](../../../packages/app/src/pages/session.tsx))。
-2. **optimistic.add 的 directory 参数可省略**:`directory?` 不传时 [sync.tsx:394](../../../packages/app/src/context/sync.tsx) 默认 `sdk.directory`,而 InsightContent 在 `<SDKProvider directory={() => dir}>` 内,sdk.directory 已是 homeDir,**不需要手动传**。原稿没说明,实施时容易误传。
-3. **"toast 自动显示"假设错误**:原稿"后端错误走 SSE session.error → globalSync notification 通道 → toast 自动显示",实际 [NotificationProvider](../../../packages/app/src/context/notification.tsx) **只 append 到列表 + 系统 platform.notify,不弹页面 toast**。upstream [submit.ts:565-577](../../../packages/app/src/components/prompt-input/submit.ts) 的 toast 来自调用方 `.catch(...)` 后自行 `showToast`,与 SSE 通道无关。修订后改成"promptAsync reject → catch → optimistic.remove + showToast"显式处理。
+1. **Identifier 路径错误**:原稿 `import { Identifier } from "@opencode-ai/shared/util/identifier"`,实际 octo 用 [packages/app/octoapp/utils/id.ts](../../../packages/app/octoapp/utils/id.ts) 本地 wrapper,统一 `import { Identifier } from "@/utils/id"`(参考 [submit.ts:16](../../../packages/app/octoapp/components/prompt-input/submit.ts) / [session.tsx:61](../../../packages/app/octoapp/pages/session.tsx))。
+2. **optimistic.add 的 directory 参数可省略**:`directory?` 不传时 [sync.tsx:394](../../../packages/app/octoapp/context/sync.tsx) 默认 `sdk.directory`,而 InsightContent 在 `<SDKProvider directory={() => dir}>` 内,sdk.directory 已是 homeDir,**不需要手动传**。原稿没说明,实施时容易误传。
+3. **"toast 自动显示"假设错误**:原稿"后端错误走 SSE session.error → globalSync notification 通道 → toast 自动显示",实际 [NotificationProvider](../../../packages/app/octoapp/context/notification.tsx) **只 append 到列表 + 系统 platform.notify,不弹页面 toast**。upstream [submit.ts:565-577](../../../packages/app/octoapp/components/prompt-input/submit.ts) 的 toast 来自调用方 `.catch(...)` 后自行 `showToast`,与 SSE 通道无关。修订后改成"promptAsync reject → catch → optimistic.remove + showToast"显式处理。
 
 ### 12.2 model 字段策略
 
-`promptAsync` 的 `model` 字段可省,后端按 agent 默认配置选 model([packages/opencode/src/server/instance/session.ts:931](../../../packages/opencode/src/server/instance/session.ts) 链路)。我们当前不传(与 [index.tsx:248-253](../../../packages/app/src/pages/insight/index.tsx) 现行 prompt 调用一致)。**代价**:optimistic message 上没 model 字段,消息体的"模型 / provider"标签不显示;服务端首次回 message.updated 后填补,标签出现。可接受。
+`promptAsync` 的 `model` 字段可省,后端按 agent 默认配置选 model([packages/opencode/src/server/instance/session.ts:931](../../../packages/opencode/src/server/instance/session.ts) 链路)。我们当前不传(与 [index.tsx:248-253](../../../packages/app/octoapp/pages/insight/index.tsx) 现行 prompt 调用一致)。**代价**:optimistic message 上没 model 字段,消息体的"模型 / provider"标签不显示;服务端首次回 message.updated 后填补,标签出现。可接受。
 
-如需 optimistic 阶段也显示标签:从 `globalSync.data.config` 取 agent.insight 的默认 model,但需先确认配置加载时机,**不在 PR2 范围**。
+如需 optimistic 阶段也显示标签:从 `globalSync.data.config` 取 agent.octo_insight 的默认 model,但需先确认配置加载时机,**不在 PR2 范围**。
 
 ### 12.3 任务卡片操作链路
 

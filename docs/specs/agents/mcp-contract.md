@@ -258,6 +258,7 @@
 - `business_type` 字段 **MUST 填**(标准字段,非可选);取值 = 产生该资源的 MCP tool 名(见上节 enum 表)
 - 单文件产出仍合法（N=1，最常见情形）
 - 不要把多文件合并成 zip——客户端按 mimeType 分发的能力会失效，业界标准是 N 个独立 resource_link
+- **文档类产物用 `text/markdown`**(2026-06 起)：可读长文本文档(分析报告 / 访谈纪要等，**原以 `.docx` 返回的**)统一改以 `mimeType: "text/markdown"` 返回 —— 客户端据此走 markdown 卡，可在应用内**全文预览**(后续支持**编辑**，见 [output-renderers.md](../ui/output-renderers.md) 路由表 + insight-markdown-editor spec)；只有真正的二进制 Office(xlsx 表格 / pptx 演示)保持其 openxml mimeType 走 file 下载 / 本地应用打开。换言之 `.docx` 不再作为 resource_link 出现
 - 所有 `uri` 都必须长期可用（≥ 7 天，最好持久），见 ADR-011 §URL 鉴权 / 生命周期
 - `description` 字段强烈建议填写——多文件场景下让 LLM 转述给用户时可以说明每份的用途
 
@@ -458,6 +459,8 @@
 
 > 客户端从 [SPEC-INS-007](../ui/insight-prompt-redesign.md) 起改为**预置提示词按钮(单 turn)**,不再走 session 级模板下拉。完整定义见 spec。  
 > 此处仅列出 MCP 侧对应关系。客户端配置见 [packages/app/src/pages/insight/store/preset-prompts.ts](../../../packages/app/src/pages/insight/store/preset-prompts.ts)。
+>
+> **2026-06-15**:客户端预置文案改纯业务中文、**不再明示工具名**(SPEC-INS-007 §3.1.2)。选对工具由 agent 提示词「工具选择指南」+ **本节各工具的 MCP description** 共同决定——故弱模型场景下,下方 [§Tool 描述写法原则](#tool-描述写法原则给-uxr-团队参考) 对调用准确性的权重更高,UXR 团队写 description 时尤需写清"何时用/何时不用"。
 
 | 预置按钮 | MCP 工具 | 客户端状态 |
 |---|---|---|

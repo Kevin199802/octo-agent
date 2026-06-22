@@ -1,19 +1,24 @@
 # Octo Insight — 对接契约（给 UXAI 开发参考）
 
-> insight 的实现代码在内网 UXAI 仓维护。本文是 insight 与外部系统(MCP / 文件上传 / 桌面壳)
+> insight 的实现代码在 UXAI 仓维护。本文是 insight 与外部系统(MCP / 文件上传 / 桌面壳)
 > 对接的**设计契约真相源**——在 UXAI 开发 insight、对接内网服务时按本文对照。
-> 文中 octo-agent 路径与 UXAI 路径的对应见 §0。
+> 文中路径均为 UXAI 仓实际路径。
 
 ---
 
-## 0. 路径映射
+## 0. 关键坐标（UXAI 仓）
 
-| 维度 | 文档里(octo-agent 命名) | UXAI 仓 |
-|---|---|---|
-| pages 路径 | `packages/app/src/pages/insight/` | `packages/app/octoapp/pages/insight/` |
-| Agent 配置文件 | `packages/agent/octo_insight/agents/octo_insight.md` | `packages/opencode/src/agent/prompt/octo_insight.md` |
-| Agent 名 | `octo_insight` | `octo_insight` |
-| 用户配置文件 | `~/.config/octo/octo.json` | `~/.config/octo/octo.json` |
+| 维度 | UXAI 路径 / 值 |
+|---|---|
+| insight 页面 | `packages/app/octoapp/pages/insight/` |
+| OctoShell 框架 | `packages/app/octoapp/pages/_shell/` |
+| 路由入口 | `packages/app/octoapp/octo.tsx`(`@opencode-ai/app` 包入口,desktop renderer 用) |
+| Agent prompt 源 | `packages/opencode/src/agent/prompt/octo_insight.md`(`.txt` 为 agent.ts import 的变体) |
+| Agent 注册 | `packages/opencode/src/agent/agent.ts`(硬编码,见 §5) |
+| Agent 名 | `octo_insight` |
+| 用户配置文件 | `~/.config/octo/octo.json`(opencode fork 原生读取) |
+
+> 归档的 octo-agent 旧实现用 `packages/app/src/pages/insight/` + `packages/agent/octo_insight/agents/` 命名;现役以上表为准。
 
 ---
 
@@ -55,28 +60,27 @@ MCP 工具清单、每个工具的入参 / 出参约定、description 写法,**�
 
 ## 4. 桌面壳 `window.api` 依赖（SOT）
 
-业务代码运行时依赖 `window.api` 暴露的桌面能力,**UXAI 内网 Electron 壳必须暴露下列同名同签名方法**,
-否则按钮点击会走"桌面 API 不可用" toast。`insight/lib/electron-api.ts` 的 `DesktopApi` 类型是 SOT,
-本表与之一致。
+业务代码运行时依赖 `window.api` 暴露的桌面能力,**桌面壳(`packages/desktop/`)必须暴露下列同名同签名方法**,
+否则按钮点击会走"桌面 API 不可用" toast。类型 SOT 是
+`packages/app/octoapp/pages/insight/lib/electron-api.ts` 的 `DesktopApi`,本表与之一致。
 
 | `window.api` 方法 | 触发位置 | 用途 | 实现要点 |
 |---|---|---|---|
 | `openPath(path, app?)` | FileFallback「用本地应用打开」 | 唤起系统默认应用打开本地文件 | `shell.openPath(path)`;可选 `app` 指定打开方式 |
 | `saveFilePicker({ title?, defaultPath? })` | 「另存为」 | 弹原生保存对话框,返回路径或 `null` | `dialog.showSaveDialog` |
 | `downloadResource(url, destPath)` | 「另存为」第二步 | 远程 URL → 落本地指定路径 | `fetch` → `mkdir -p` → `writeFile` |
-| `downloadResourceToTemp(url, namespace, filename)` | 「用本地应用打开」/「在文件夹中打开」前置 | 远程 URL → 落 OS 临时目录,返回本地路径 | sanitize filename 防穿越;namespace 传 tabID/sessionID 隔离 |
+| `downloadResourceToTemp(url, namespace, filename, baseDir?)` | 「用本地应用打开」/「在文件夹中打开」前置 | 远程 URL → 落临时目录(或 `baseDir`),返回本地路径 | sanitize filename 防穿越;namespace 传 tabID/sessionID 隔离 |
 | `showItemInFolder(path)` | 「在文件夹中打开」 | 在 Finder / Explorer 中定位文件 | `shell.showItemInFolder(path)`,fire-and-forget |
 
-> 参考实现:[architecture.md §5.4](architecture.md#54-上游接线壳改动清单octo-agent-本地壳) 的
-> `preload/types.ts` / `preload/index.ts` / `main/ipc.ts` 子节(可读不可抄,UXAI 壳代码自行组织)。
+> `DesktopApi` 各方法均为可选(`?:`):壳未暴露时按钮走 toast 兜底,不崩。
+> 壳侧 preload / main IPC 由 `packages/desktop/` 自行组织,本表只约定 renderer 侧依赖的接口形态。
 
 ---
 
-## 5. 一次性配置
+## 5. 路由与 Agent 注册
 
-- **路由分叉**:`app.tsx` 加 OctoShell 路由分叉(`/insight/:id?` → InsightPage 等)
-- **Agent 注册**:`octo_insight` 定义从 `octo_insight.md` frontmatter 派生 `mode` / `description` /
-  `permission`(从 `tools` 字段转),不硬编码
+- **路由分叉**:`packages/app/octoapp/octo.tsx` 的 `RouterRoot` 用 `isOctoPage()` / `isInsightPage()` 把 `/insight/:id?` 等导向 InsightPage(insight 自带侧栏,不再套外层 OctoSidebarLayout)。
+- **Agent 注册**:`octo_insight` **硬编码注册在** `packages/opencode/src/agent/agent.ts`——`name` / `description` / `mode: "primary"` / `permission` / `skills: ["interview-analysis"]` / `mcp: ["uxr-tool"]` 直接写在 agent 定义里,`prompt` 从 `import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"` 注入。**不是从 .md frontmatter 派生**(这点与归档的 octo-agent 本地壳机制不同,见 [agent-config-deploy.md banner](specs/infra/agent-config-deploy.md))。
 
 ---
 
@@ -85,8 +89,8 @@ MCP 工具清单、每个工具的入参 / 出参约定、description 写法,**�
 业界 agent frontmatter 调研 + 字段对照见
 [agent-config-deploy.md §0](specs/infra/agent-config-deploy.md)。要点:
 
-- insight 的 frontmatter 字段跟 **opencode 上游对齐**(跨 fork 可移植),不加 `mcp` / `skills`
-- 内网 `mcp` / `skills` 是 **fork 私有扩展**,由内网在 `agent.ts` 或私有 frontmatter loader 维护,不要求对齐
+- `octo_insight.md` 的 frontmatter 字段跟 **opencode 上游对齐**(跨 fork 可移植)
+- `mcp` / `skills` 是 **opencode fork 私有扩展**:不放进上游 frontmatter schema,而是在 `agent.ts` 的注册块里直接声明(见 §5)
 
 ---
 
@@ -94,5 +98,7 @@ MCP 工具清单、每个工具的入参 / 出参约定、description 写法,**�
 
 - MCP 接口契约:[mcp-contract.md](specs/agents/mcp-contract.md)
 - 文件上传契约:[file-upload.md](specs/infra/file-upload.md)
-- 配置部署机制:[ADR-008](adr/008-cascading-config.md)
+- 配置部署机制(octo-agent 本地壳历史 + ADR-008 理由):[agent-config-deploy.md](specs/infra/agent-config-deploy.md)、[ADR-008](adr/008-cascading-config.md)
+- 架构总览:[architecture.md](architecture.md)
 - 设计决策:[adr/](adr/)
+</content>

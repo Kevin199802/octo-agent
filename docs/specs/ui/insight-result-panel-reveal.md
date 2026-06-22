@@ -12,11 +12,11 @@
 
 ## 1. 背景与问题
 
-当前 InsightPage 是「左·对话栏（固定 `chatWidth`，约半屏）+ 中·ResultViewer（`flex-1` **常驻**）+ 右·Workspace 占位 `<div/>`」三段布局（[index.tsx:746-1071](../../../packages/app/src/pages/insight/index.tsx#L746-L1071)）。
+当前 InsightPage 是「左·对话栏（固定 `chatWidth`，约半屏）+ 中·ResultViewer（`flex-1` **常驻**）+ 右·Workspace 占位 `<div/>`」三段布局（[index.tsx:746-1071](../../../packages/app/octoapp/pages/insight/index.tsx#L746-L1071)）。
 
 问题：**ResultViewer 容器从进页面起就常驻占掉约半屏**，即使一个产物都没有，只显示空态「对话产出将在这里展示」。这与本项目自定原则 [output-renderers.md §0](output-renderers.md#0-核心原则对话内容永不替代卡片是附加预览入口)「卡片是**附加**预览入口」相悖——一个附加入口不应默认吃掉半屏。
 
-> **注**：合入 dev 的 UI 刷新 PR 只重做了空态视觉（大 logo + 居中输入，max-w 800，见 [index.tsx:761-885](../../../packages/app/src/pages/insight/index.tsx#L761-L885)），**未改布局占位**。本 spec 针对的就是占位问题。
+> **注**：合入 dev 的 UI 刷新 PR 只重做了空态视觉（大 logo + 居中输入，max-w 800，见 [index.tsx:761-885](../../../packages/app/octoapp/pages/insight/index.tsx#L761-L885)），**未改布局占位**。本 spec 针对的就是占位问题。
 
 ### 业界对照
 
@@ -39,7 +39,7 @@ Claude 是**流式**写 artifact，边写边滑入。我们的产物走 [mcp-con
 
 **面板显隐绑定「是否有已打开的产物 tab」**，而非常驻。
 
-`tab` = ResultViewer 里被打开的产物条目，来自 completed 任务的 `resource_link`（一个 link = 一个 OutputCard = 一个 tab；mindmap 例外，1 link 拆双 tab）。当前由 [`buildOutputCardsFromTask` → `tabStore.openTab`](../../../packages/app/src/pages/insight/index.tsx#L626-L675) 生成。
+`tab` = ResultViewer 里被打开的产物条目，来自 completed 任务的 `resource_link`（一个 link = 一个 OutputCard = 一个 tab；mindmap 例外，1 link 拆双 tab）。当前由 [`buildOutputCardsFromTask` → `tabStore.openTab`](../../../packages/app/octoapp/pages/insight/index.tsx#L626-L675) 生成。
 
 ### 2.1 状态机
 
@@ -60,13 +60,13 @@ Claude 是**流式**写 artifact，边写边滑入。我们的产物走 [mcp-con
 |---|---|
 | 工具秒回 task_id（进行中） | ❌ 不弹（无产物，对话内任务卡承担进度） |
 | 用户点对话内产物卡 / task 卡「打开结果」 | ✅ 建 tab + `panelCollapsed=false` → 滑入并聚焦该 tab |
-| `get_task_result` completed（面板当前为空） | ✅ **全部**产物建 tab、`panelCollapsed=false`、**聚焦第一项**（沿用 [index.tsx:677-696](../../../packages/app/src/pages/insight/index.tsx#L677-L696) auto-open effect，扩展为同时清 collapsed） |
+| `get_task_result` completed（面板当前为空） | ✅ **全部**产物建 tab、`panelCollapsed=false`、**聚焦第一项**（沿用 [index.tsx:677-696](../../../packages/app/octoapp/pages/insight/index.tsx#L677-L696) auto-open effect，扩展为同时清 collapsed） |
 | 用户点面板「收起」 | `panelCollapsed=true`，**保留 tab**，聊天回居中全宽，浮「产出 (N)」唤回标 |
 | 用户点浮标「产出 (N)」 | `panelCollapsed=false` → 重新滑入 |
 | 用户 × 关掉最后一个 tab | `tabs.length` 归 0 → 面板消失（自然收起）；同时 `panelCollapsed=false` 复位 |
 | 切 session | `tabStore.reset()`（tabs 清空）+ `panelCollapsed=false` 复位 → 收起态 |
 
-**多产物**：completed 返回 N 个文件 → 全部建 tab，TabBar 列全部，**聚焦第一项**。这已是现有 tab 层行为（[index.tsx:673-675](../../../packages/app/src/pages/insight/index.tsx#L673-L675) / [692-694](../../../packages/app/src/pages/insight/index.tsx#L692-L694) 的 `for…openTab` + `activate(ocs[0].id)`），本 spec 只把它接到容器显隐。
+**多产物**：completed 返回 N 个文件 → 全部建 tab，TabBar 列全部，**聚焦第一项**。这已是现有 tab 层行为（[index.tsx:673-675](../../../packages/app/octoapp/pages/insight/index.tsx#L673-L675) / [692-694](../../../packages/app/octoapp/pages/insight/index.tsx#L692-L694) 的 `for…openTab` + `activate(ocs[0].id)`），本 spec 只把它接到容器显隐。
 
 ### 2.3 不做开关
 
@@ -81,7 +81,7 @@ completed 自动弹**不加配置开关**。理由：自动弹只发生在用户
 参考设计稿（用户提供图一）：聊天内容在「侧栏右侧的整个区域」内**居中**，限定 reading-width，无右面板。
 
 - 左聊天列：`flex: 1`（不再固定 `chatWidth`）。
-- 内层内容（消息列表 / 空态 / 输入区）套**居中 max-width 包裹**，复用空态现有的 `max-width: 800px`（[index.tsx:787](../../../packages/app/src/pages/insight/index.tsx#L787)）保持一致。
+- 内层内容（消息列表 / 空态 / 输入区）套**居中 max-width 包裹**，复用空态现有的 `max-width: 800px`（[index.tsx:787](../../../packages/app/octoapp/pages/insight/index.tsx#L787)）保持一致。
 - 不渲染分隔线、不渲染 ResultViewer。
 
 > 注意：当前对话态消息列表是 `chatWidth` 全宽，没有 max-width 约束。改 `flex:1` 后必须补居中 max-width 包裹，否则宽屏下气泡会拉伸过宽。
@@ -90,9 +90,9 @@ completed 自动弹**不加配置开关**。理由：自动弹只发生在用户
 
 维持现状 split：
 
-- 左聊天列：`width: chatWidth, flex: 0 0 auto`（[index.tsx:749-760](../../../packages/app/src/pages/insight/index.tsx#L749-L760)）。
-- 分隔线：拖拽改 `chatWidth`（[index.tsx:1038-1059](../../../packages/app/src/pages/insight/index.tsx#L1038-L1059)，复用 `handleDividerPointerDown`）。
-- ResultViewer：`flex: 1`（[index.tsx:1062-1068](../../../packages/app/src/pages/insight/index.tsx#L1062-L1068)）。
+- 左聊天列：`width: chatWidth, flex: 0 0 auto`（[index.tsx:749-760](../../../packages/app/octoapp/pages/insight/index.tsx#L749-L760)）。
+- 分隔线：拖拽改 `chatWidth`（[index.tsx:1038-1059](../../../packages/app/octoapp/pages/insight/index.tsx#L1038-L1059)，复用 `handleDividerPointerDown`）。
+- ResultViewer：`flex: 1`（[index.tsx:1062-1068](../../../packages/app/octoapp/pages/insight/index.tsx#L1062-L1068)）。
 
 收起态 ↔ 展开态切换加 transition（宽度 / 透明度），避免硬跳。
 
@@ -105,18 +105,18 @@ completed 自动弹**不加配置开关**。理由：自动弹只发生在用户
 
 ## 4. 实现要点
 
-集中在 [index.tsx](../../../packages/app/src/pages/insight/index.tsx)（属「自由改」范围），tab-store / ResultViewer renderer 不动其内容逻辑。
+集中在 [index.tsx](../../../packages/app/octoapp/pages/insight/index.tsx)（insight 自研代码），tab-store / ResultViewer renderer 不动其内容逻辑。
 
 1. **新增信号**：`const [panelCollapsed, setPanelCollapsed] = createSignal(false)`。
 2. **派生**：`const panelVisible = createMemo(() => tabStore.tabs().length > 0 && !panelCollapsed())`。
 3. **openTab 时清 collapsed**：在 `handleOpenResult` / `handleTaskOpenResult` / auto-open effect 三处 `openTab` 后 `setPanelCollapsed(false)`（或包一层 `revealTab()` 统一处理）。
-4. **切 session 复位**：在已有的 `createEffect(on(() => params.id, …))`（[index.tsx:292-299](../../../packages/app/src/pages/insight/index.tsx#L292-L299)）里补 `setPanelCollapsed(false)`。
+4. **切 session 复位**：在已有的 `createEffect(on(() => params.id, …))`（[index.tsx:292-299](../../../packages/app/octoapp/pages/insight/index.tsx#L292-L299)）里补 `setPanelCollapsed(false)`。
 5. **关最后一个 tab 复位**：closeTab 后若 `tabs().length===0` 则 `setPanelCollapsed(false)`（可在 index 层包装 `onClose`）。
 6. **布局条件化**：
    - 左列 style：`panelVisible() ? { width: chatWidth()px, flex: "0 0 auto" } : { flex: "1" }`。
    - 左列内容补居中 max-width 包裹（收起态生效；展开态可保持当前撑满或同样居中，二选一，建议两态都居中 reading-width 以减少跳动）。
    - 分隔线 + ResultViewer：`<Show when={panelVisible()}>`。
-7. **收起按钮**：TabBar 加 prop / slot（[tab-bar.tsx](../../../packages/app/src/pages/insight/components/result-viewer/tab-bar.tsx)），或在 ResultViewer 容器顶部叠一个按钮，回调 `setPanelCollapsed(true)`。
+7. **收起按钮**：TabBar 加 prop / slot（[tab-bar.tsx](../../../packages/app/octoapp/pages/insight/components/result-viewer/tab-bar.tsx)），或在 ResultViewer 容器顶部叠一个按钮，回调 `setPanelCollapsed(true)`。
 8. **唤回浮标**：左列内 `<Show when={tabStore.tabs().length>0 && panelCollapsed()}>` 渲染浮标。
 
 ---

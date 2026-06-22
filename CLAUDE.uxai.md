@@ -3,10 +3,10 @@
 ## 文档仓
 
 设计文档(architecture / spec / ADR / learning / handoff)的真相源在 **octo-agent 仓**:
-`/Users/huowenkai/Desktop/projects/octo-agent`(下文 `docs/…`、`ROADMAP.md` 等均指此仓)。
+`/Users/huowenkai/projects/octo-agent`(下文 `docs/…`、`ROADMAP.md` 等均指此仓)。
 
-- 读 / 写文档都在文档仓;改完**直接 commit,无需开 PR**;**不在 UXAI 提交设计文档(.md)**
-- UXAI 仓只提交 insight 代码
+- 读 / 写文档都在文档仓,**不在 UXAI 提交设计文档(.md)**;文档不走 PR,但任何 commit 仍需用户确认(见「提交」)
+- UXAI 仓只提交 insight 代码;**提代码 PR 遵守 `docs/collab-pr-protocol.md`**(一 PR 一事 / conventional 标题 / 说清意图)
 
 ## 提交
 
@@ -27,9 +27,9 @@
 ## 工作流
 
 - spec 完成 / 变更后,更新 `ROADMAP.md`
-- 查 bug 先看 `docs/insight-debugging.md`(`[octo:*]` 日志字典);改日志前缀 / 字段 / `octoDebug` 命令时同步它
+- 查 bug 先看 `docs/insight-debugging.md`(`[octo:*]` 日志字典,console 日志的手工镜像);新增 / 改 / 删日志前缀 / 字段 / `octoDebug` 命令时同步它
 - UI 遇占位 / 缺数据,记 `docs/specs/ui/design-assets-needed.md`
-- 沉淀踩坑 / 机制理解,写 learning 笔记放 `docs/learning/`
+- 沉淀踩坑 / 机制理解,写 learning 笔记放 `docs/learning/`;新增 / 删笔记同步 `docs/learning/README.md` 索引
 
 ## 工作目录（UXAI 代码）
 

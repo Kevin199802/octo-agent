@@ -1,7 +1,8 @@
-# 协作 PR 协议（docs 仓）
+# 协作 PR 协议
 
-> 本仓多人协作维护文档。改文档、提 PR 前通读本文。
-> 仓库定位与工作规则见 [CLAUDE.md](../CLAUDE.md)。
+> **通用 PR 规范**,octo-agent 文档仓与 UXAI 代码仓的 PR 都适用(分支名按各仓实际)。
+> octo-agent 文档默认直接 commit dev、无需 PR;**UXAI 代码改动走 PR,遵守本协议**。
+> 提 PR 前通读;仓库定位见 [CLAUDE.md](../CLAUDE.md)。
 
 ---
 

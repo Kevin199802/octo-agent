@@ -55,6 +55,20 @@
 2. **两层防漏**:结构化层(好取、可粘贴)负责日常 90%;全量层(原始 console 落盘)负责"绝对不漏"兜底。两层职责不同,不互相替代。
 3. **存储与目录解耦**:留存位置固定(IndexedDB per-origin / electron-log app 目录),**不跟随用户选的工作目录**;每条记录标当时的 `directory` + `sessionID`。
 
+### 1.4 方向纠偏(2026-06-15)—— 从「SSE 事件流」转向「HTTP 失败 + 异常 + 整页崩」
+
+阶段 1–3(SSE 旁路 + 三 ring + IndexedDB + 全量落盘)上线后,遇到一次真实 bug 暴露了**维度押偏**:
+
+- **根因**:opencode server schema(`session.ts` 的 union 漏 `"subagent"`)→ `session.list` 响应 **400** → `createResource` 无兜底 → 整页 `ErrorBoundary` 崩。
+- **教训**:这个 bug **完全在已建的观测维度(SSE 事件流)之外**。SSE ring / IndexedDB / 全量落盘对它一点没帮上;`console-message` 落盘还全是 `[object Object]`。
+- **复盘**:真实高频 bug 是「**HTTP 4xx/5xx(尤其响应体)+ 未捕获异常 / 整页崩**」,不是 SSE 事件流。复杂度堆在了用不上的维度。
+
+**纠偏结论(本次新增 §9「错误信标」)**:
+1. 抓的维度从「SSE 为主」转成「**HTTP 失败 + 未捕获异常 + 整页崩** 为主,SSE 为辅」。
+2. 不再追求"全量留存",改为**出错那一刻自动抓一条精炼"事故黑匣子"**(URL+状态码+响应体 / error+stack),`localStorage` 同步落地(抗刷新/抗崩溃)。
+3. 已有阶段 1–3 **不回退砍除**(沉没成本、低风险),但**停止继续投入**;主力转 §9。
+4. **载体与分析方已定**(原 spec 待决项):内网→外网 **剪贴板纯文本可外发**(IM/邮件),故载体 = 一键复制纯文本;**分析方 = Claude(强模型)**,故导出物只需信息全(响应体/stack),**不必内联症状字典**(Claude 自行对照 [insight-debugging.md](../../insight-debugging.md))。
+
 ---
 
 ## 2. 已落地(蓝本,UXAI 待实现)
@@ -211,6 +225,8 @@ why: ⚠️ 发送后无服务器事件,疑似 SSE 断/未启动该轮 → 查 l
 
 > 阶段 1 提升"现场敲"顺畅度;阶段 2 解决 reload/重启丢失;阶段 3 作"绝对不漏"兜底(结构化没捕获到的、渲染崩溃前的全量 console 都落盘)。
 
+**阶段 4(2026-06-15 新增,见 §9)**:错误信标(事故黑匣子)。与阶段 1–3 的关系见 §9.1。
+
 ---
 
 ## 7. 验收
@@ -237,3 +253,76 @@ why: ⚠️ 发送后无服务器事件,疑似 SSE 断/未启动该轮 → 查 l
 - **debug 工作流 SOT = 本 spec §3**。[docs-uxai-perspective-rewrite](../infra/docs-uxai-perspective-rewrite.md) 重写 `development.md` 时,其"调试 / 排查"章节**引用本 spec §3 工作流**,不重复另写。
 - **console 字典可靠性约束**(本 spec 触发,已写入 [CLAUDE.md](../../../CLAUDE.md) / CLAUDE.uxai):`[octo:*]` 前缀 / 字段 / `octoDebug` 命令增删改,必须同步 insight-debugging.md。
 - 阶段 3 改 `packages/desktop` 属非业务包变更,按 architecture.md §5.4 登记 + 视情况同步 [intranet-handoff.md](../../intranet-handoff.md)。
+
+---
+
+## 9. 错误信标 / 事故黑匣子(error beacon,阶段 4)
+
+> 由 §1.4 方向纠偏引入。**自包含于 `insight/lib/error-beacon.ts`** + observer 接线 + `index.tsx` 一层本地 `ErrorBoundary`。**不碰上游 context / GlobalSync / packages/{ui,opencode,sdk}**。
+
+### 9.1 定位:与阶段 1–3 的分工
+
+| | snapshot(阶段 1–3) | **error beacon(阶段 4)** |
+|---|---|---|
+| 触发 | **人工**敲 `octoDebug.snapshot()` | **自动**,在出错那一刻 |
+| 抓什么 | SSE 事件流 + send + console 全上下文 | **HTTP 失败响应体 / 未捕获异常 / 整页崩**,各一条精炼记录 |
+| 留存 | 内存 + IndexedDB(异步) | `localStorage`(**同步**,抗崩溃) |
+| 取数 | 要懂参数、看全上下文 | `octoDebug.lastError()` 一键带出最近一条 |
+| 角色 | 要"更全上下文"时补 | **日常首选黑匣子**:不懂、不翻、不全发 |
+
+两者互补,不互相替代。日常出错先看 beacon;不够再 snapshot 补上下文。
+
+### 9.2 三个捕获钩子(都自包含、可还原)
+
+| 钩子 | 实现位置 | 拿到的关键信号 |
+|---|---|---|
+| **HTTP 失败** | observer install 时 patch `window.fetch`、dispose 还原(与 console 镜像同套路) | `method` + `url` + `status` + **响应体(截断 ~2KB)**;网络错误记 `status:0`+错误文本 |
+| **未捕获异常** | observer 已有 `window.onerror` / `unhandledrejection` 处理器内**加一行** `recordBeacon` | `message` + `stack` |
+| **整页崩** | `index.tsx` 在 `<InsightContent>` 外包一层本地 `<ErrorBoundary>`,其 `onError`/fallback 记 beacon | `message` + 组件栈 |
+
+**为何 patch `window.fetch` 即可全覆盖**:UXAI 桌面 `platform.fetch` 本质是包了一层全局 `fetch`(`packages/desktop/src/renderer/index.tsx`),SDK(`sdk.client.session.*`,经 `createSdkForServer({fetch: platform.fetch})`)与两处裸 `fetch`(`upload.ts` / `resource-link.ts`)最终都走 `window.fetch`。故**一处 patch 统一覆盖**,无需改上游 `global-sdk`/SDK。
+> 读响应体用 `res.clone().text()`,**绝不消费原始 body**(原始 response 原样返回给业务方);全程 try/catch,观测层永不影响主流程。
+
+### 9.3 记录 schema(`localStorage`,环形最近 5 条)
+
+key `octo:insight:error-beacons`,value = JSON 数组(push 后裁到最近 5 条;同步写,try/catch 防 storage 不可用)。每条:
+```ts
+type Beacon = {
+  ts: number
+  type: "http" | "uncaught" | "boundary"
+  // http
+  method?: string; url?: string; status?: number; body?: string  // body 截断 ~2KB
+  // uncaught / boundary
+  message?: string; stack?: string
+  // 上下文(§4.8:每条标当时来源)
+  sessionID?: string; directory?: string
+}
+```
+- **上下文标注**:`error-beacon.ts` 暴露 `setBeaconContext({sessionID, directory})`,`InsightContent` 在 `createEffect` 里随响应式值更新,使每条 beacon 带当时 `sessionID`/`directory`(与 §4.8 一致,与工作目录选择解耦)。
+- `localStorage` 同步写是关键:IndexedDB 异步写在整页崩/关 app 时可能丢最后一刻;`localStorage` 不会。
+
+### 9.4 导出:`octoDebug.lastError(n=1)` → 纯文本 → 剪贴板
+
+- 默认带出**最近 1 条**;`lastError(5)` 带最近 5 条。
+- 复用已有 `getDesktopApi().writeClipboardText`(同 `snapshot`,绕开 DevTools console 缺手势),退化到 `navigator.clipboard`。
+- **格式面向 Claude**(强模型,§1.4):清晰自解释的小段文本,信息全即可,**不内联症状字典**。样例:
+```
+== Octo Insight 错误信标 · 最近 1 条 @ 14:35:02 ==
+环境: dir=/path/to/proj  session=ses_x
+
+[1] 14:32:01  HTTP 400  POST …/session?directory=/path/to/proj
+    响应体: {"error":"Invalid union: expected one of [...], got 'subagent'"}
+```
+异常/整页崩条目则出 `message` + `stack`(截断)。
+
+### 9.5 整页崩 fallback 的"复制"豁免(对 §0「不加 UI」的有意例外)
+
+§0 原则是"只走 console、不加 UI"。但**整页崩时 console 往往够不着**(白屏/DevTools 难开)——这正是 beacon 存在的理由。故 `<ErrorBoundary>` fallback 是**唯一允许带 UI 的地方**:渲染一段最小错误提示 + 一个「复制错误」按钮(点击 = `lastError()`),让用户在崩溃态也能一键带出。日常(非整页崩)仍只走 `octoDebug.lastError()` console 命令,不新增任何常驻 UI 入口。
+
+### 9.6 验收(阶段 4)
+- 制造 `session.list` 400(或任意 4xx)→ `localStorage` 出现一条 `type:"http"` 含**响应体**;`octoDebug.lastError()` 一键复制出带响应体的纯文本。
+- 制造未捕获异常 / promise rejection → 出 `type:"uncaught"` 含 stack。
+- 制造整页崩 → 出 `type:"boundary"`;fallback 显示「复制错误」按钮,点击带出。
+- 刷新 / 关 app 后重进 → beacon 仍在(`localStorage` 跨刷新/重启)。
+- patch fetch **不影响正常请求**:成功响应原样返回、body 未被消费;dispose 后 `window.fetch` 还原。
+- `bun run typecheck` + 单测过(beacon 纯函数 read/format/cap 可单测;fetch patch 的 happy-dom 行为按需 mock)。

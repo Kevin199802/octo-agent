@@ -29,14 +29,23 @@
 | `[octo:tab]` | [components/result-viewer/tab-store.ts](../packages/app/src/pages/insight/components/result-viewer/tab-store.ts) | 产物 tab 打开 / 去重 |
 | `[octo:office]` | [components/result-viewer/index.tsx](../packages/app/src/pages/insight/components/result-viewer/index.tsx) | Office 文件下载 / 打开 / 另存 / 定位 |
 | `[octo:mindmap]` | [components/result-viewer/mindmap-renderer.tsx](../packages/app/src/pages/insight/components/result-viewer/mindmap-renderer.tsx) | 脑图渲染 |
+| `[octo:mdedit]` | [components/markdown-editor/index.tsx](../packages/app/src/pages/insight/components/markdown-editor/index.tsx) | markdown 全屏编辑器(Vditor):open / save-start / save-ok / save-failed / close([spec](specs/ui/insight-markdown-editor.md)) |
 | `[insight:session-list]` | [components/session-list/index.tsx](../packages/app/src/pages/insight/components/session-list/index.tsx) | 会话重命名 / 删除失败 |
 | `[InsightPage]` | [index.tsx](../packages/app/src/pages/insight/index.tsx) | 兜底 error(session.create / upload 失败) |
 | `[dev:preview]` | [_dev/cards-preview.tsx](../packages/app/src/pages/insight/_dev/cards-preview.tsx) | **仅开发预览页**,mock 不连 SDK,排查线上问题时无视 |
 | `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前把 handle 换成精确 S3 URL([ADR-014](docs/adr/014-url-injection-via-plugin.md))。**注意:出在 opencode 服务进程 console,不在客户端 DevTools** |
+| `[octo:kb]` | [packages/opencode/src/tool/knowledge_search.ts](../packages/opencode/src/tool/knowledge_search.ts) | **server 端工具**:chat 内网知识库检索(getKnowledgeVector)。**出在 opencode 服务进程 console / sidecar 日志,不在客户端 DevTools**。spec 见 [specs/agents/chat-knowledge-search.md](docs/specs/agents/chat-knowledge-search.md) |
 
 > 约定:`⚠️` 出现在 `console.warn`,`✗`/红色出现在 `console.error`。正常链路只有 `console.log`。
 >
 > `[octo:inject]` 关键字段:`args rewritten` 的 `before`(模型填的,含 handle)/ `after`(注入后,应是精确 URL)/ `changed`(是否真替换了,false=模型填的 handle 都不在已知表里)/ `knownHandles`(整个 session 已解析到的文件数)。**无该日志** = 工具 args 里没有 handle 形态串(`hasHandle` 早退,非文件工具都这样,正常)。`args 含 handle 但 session 无上传区块` = 模型瞎编了 handle 或区块格式被破坏。
+>
+> `[octo:kb]` 四条(出在 server 进程,不在客户端 DevTools):
+> - `config`:**排查 env/域名首选**。`envBaseUrl`(server 读到的 `OCTO_KB_BASE_URL`,由 `.env.<channel>` 经 electron.vite define + createSidecarEnv 注入)/ `usingMockDefault`(true=没读到 base、回落 localhost:8787 mock,内网出现这个=没在对的 .env 里设 `OCTO_KB_BASE_URL`)/ `resolvedBase` / `url`(**实际请求的完整地址,拿它和 Insomnia 能跑通的 URL 逐字对比**)。
+> - `response`:`status`/`ok`/`bodyHead`。**404 = host 不对**(beta/prod 仅 host 不同、路径固定;非服务问题);在对应 `.env.<channel>` 改 `OCTO_KB_BASE_URL` 重打包即可。
+> - `parsed`:`totalDocs`/`topScores`/`titles`——检索成功但答非所问时看命中文档。
+> - `检索失败 url=…`(error):网络层失败(连不上 / 超时 / abort),带完整 url。
+> - **完全无 `[octo:kb]` 日志** = 模型没调用该工具(检查是否 octo_ai agent、问题是否被识别为内网问题)。
 
 ---
 
@@ -232,9 +241,12 @@
 - `[octo:card] resource_links (no task)` — 有 resource_link 但无 task_id 时的卡片路径。([components/insight-turn.tsx:121](../packages/app/src/pages/insight/components/insight-turn.tsx#L121))
 - `[octo:resource-link] found / none-found-but-candidates-present / missing-business-type` — resource_link 识别;后两条 warn 表示有候选但没匹配业务类型。([utils/resource-link.ts](../packages/app/src/pages/insight/utils/resource-link.ts))
 - `[octo:resource] fetch start / ok / failed / error` — `source:"uri"` 卡片的内容拉取。([utils/resource-link.ts:180](../packages/app/src/pages/insight/utils/resource-link.ts#L180))
+- `[octo:resource] md-local` — uri **markdown** 卡不直接 fetch(url),而是先把产物落成本地工作副本(`downloadResourceToTemp` 幂等)再读盘,使预览/编辑/重开卡回显同一份(含改动)。带 `localPath`/`bytes`。([components/result-viewer/index.tsx](../packages/app/src/pages/insight/components/result-viewer/index.tsx))
+- `[octo:resource] download-original-start/ok/failed` — uri md 卡「另存为」:始终从 url 重新拉 MCP 原始版本另存到用户选定目录(不取本地工作副本/编辑后内容;与 file 类型「另存为」同义)。([components/result-viewer/action-bar.tsx](../packages/app/src/pages/insight/components/result-viewer/action-bar.tsx))
 - `[octo:tab] openTab / dedupe-by-uri-and-type / dedupe-by-id` — 产物 tab 打开与去重。([components/result-viewer/tab-store.ts](../packages/app/src/pages/insight/components/result-viewer/tab-store.ts))
-- `[octo:office] download-start/ok · open-path/failed · saveas-* · reveal-*` — Office 文件下载、`window.api.openPath` 唤起本地应用、另存、文件夹定位。([components/result-viewer/index.tsx](../packages/app/src/pages/insight/components/result-viewer/index.tsx))
+- `[octo:office] download-start/ok · open-path/failed · saveas-* · reveal-* · reuse-existing · reuse-locked` — Office 文件下载、`window.api.openPath` 唤起本地应用、另存、文件夹定位;`reuse-existing`(主进程)= `downloadResourceToTemp` 命中已落地的本地工作副本、直接复用不 re-fetch/覆盖(本地打开/编辑改动持久的关键),`reuse-locked` = 文件被外部应用独占锁定时回退已有副本。([components/result-viewer/index.tsx](../packages/app/src/pages/insight/components/result-viewer/index.tsx) · [desktop/src/main/ipc.ts](../packages/desktop/src/main/ipc.ts))
 - `[octo:mindmap] render failed` — 脑图渲染失败,带 `mdPreview` 前 200 字。([components/result-viewer/mindmap-renderer.tsx:36](../packages/app/src/pages/insight/components/result-viewer/mindmap-renderer.tsx#L36))
+- `[octo:mdedit] open · save-start/ok/failed · close` — markdown 全屏编辑器(Vditor):进入(含 `path`/`persistent`)、自动保存防抖写盘(含 `path`/`bytes`)、关闭回写 tab。写盘走新增 `window.api.writeFile`(主进程校验:`.octo/downloads`/临时目录,或白名单外但已存在的普通文件——覆盖 write 工具产物)。`open-failed` = 定位本地文件失败(uri 未落地 / inline 无本地文件)。**不做「还原初始内容」**(要回原始版本重新从 MCP 下载即可)。([components/markdown-editor/index.tsx](../packages/app/src/pages/insight/components/markdown-editor/index.tsx))
 - `[insight:session-list] rename failed / delete failed` — 会话重命名 / 删除失败。([components/session-list/index.tsx](../packages/app/src/pages/insight/components/session-list/index.tsx))
 
 ---
@@ -316,6 +328,7 @@
 | `octoDebug.pending()` | 当前未回复的 permission / question——排查「卡住不动」(§2.2-D)直接看这个 |
 | **`octoDebug.why()`** | **速诊**:对照 6 条规则自动分析当前现场,给「最可能方向 + 看哪条 + 下一步」(详见 §3.2) |
 | **`octoDebug.snapshot(opts?)`** | **一键参数化现场快照**,输出紧凑文本并复制到剪贴板(详见 §3.3) |
+| **`octoDebug.lastError(n=1)`** | **错误信标(事故黑匣子)**:带出最近 n 条**自动捕获**的 HTTP 失败(含响应体)/ 未捕获异常 / 整页崩,输出纯文本并复制到剪贴板(详见 §3.4) |
 | `octoDebug.mode('quiet'\|'compact'\|'verbose')` | 切 `[octo:event]` 日志详尽度(默认 `compact`) |
 | `octoDebug.verbose(true\|false)` | `verbose` 开关(等价 `mode`):`true` 逐条打 delta + 全部噪音事件,`false` 回 compact |
 
@@ -380,6 +393,18 @@
 | `upload` | §2.4 上传失败 | 含 `[octo:upload]` 前缀的全部来源(console.log 链路 + console.error/warn) |
 
 常用组合:`snapshot({profile:'no-feedback'})` / `snapshot({last:'2m', profile:'errors'})` / `snapshot({full:true})`。
+
+### 3.4 `octoDebug.lastError(n=1)` —— 错误信标 / 事故黑匣子(阶段 4)
+
+`snapshot` 是**人工**抓 SSE 上下文;`lastError` 是**自动**抓「真实高频 bug」——**HTTP 4xx/5xx(含响应体)、未捕获异常、整页崩**。三类信号在出错那一刻就被写进 `localStorage`(key `octo:insight:error-beacons`,环形最近 5 条;**同步写,抗刷新/抗关 app/抗整页崩**)。
+
+- **取数**:`octoDebug.lastError()` 带最近 1 条、`lastError(5)` 带 5 条 → 纯文本 + 自动复制到剪贴板 → 直接粘给 Claude 定位。
+- **整页崩时**:console 往往够不着(白屏),insight 自己的 `ErrorBoundary` fallback 会显示一个**「复制错误」按钮**(等价 `lastError()`),崩溃态也能一键带出。
+- **每条带** `directory` + `sessionID`(出错时的上下文)。HTTP 条目含 `method`/`url`/`status`/响应体(截断 ~2KB);异常/整页崩条目含 `message`/`stack`。
+- **与 snapshot 的分工**:日常出错**先看 `lastError()`**(精炼、不用懂);要更全的 SSE 上下文再 `snapshot()` 补。
+- 来源 [lib/error-beacon.ts](../packages/app/src/pages/insight/lib/error-beacon.ts)。
+
+> 这是 SPEC-INS-011 §1.4 方向纠偏的产物:此前观测维度押在 SSE,但真实高频 bug 是「HTTP 失败 + 异常 + 整页崩」,完全在 SSE 维度之外。
 
 ---
 

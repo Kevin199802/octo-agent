@@ -121,7 +121,7 @@ git push origin dev
 ### Phase A:归档 — 10 分钟
 
 ```bash
-cd /Users/huowenkai/Desktop/projects/octo-agent
+cd /Users/huowenkai/projects/octo-agent
 
 # A0. 状态确认
 git status -sb

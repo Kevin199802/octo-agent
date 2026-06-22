@@ -503,7 +503,7 @@ async function abortTask() {
 如果要丢给新对话(Sonnet 4.6)实施,直接复制下面这段:
 
 ```
-我在 /Users/huowenkai/Desktop/projects/octo-agent 这个 Vue 3 + Electron 项目里
+我在 /Users/huowenkai/projects/octo-agent 这个 Vue 3 + Electron 项目里
 实施任务面板功能。
 
 详细 spec 见 docs/specs/ui/task-panel.md(必读全文)。

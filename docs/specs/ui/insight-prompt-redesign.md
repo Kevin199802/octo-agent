@@ -1,12 +1,14 @@
 # SPEC-INS-007 — 产品流程改版:预置提示词 + promptAsync + 输入区整改
 
-> 状态:草案 · 优先级 P0 · 规模 [L] · 领域 ui/insight · 类型:实现 spec
+> 状态:✅ 主体已落地(预置提示词 + promptAsync + FIFO 队列)· 优先级 P0 · 规模 [L] · 领域 ui/insight · 类型:实现 spec
+>
+> 代码在 UXAI 仓 `packages/app/octoapp/pages/insight/`(`store/preset-prompts.ts` + `components/preset-prompts.tsx`)。行号为实现时快照。
 >
 > **上游已实现**:
-> - ✓ promptAsync + optimistic 标准发送链路([prompt-input/submit.ts](../../../packages/app/src/components/prompt-input/submit.ts) `sendFollowupDraft`)
-> - ✓ 输入区 busy 期间允许键入(chat 的 contenteditable 全程可编,见 [prompt-input.tsx:1339](../../../packages/app/src/components/prompt-input.tsx))
-> - △ followup queue 子系统([session.tsx:541-1678](../../../packages/app/src/pages/session.tsx))**深度耦合 settings / persist / composer**,本期不整体复用,自实现轻量版(理由见 §2.3)
-> - ✗ "预置提示词按钮组"(上游只有斜杠命令 [slash-popover.tsx](../../../packages/app/src/components/prompt-input/slash-popover.tsx),交互形态不同)
+> - ✓ promptAsync + optimistic 标准发送链路([prompt-input/submit.ts](../../../packages/app/octoapp/components/prompt-input/submit.ts) `sendFollowupDraft`)
+> - ✓ 输入区 busy 期间允许键入(chat 的 contenteditable 全程可编,见 [prompt-input.tsx:1339](../../../packages/app/octoapp/components/prompt-input.tsx))
+> - △ followup queue 子系统([session.tsx:541-1678](../../../packages/app/octoapp/pages/session.tsx))**深度耦合 settings / persist / composer**,本期不整体复用,自实现轻量版(理由见 §2.3)
+> - ✗ "预置提示词按钮组"(上游只有斜杠命令 [slash-popover.tsx](../../../packages/app/octoapp/components/prompt-input/slash-popover.tsx),交互形态不同)
 
 ---
 
@@ -54,8 +56,10 @@
 
 | 策略 | 描述 | 选择 |
 |---|---|---|
-| **1:1**(本期) | 每个预置按钮对应一个 MCP tool,文本明示 tool 名 | ✓ 当前 4 个长任务 tool 数量适中,1:1 关系最清晰 |
+| **1:1**(本期) | 每个预置按钮对应一个 MCP tool。~~文本明示 tool 名~~ → 2026-06-15 起文本改纯中文,工具映射由 agent 提示词「工具选择指南」承担,但按钮↔tool 仍是 1:1 | ✓ 当前 4 个长任务 tool 数量适中,1:1 关系最清晰 |
 | 1:N | 一个按钮触发一个意图,LLM 自由选 tool | ✗ LLM 选错 tool 风险大,排查成本高 |
+
+> **2026-06-15 说明**:本期仍是 1:1(一个按钮稳定对一个 tool),只是**触发方式从"文本明示工具名"退回到"文本描述意图、模型映射"**。这把"选对 tool"的责任从客户端文本转移到了模型 + 系统提示词,弱模型场景下的鲁棒性见 §6 风险表与 §11 升级阶梯。
 | N:1 | 多个按钮对应同一 tool 的不同变体 | ✗ 当前 tool 没有"变体"语义 |
 
 ### 2.3 Queue 策略(简化版 vs 完全复用 vs 不做)
@@ -70,8 +74,8 @@
 
 | 方案 | 描述 | 选择 |
 |---|---|---|
-| **toast** ★ 采用 | promptAsync reject → 调用方 catch → showToast,与 chat [submit.ts:570](../../../packages/app/src/components/prompt-input/submit.ts) 一致 | ✓ 用户瞬时感知 |
-| notification panel | 走 [NotificationProvider](../../../packages/app/src/context/notification.tsx) 列表 + 系统通知 | △ 已经在用,仅作为补充(LLM 中途 SSE error) |
+| **toast** ★ 采用 | promptAsync reject → 调用方 catch → showToast,与 chat [submit.ts:570](../../../packages/app/octoapp/components/prompt-input/submit.ts) 一致 | ✓ 用户瞬时感知 |
+| notification panel | 走 [NotificationProvider](../../../packages/app/octoapp/context/notification.tsx) 列表 + 系统通知 | △ 已经在用,仅作为补充(LLM 中途 SSE error) |
 | silent console.error | 当前实现 | ✗ 用户感知不到 |
 
 ---
@@ -84,7 +88,7 @@
 
 #### 3.1.1 数据 schema
 
-新建 [packages/app/src/pages/insight/store/preset-prompts.ts](../../../packages/app/src/pages/insight/store/preset-prompts.ts),替换现有 [store/prompt-template.ts](../../../packages/app/src/pages/insight/store/prompt-template.ts):
+新建 [packages/app/octoapp/pages/insight/store/preset-prompts.ts](../../../packages/app/octoapp/pages/insight/store/preset-prompts.ts),替换现有 [store/prompt-template.ts](../../../packages/app/octoapp/pages/insight/store/prompt-template.ts):
 
 ```typescript
 export type PresetPrompt = {
@@ -106,7 +110,13 @@ export const PRESET_PROMPTS: PresetPrompt[] = [/* 见 §3.1.2 */]
 
 #### 3.1.2 预置内容(初版,可微调)
 
-label 与 text 由设计师统一给出(2026-05-27 修订):**label 用业务语义**(用户看到的按钮文字),**text 在设计师文案前补 tool 名**(确保 LLM 100% 调对工具,见 §6 风险表"预置文本对 LLM 调用准确性不足"):
+> **修订(2026-06-15):去掉 text 里的明示工具名,改用设计师友好中文。**
+>
+> 2026-05-27 版为"text 前补 `请使用 X 工具`"以保证 LLM 100% 调对工具。但该写法把英文 MCP 工具名暴露在用户可见的输入框文本里,设计师反馈不友好。本次按设计师文案改为纯业务中文,**工具选择改由 agent 系统提示词 [octo_insight.md](../../../packages/opencode/src/agent/prompt/octo_insight.md) 的「工具选择指南」表负责**(把该表从"自由输入兜底"提升为"主路径",并补齐 `观点解析 / 评估问题分析` 等设计师文案关键词)。
+>
+> **决策反转依据**:设计师文案仍保留强关键词(观点 / 聚类 / 思维导图 / 可用性测试),与指南表逐词对得上;真正难的"多角色文件拆桶"不受文案影响。代价是放弃了"明示工具名"这条对弱模型最稳的捷径——**故必须配套内网弱模型评测,失败时按 §11 升级阶梯回退**。
+
+label 与 text 由设计师统一给出:**label 用业务语义**(用户看到的按钮文字),**text 为纯业务中文、不含工具名**:
 
 ```typescript
 export const PRESET_PROMPTS: PresetPrompt[] = [
@@ -115,31 +125,33 @@ export const PRESET_PROMPTS: PresetPrompt[] = [
     label: "观点解析报告",
     expectedTool: "key_findings",
     categories: ["interview"],
-    text: "请使用 key_findings 工具,基于上传的访谈逐字稿,解析用户观点并生成报告。",
+    text: "基于上传的访谈逐字稿,解析用户观点并生成报告。",
   },
   {
     id: "run_guide_analysis",
     label: "按提纲聚类",
     expectedTool: "run_guide_analysis",
     categories: ["interview"],
-    text: "请使用 run_guide_analysis 工具,基于上传的访谈大纲和逐字稿,聚类用户观点并生成报告。",
+    text: "基于上传的访谈大纲和逐字稿,聚类用户观点并生成报告。",
   },
   {
     id: "mindmap",
     label: "思维导图",
     expectedTool: "mindmap",
     categories: ["interview"],
-    text: "请使用 mindmap 工具,基于上传的逐字稿,生成思维导图。",
+    text: "基于上传的逐字稿,生成思维导图。",
   },
   {
     id: "run_usability_analysis",
     label: "评估问题分析",
     expectedTool: "run_usability_analysis",
     categories: ["usability"],
-    text: "请使用 run_usability_analysis 工具,基于上传的任务书和逐字稿,做可用性测试分析并生成报告。",
+    text: "基于上传的任务书和逐字稿,做可用性测试分析并生成报告。",
   },
 ]
 ```
+
+> `expectedTool` 字段保留:它本就只用于追踪/审计,正好可在内网联调时对账「文案 → 实际 tool call」是否与预期一致(见 §11 评测)。
 
 **多文件角色识别(如按提纲聚类的"大纲 vs 逐字稿")责任归 MCP tool description**(UXR 团队),客户端 prompt 不重复定义。详见 [mcp-contract.md §Tool 描述写法原则](../agents/mcp-contract.md)。
 
@@ -150,7 +162,7 @@ export const PRESET_PROMPTS: PresetPrompt[] = [
 
 #### 3.1.3 UI 组件
 
-新建 [packages/app/src/pages/insight/components/preset-prompts.tsx](../../../packages/app/src/pages/insight/components/preset-prompts.tsx):
+新建 [packages/app/octoapp/pages/insight/components/preset-prompts.tsx](../../../packages/app/octoapp/pages/insight/components/preset-prompts.tsx):
 
 ```tsx
 type Props = {
@@ -380,8 +392,8 @@ if (queue().length) clearQueue()
 
 ## 4. 数据迁移 / 兼容性
 
-- **删除**:[store/prompt-template.ts](../../../packages/app/src/pages/insight/store/prompt-template.ts)、[components/prompt-template-selector.tsx](../../../packages/app/src/pages/insight/components/prompt-template-selector.tsx) 整个文件
-- **新建**:[store/preset-prompts.ts](../../../packages/app/src/pages/insight/store/preset-prompts.ts)、[components/preset-prompts.tsx](../../../packages/app/src/pages/insight/components/preset-prompts.tsx)
+- **删除**:[store/prompt-template.ts](../../../packages/app/octoapp/pages/insight/store/prompt-template.ts)、[components/prompt-template-selector.tsx](../../../packages/app/octoapp/pages/insight/components/prompt-template-selector.tsx) 整个文件
+- **新建**:[store/preset-prompts.ts](../../../packages/app/octoapp/pages/insight/store/preset-prompts.ts)、[components/preset-prompts.tsx](../../../packages/app/octoapp/pages/insight/components/preset-prompts.tsx)
 - 用户**无持久化数据**依赖被删字段(`templateId` 只是组件 state,不存 localStorage / persist)。无迁移成本。
 - 内网集成手册 [docs/intranet-handoff.md](../../intranet-handoff.md):本 PR **会触发**对外契约变化(模板机制改变),按 CLAUDE.md "内网集成手册维护" 在合入物里程碑前更新。
 
@@ -407,7 +419,7 @@ if (queue().length) clearQueue()
 
 | 风险 | 等级 | 应对 |
 |---|---|---|
-| 预置文本对 LLM 调用准确性不足(LLM 没调对 tool) | 中 | §3.1.2 已强制文本提名 tool 名;内网联调时观察 `[octo:preset]` 日志 + tool call 实际值,不一致就改文案 |
+| 预置文本对 LLM 调用准确性不足(LLM 没调对 tool) | **中→高(2026-06-15 文案去工具名后升级)** | ~~强制文本提名 tool 名~~ 已撤;现依赖系统提示词「工具选择指南」做意图映射(已补齐设计师文案关键词)。**强制内网弱模型评测**:对账 `[octo:preset].expectedTool` 与实际 tool call,不一致先改文案/指南关键词;仍不行按 §11 升级阶梯回退(最终可恢复文本明示工具名) |
 | `search_reports` 用户不知道有这个能力(没胶囊) | 低 | 自由对话可触发;"问答类预置"作为独立专题排期 |
 | ~~queue 容量=1 第二次 submit 覆盖第一次~~ → **已升级 FIFO 多容量**(2026-06-09) | — | §3.3.3:入队 push 追加 + idle 逐条 flush;原"丢消息"风险消除 |
 | 多条 flush 顺序错乱 / 并发发送 | 中 | 逐条 flush,每条占独立 turn(发出→busy→idle→下一条);同一 effect 串行,无并发 promptAsync |
@@ -455,8 +467,8 @@ if (queue().length) clearQueue()
 
 ### 7.4 删除清理
 
-- [ ] [store/prompt-template.ts](../../../packages/app/src/pages/insight/store/prompt-template.ts) 文件已删
-- [ ] [components/prompt-template-selector.tsx](../../../packages/app/src/pages/insight/components/prompt-template-selector.tsx) 文件已删
+- [ ] [store/prompt-template.ts](../../../packages/app/octoapp/pages/insight/store/prompt-template.ts) 文件已删
+- [ ] [components/prompt-template-selector.tsx](../../../packages/app/octoapp/pages/insight/components/prompt-template-selector.tsx) 文件已删
 - [ ] InsightPage 不再 import `PromptTemplateSelector` / `PROMPT_TEMPLATES` / `DEFAULT_TEMPLATE_ID` / `PromptTemplateId`
 - [ ] 删 `templateId / setTemplateId` signal 及所有使用点
 - [ ] 删 `sending / setSending` signal 及所有使用点
@@ -518,7 +530,7 @@ if (queue().length) clearQueue()
 ## 8. 实施步骤
 
 1. **本 spec 评审通过**(user review)
-2. 新建 [store/preset-prompts.ts](../../../packages/app/src/pages/insight/store/preset-prompts.ts) + [components/preset-prompts.tsx](../../../packages/app/src/pages/insight/components/preset-prompts.tsx)
+2. 新建 [store/preset-prompts.ts](../../../packages/app/octoapp/pages/insight/store/preset-prompts.ts) + [components/preset-prompts.tsx](../../../packages/app/octoapp/pages/insight/components/preset-prompts.tsx)
 3. `octo-tokens.css` 加 `.octo-preset-chip` / `.octo-preset-scroll-right` / `.octo-queue-banner` 样式
 4. `index.tsx`:
    - 替换 import + 删除模板相关代码
@@ -528,11 +540,11 @@ if (queue().length) clearQueue()
    - 加切 session 清 queue effect
    - JSX 替换 `<PromptTemplateSelector>` 为 `<PresetPrompts>`,加队列提示条
    - 解 textarea / send 按钮的 busy disable
-5. 删除 [store/prompt-template.ts](../../../packages/app/src/pages/insight/store/prompt-template.ts) + [components/prompt-template-selector.tsx](../../../packages/app/src/pages/insight/components/prompt-template-selector.tsx)
+5. 删除 [store/prompt-template.ts](../../../packages/app/octoapp/pages/insight/store/prompt-template.ts) + [components/prompt-template-selector.tsx](../../../packages/app/octoapp/pages/insight/components/prompt-template-selector.tsx)
 6. 跑 7.1 / 7.2 / 7.3 / 7.4 checklist
 7. 内网包确认:`[octo:preset]` 日志的 expectedTool 与 LLM 实际 tool call 一致
-8. 更新 [docs/intranet-handoff.md](../../intranet-handoff.md)(合入物对外契约变更)
-9. 按 CLAUDE.md "非业务包变更登记":本 PR **未涉及** packages/app 外文件,无需登记 architecture.md §5.4
+8. 更新 [docs/intranet-handoff.md](../../intranet-handoff.md)(对外契约变更)
+9. 改动集中在 `pages/insight/`,不涉及壳 / opencode 上游
 
 ---
 
@@ -559,3 +571,42 @@ if (queue().length) clearQueue()
 | [ADR-007 提示词模板通过 system 字段传递](../../adr/007-prompt-template-via-system-field.md) | **部分作废**。新方案模板文本走 `parts[0].text`(用户消息正文),不走 `system`。需在 ADR-007 顶部加"被 SPEC-INS-007 部分覆盖"标注 |
 | [ADR-008 cascading 配置](../../adr/008-cascading-config.md) | 无影响,本 PR 不动 agent 配置 |
 | [mcp-contract.md §提示词模板 → MCP 工具映射](../agents/mcp-contract.md) | 表格内容需要同步更新(去掉 `knowledge_qa`,可能改 `run_usability_analysis` 状态);本 PR 实施后同步更新 |
+
+---
+
+## 11. 弱模型工具意图识别:评测与升级阶梯(2026-06-15)
+
+文案去掉明示工具名后,"选对 tool"完全压在内网弱模型 + 系统提示词上。本节定义**怎么验证它行不行**,以及**不行时按什么顺序加码**——每一级都比前一级更重、更偏离"纯文案",所以**从轻到重逐级试,能停就停**。
+
+### 11.1 先量化:评测怎么做
+
+不靠手感,靠 `expectedTool` 对账(字段本就为此预留):
+
+1. 4 个预置按钮 × 各点 N 次(建议 N≥10),记录每次实际 tool call;
+2. 再补一批**自由输入**样本(用设计师文案的近义说法,如"帮我看看访谈里的主要观点""做个评估问题分析"),覆盖不走按钮的路径;
+3. 指标:**工具命中率**(实际 tool == expectedTool)。同时分开看两类错误——
+   - **选错工具**(如观点解析→调了 mindmap):指南关键词/语义问题;
+   - **文件拆桶错**(多角色工具把大纲塞进了 `download_links`):这是另一类、与文案无关的弱模型短板,见 11.3 第 4 级。
+4. 通过线建议:预置按钮命中率 ≥95%(按钮是确定意图,应当接近满分),自由输入 ≥85%。
+
+### 11.2 触发判定
+
+- 按钮命中率即可接受(≥95%)→ **维持方案 B,不加码**,只持续盯日志。
+- 按钮命中率不达标 → 进入 11.3 升级阶梯,从第 1 级开始。
+
+### 11.3 升级阶梯(从轻到重,够用即止)
+
+| 级 | 手段 | 改哪里 | 代价 | 何时升下一级 |
+|---|---|---|---|---|
+| **1** | **调指南关键词**:把出错样本的原话补进「工具选择指南」表;给每个工具加一句"何时用/何时不用"的判别语 | 仅 `octo_insight.md`/.txt 提示词 | 极低,纯文案 | 关键词加了仍频繁选错 |
+| **2** | **few-shot 示例**:在系统提示词里加 3-4 条"用户这样说 → 调这个工具(含参数雏形)"的完整范例 | 仅提示词(变长,注意弱模型上下文预算) | 低 | 弱模型仍不稳定/上下文吃紧 |
+| **3** | **客户端隐藏工具锚点**(原方案 A):按钮显示友好中文,实际发送文本 append `[tool:xxx]`,渲染时剥离;或改用 metadata 旁路而非正文 | InsightPage 发送链路 + 渲染 | 中,侵入原生数据流(本 spec 当初否掉的方案,见会话记录) | 锚点方案有泄漏/维护问题,或想彻底不靠模型选 |
+| **4** | **确定性路由,绕开模型选工具**:预置按钮不再发自然语言让模型猜,而是带 `expectedTool` 直接驱动对应 MCP 调用(模型只负责填参数/拆文件,不负责选工具) | InsightPage + agent 调用约定 | 中高,改"按钮=填输入框"的产品语义 | — (这级已基本消除"选错工具";剩下的只有文件拆桶问题) |
+| **5** | **回退到明示工具名**(2026-05-27 旧方案):text 重新前缀 `请使用 X 工具` | 仅 `preset-prompts.ts` | 低,但牺牲设计师要的友好文案 | 兜底终点;与设计师确认取舍 |
+
+> 顺序说明:1→2 是"加强提示词",最便宜先试;3→4 是"把选工具的责任从模型搬到客户端代码",治本但侵入;5 是"放弃友好文案"的纯兜底。**多角色文件拆桶错(11.1 第二类错误)**只有第 4 级的"模型只填参数"或 MCP tool description 加强(责任在 UXR 团队,见 [mcp-contract.md](../agents/mcp-contract.md))能根治,前几级对它无效——评测时务必把两类错误分开统计,别用文案手段去治拆桶问题。
+
+### 11.4 不做什么
+
+- 不一上来就上第 3/4 级:方案 B 未经评测就预设它不行,是过度工程。先拿命中率数据。
+- 不为单条 badcase 改架构:个别样本错先进第 1 级补关键词。
