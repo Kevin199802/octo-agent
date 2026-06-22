@@ -3,9 +3,9 @@
 > 前置阅读：[skill-and-mcp.md](skill-and-mcp.md)  
 > **实现细节去哪里看**：
 > - 工具接口定义 → [docs/specs/agents/mcp-contract.md](../specs/agents/mcp-contract.md)（唯一真相来源）
-> - Octo 客户端配置 + UXR 服务端示例 → [docs/integration.md §6](../integration.md)
+> - MCP 接入方式（Streamable HTTP）+ 验证清单 → [docs/specs/agents/mcp-contract.md](../specs/agents/mcp-contract.md)
+> - 文件上传服务端实现 + 联调步骤 → [docs/specs/infra/file-upload.md](../specs/infra/file-upload.md)
 > - 文件上传为何不走 MCP → [docs/adr/006-upload-architecture.md](../adr/006-upload-architecture.md)
-> - 联调检查清单 → mcp-contract.md §11
 
 本文档不重复以上内容，只讲 MCP 对接的**概念、原理、方法论**——这部分不会随工具增减变化。
 
@@ -160,5 +160,5 @@ async def log_mcp(request, call_next):
 ## 6. 进一步阅读
 
 - 当前 MCP 工具的接口契约：[mcp-contract.md](../specs/agents/mcp-contract.md)
-- 完整接线步骤（配置 + UXR 服务端代码）：[integration.md §6](../integration.md)
+- 文件上传服务端实现 + 联调：[file-upload.md](../specs/infra/file-upload.md)
 - MCP 官方协议文档：https://modelcontextprotocol.io/
