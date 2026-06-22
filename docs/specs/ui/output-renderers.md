@@ -48,7 +48,7 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 
 1. **业务长产物必须走路径 A** — 分析报告 / 思维导图 / HTML 可视化等正式产出，由 UXR MCP tool 返回 `resource_link`，前端按 `mimeType` 稳定路由开卡。这是 [ADR-011](../../adr/011-tool-result-resource-uri.md) 的根本决策。
 2. **路径 B 仅对 LLM 直答兜底** — 无 MCP 工具触发时，LLM 直接在对话里输出 mindmap JSON / HTML 可视化，由前端嗅探升级为卡片。**md 表格不在此列**(2026-06 移除)：对话里 LLM 直出的 md 表格由上游 `<Markdown>` 原样渲染(带复制)即足够，再升级成卡属冗余入口；业务表格走路径 A(`text/csv` resource_link)。
-3. **同 turn A 命中 → B 不执行** — 已在 [insight-turn.tsx:130](../../../packages/app/src/pages/insight/components/insight-turn.tsx#L130) 实现（`taskCards.length > 0` 或 `findResourceLinks().length > 0` 抢占）。
+3. **同 turn A 命中 → B 不执行** — 已在 [insight-turn.tsx:130](../../../packages/app/octoapp/pages/insight/components/insight-turn.tsx#L130) 实现（`taskCards.length > 0` 或 `findResourceLinks().length > 0` 抢占）。
 4. **改路径 B 不要影响路径 A** — §2.3 嗅探规则收紧只针对路径 B；路径 A 的解析逻辑（§2.5、`findResourceLinks`、`readTaskInfo`）独立稳定，bug 走 [task-card.md §12.0 console 节点表](task-card.md#120-联调速查--console-节点表粘-console-定位) 联调排查。
 
 **为什么不走"LLM 工具触发"（如 Claude Artifacts / ChatGPT Canvas 的 `canmore` 伪工具）**：
@@ -59,7 +59,7 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 | 依赖 | 强依赖模型指令遵循（Claude/GPT 95%+，其他模型不可靠） | 不依赖模型能力 |
 | 适用 | 单一模型平台（Anthropic / OpenAI 自家产品）| 多模型场景（DeepSeek R1 / flash / GPT / Claude 都要支持）|
 
-我们走的是"**真 MCP tool（强）+ fence/shape 嗅探（兜底）**"，与 IDE 系工具（Cursor / VS Code Chat / Continue）一致。未来若嗅探被证明太不稳定，再考虑在 [insight agent.md](../../../packages/agent/octo_insight/agents/octo_insight.md) 里加 fence 约定（强约束 LLM 输出格式）+ 前端识别。
+我们走的是"**真 MCP tool（强）+ fence/shape 嗅探（兜底）**"，与 IDE 系工具（Cursor / VS Code Chat / Continue）一致。未来若嗅探被证明太不稳定，再考虑在 [insight agent.md](../../../packages/opencode/src/agent/prompt/octo_insight.md) 里加 fence 约定（强约束 LLM 输出格式）+ 前端识别。
 
 ---
 
@@ -204,7 +204,7 @@ function scanFencedHtml(parts: { text?: string }[]): string[] {
 - **路径 A 严格契约** = MCP tool 返回 `resource_link`（强信号，零嗅探，类似 "ChatGPT Canvas 走 canmore tool" 但是真 MCP 工具）
 - **路径 B 窄而准的嗅探** = fence / table / mindmap shape（类 Cursor 路线）
 
-如果未来路径 B 在多模型场景下漏检率太高，再考虑在 [insight agent.md](../../../packages/agent/octo_insight/agents/octo_insight.md) 加 fence 约定（强约束 LLM 输出格式），前端按约定 tag 识别，等价于 ChatGPT Canvas 的"伪工具触发"但通过 prompt 实现。短期不做。
+如果未来路径 B 在多模型场景下漏检率太高，再考虑在 [insight agent.md](../../../packages/opencode/src/agent/prompt/octo_insight.md) 加 fence 约定（强约束 LLM 输出格式），前端按约定 tag 识别，等价于 ChatGPT Canvas 的"伪工具触发"但通过 prompt 实现。短期不做。
 
 ### 2.4 console 调试埋点（路径 B）
 
@@ -308,7 +308,7 @@ export type OutputCard = {
 
 `tab-store.ts` 的 `ResultTab` 同步扩展。
 
-[insight-turn.tsx:107](../../../packages/app/src/pages/insight/components/insight-turn.tsx#L107) 现有的 `outputCard` memo（单卡）需改造为 `outputCards`（返回 `OutputCard[]`），相应地 `InsightTurn` 组件用 `For` 渲染 0~N 张卡片堆叠：
+[insight-turn.tsx:107](../../../packages/app/octoapp/pages/insight/components/insight-turn.tsx#L107) 现有的 `outputCard` memo（单卡）需改造为 `outputCards`（返回 `OutputCard[]`），相应地 `InsightTurn` 组件用 `For` 渲染 0~N 张卡片堆叠：
 
 ```
 ┌─ assistant 摘要文字（来自 text part）
@@ -371,7 +371,7 @@ Agent 用写文件工具(opencode `write` 新建 / `edit` 修改)把分析结论
 | **应用内代码预览** | `code` | `SourceCodeView` shiki 高亮 | 能读到文本内容的代码/配置/纯文本(编辑器不一定人人装,内预览兜底) |
 | **拉本地应用** | `file` | FileFallback 本地打开 / 文件夹打开 | office/表格/图片/媒体等,应用内渲染无价值或无法渲染(用户多半装了 Excel/Numbers 等) |
 
-**扩展名清单(代码实现 SOT 在 [write-output.ts](../../../packages/app/src/pages/insight/utils/write-output.ts),改这里务必同步):**
+**扩展名清单(代码实现 SOT 在 [write-output.ts](../../../packages/app/octoapp/pages/insight/utils/write-output.ts),改这里务必同步):**
 
 | OutputCardType | 扩展名 |
 |---|---|
@@ -422,7 +422,7 @@ const data = res.data as unknown
 const text = typeof data === "string" ? data : ((data as { content?: string })?.content ?? "")
 ```
 
-- 已有先例:[review-tab.tsx](../../../packages/app/src/pages/session/review-tab.tsx) 的 `readFile` 即走 `sdk.client.file.read`(传 `{ path }` 而非 `{ query: { path } }`,客户端封装已处理)。
+- 已有先例:[review-tab.tsx](../../../packages/app/octoapp/pages/session/review-tab.tsx) 的 `readFile` 即走 `sdk.client.file.read`(传 `{ path }` 而非 `{ query: { path } }`,客户端封装已处理)。
 - **零新增 IPC / preload**——这是选「读本地文件路径」而非「快照 part.content」的关键收益:**tab 挂载时读盘 = 拿当前磁盘内容**,文件被后续 write 覆盖后、关掉 tab 重开(组件重挂)即反映最新。
 - **`createResource` 的 source 必须返回稳定的 path 字符串(不能返回新对象字面量)**:否则 `onCacheContent` 回写 content → `props.tab` 换新对象引用 → source 重跑返回新对象 → createResource 按引用判不等 → 重新 fetch → 又回写 → **死循环**(path 分支用 `Match source==="path"` 常挂载,不像 uri 分支缓存后被父层 `Show !content` 卸载而自然断开)。返回 `props.tab.filePath` 这个 string、id 在 fetcher 里用闭包 `props.tab.id` 取,即可让值相等检查阻止重 fetch。
 - 缓存:读到后 `onCacheContent(tab.id, text)` 回写 store,供 ActionBar 复制/下载取内容。同一 `(filePath, type)` 再次点入口卡走 openTab 去重激活已有 tab(不重挂、不重读,与 uri 行为一致);要看覆盖后的新内容关掉 tab 重开即可。
@@ -461,7 +461,7 @@ write 产物在**本地磁盘**,有 `filePath`——所以"用本地应用打开
 
 ### 2.6.5 与路径 A/B 的优先级
 
-`outputCards` memo 的合并次序(在 [insight-turn.tsx](../../../packages/app/src/pages/insight/components/insight-turn.tsx) 实现):
+`outputCards` memo 的合并次序(在 [insight-turn.tsx](../../../packages/app/octoapp/pages/insight/components/insight-turn.tsx) 实现):
 
 ```
 1. taskCards.length > 0  → return [](长任务卡接管,见 task-card.md §3.4)
@@ -503,7 +503,7 @@ write 产物在**本地磁盘**,有 `filePath`——所以"用本地应用打开
 
 > **关于 `.xlsx`/`.docx` 等真二进制**:见 §2.6.1 已知边界——`write` 写不出有效二进制,出卡能点本地打开但文件损坏;Agent 用 python 生成的则是 bash 产物,当前抓不到。**这两种都不是路径 C 的 bug,是工具能力边界**,验证时不必纠结。
 >
-> **纯逻辑单测**:`extToOutputType`(md/html→渲染 / `.json`→mindmap / 任意代码→code / office-二进制→file)、`canOpenLocally`、`langFromPath`、`basename`、`findWriteCards`(全部出卡 / write+edit 工具 / 去重 / 防御字段)见 `packages/app/src/pages/insight/utils/write-output.test.ts`(19 cases),与 §2.6.1~§2.6.2 对齐。
+> **纯逻辑单测**:`extToOutputType`(md/html→渲染 / `.json`→mindmap / 任意代码→code / office-二进制→file)、`canOpenLocally`、`langFromPath`、`basename`、`findWriteCards`(全部出卡 / write+edit 工具 / 去重 / 防御字段)见 `packages/app/octoapp/pages/insight/utils/write-output.test.ts`(19 cases),与 §2.6.1~§2.6.2 对齐。
 
 ### 2.6.8 路径 A(MCP 产物)vs 路径 C(write 产物)规则对照
 
@@ -540,14 +540,14 @@ write 产物在**本地磁盘**,有 `filePath`——所以"用本地应用打开
 
 ### 3.1 现状
 
-`packages/app/src/pages/insight/components/result-viewer/table-renderer.tsx`：
+`packages/app/octoapp/pages/insight/components/result-viewer/table-renderer.tsx`：
 - 输入：Markdown 表格字符串
 - 渲染为 HTML `<table>`
 - 支持横向滚动、空单元格占位
 
 ### 3.2 ActionBar 导出（现状 + 新增 Excel）
 
-`packages/app/src/pages/insight/components/result-viewer/action-bar.tsx`：
+`packages/app/octoapp/pages/insight/components/result-viewer/action-bar.tsx`：
 
 **现状：**
 - 复制：复制 Markdown 原文
@@ -881,7 +881,7 @@ iframe 默认高度 0，需要显式给。三种方案：
 └────────────────────────────────────────────────────────┘
 ```
 
-样式由 [octo-tokens.css](../../../packages/app/src/pages/insight/octo-tokens.css) `.octo-preview-entry` 系列 class 定义。
+样式由 [octo-tokens.css](../../../packages/app/octoapp/pages/insight/octo-tokens.css) `.octo-preview-entry` 系列 class 定义。
 
 ### 6.B.3 点击行为
 
@@ -951,7 +951,7 @@ iframe 默认高度 0，需要显式给。三种方案：
 
 ### 6.A.4 接线层依赖
 
-新增 main 进程 IPC（详见 [architecture.md §5.4](../../architecture.md#54-上游接线壳改动清单)）：
+依赖桌面壳暴露的 `window.api` IPC（契约见 [intranet-handoff §4](../../intranet-handoff.md)）：
 
 ```ts
 // preload: window.api.downloadResource
@@ -997,7 +997,7 @@ temp 路径策略：`app.getPath("temp") + "/octo/" + sessionId + "/" + sanitize
 
 ### 9.0 联调前手动自验（无需 UXR MCP）
 
-> **目的**：单测覆盖 detect 逻辑 / adapter 转换 / CSV 转义等纯逻辑（见 `packages/app/src/pages/insight/utils/detect.test.ts`）。本节流程覆盖**眼睛才能看见的东西**：markmap SVG 是否真画出、iframe 沙箱是否真隔离、.xlsx 在 Numbers/Excel 里是否真打开、xlsx 在 mac/win 唤起本地应用是否成功。
+> **目的**：单测覆盖 detect 逻辑 / adapter 转换 / CSV 转义等纯逻辑（见 `packages/app/octoapp/pages/insight/utils/detect.test.ts`）。本节流程覆盖**眼睛才能看见的东西**：markmap SVG 是否真画出、iframe 沙箱是否真隔离、.xlsx 在 Numbers/Excel 里是否真打开、xlsx 在 mac/win 唤起本地应用是否成功。
 >
 > **前置**：InsightPage 配好任意 LLM provider，能正常对话。下列 prompt 直接粘进输入框即可。
 >
@@ -1260,7 +1260,7 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 | **§0 职责边界 + §2.3 嗅探收紧（删 length>200、json 加严、仅 html fence 升级）** | 本轮（2026-05） | — |
 | **HTML 嗅探鲁棒化（扫所有 part / 多 fence 多卡 / 未闭合 fence）** | 本轮（2026-05） | — |
 | **tab uri 去重（同一 URI 多入口不重复开 tab）** | 本轮（2026-05） | tab-store.ts |
-| **FileFallback 双按钮（用本地应用打开 / 下载到本地）** | 本轮（2026-05） | preload + main `download-resource` IPC（[architecture.md §5.4](../../architecture.md#54-上游接线壳改动清单)）|
+| **FileFallback 双按钮（用本地应用打开 / 下载到本地）** | 本轮（2026-05） | preload + main `download-resource` IPC（[intranet-handoff §4](../../intranet-handoff.md)）|
 | **全链路 console 埋点（detect/tab/office/resource）** | 本轮（2026-05） | — |
 | **预览/代码 视图切换（mindmap 双卡→单卡 + html/table/markdown 加切换）+ file 隐藏复制/下载** | 2026-05-30 | tab-store `viewMode` / `linkToOutputType` / `SourceCodeView` |
 | **§9 验证步骤扩充（V0-D 反例 / V0-E office / V0-F dedupe / 模型差异栏）** | 本轮（2026-05） | mac + win 双平台手动跑 V0-E |

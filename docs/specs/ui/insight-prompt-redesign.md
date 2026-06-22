@@ -1,12 +1,14 @@
 # SPEC-INS-007 — 产品流程改版:预置提示词 + promptAsync + 输入区整改
 
-> 状态:草案 · 优先级 P0 · 规模 [L] · 领域 ui/insight · 类型:实现 spec
+> 状态:✅ 主体已落地(预置提示词 + promptAsync + FIFO 队列)· 优先级 P0 · 规模 [L] · 领域 ui/insight · 类型:实现 spec
+>
+> 代码在 UXAI 仓 `packages/app/octoapp/pages/insight/`(`store/preset-prompts.ts` + `components/preset-prompts.tsx`)。行号为实现时快照。
 >
 > **上游已实现**:
-> - ✓ promptAsync + optimistic 标准发送链路([prompt-input/submit.ts](../../../packages/app/src/components/prompt-input/submit.ts) `sendFollowupDraft`)
-> - ✓ 输入区 busy 期间允许键入(chat 的 contenteditable 全程可编,见 [prompt-input.tsx:1339](../../../packages/app/src/components/prompt-input.tsx))
-> - △ followup queue 子系统([session.tsx:541-1678](../../../packages/app/src/pages/session.tsx))**深度耦合 settings / persist / composer**,本期不整体复用,自实现轻量版(理由见 §2.3)
-> - ✗ "预置提示词按钮组"(上游只有斜杠命令 [slash-popover.tsx](../../../packages/app/src/components/prompt-input/slash-popover.tsx),交互形态不同)
+> - ✓ promptAsync + optimistic 标准发送链路([prompt-input/submit.ts](../../../packages/app/octoapp/components/prompt-input/submit.ts) `sendFollowupDraft`)
+> - ✓ 输入区 busy 期间允许键入(chat 的 contenteditable 全程可编,见 [prompt-input.tsx:1339](../../../packages/app/octoapp/components/prompt-input.tsx))
+> - △ followup queue 子系统([session.tsx:541-1678](../../../packages/app/octoapp/pages/session.tsx))**深度耦合 settings / persist / composer**,本期不整体复用,自实现轻量版(理由见 §2.3)
+> - ✗ "预置提示词按钮组"(上游只有斜杠命令 [slash-popover.tsx](../../../packages/app/octoapp/components/prompt-input/slash-popover.tsx),交互形态不同)
 
 ---
 
@@ -72,8 +74,8 @@
 
 | 方案 | 描述 | 选择 |
 |---|---|---|
-| **toast** ★ 采用 | promptAsync reject → 调用方 catch → showToast,与 chat [submit.ts:570](../../../packages/app/src/components/prompt-input/submit.ts) 一致 | ✓ 用户瞬时感知 |
-| notification panel | 走 [NotificationProvider](../../../packages/app/src/context/notification.tsx) 列表 + 系统通知 | △ 已经在用,仅作为补充(LLM 中途 SSE error) |
+| **toast** ★ 采用 | promptAsync reject → 调用方 catch → showToast,与 chat [submit.ts:570](../../../packages/app/octoapp/components/prompt-input/submit.ts) 一致 | ✓ 用户瞬时感知 |
+| notification panel | 走 [NotificationProvider](../../../packages/app/octoapp/context/notification.tsx) 列表 + 系统通知 | △ 已经在用,仅作为补充(LLM 中途 SSE error) |
 | silent console.error | 当前实现 | ✗ 用户感知不到 |
 
 ---
@@ -86,7 +88,7 @@
 
 #### 3.1.1 数据 schema
 
-新建 [packages/app/src/pages/insight/store/preset-prompts.ts](../../../packages/app/src/pages/insight/store/preset-prompts.ts),替换现有 [store/prompt-template.ts](../../../packages/app/src/pages/insight/store/prompt-template.ts):
+新建 [packages/app/octoapp/pages/insight/store/preset-prompts.ts](../../../packages/app/octoapp/pages/insight/store/preset-prompts.ts),替换现有 [store/prompt-template.ts](../../../packages/app/octoapp/pages/insight/store/prompt-template.ts):
 
 ```typescript
 export type PresetPrompt = {
@@ -160,7 +162,7 @@ export const PRESET_PROMPTS: PresetPrompt[] = [
 
 #### 3.1.3 UI 组件
 
-新建 [packages/app/src/pages/insight/components/preset-prompts.tsx](../../../packages/app/src/pages/insight/components/preset-prompts.tsx):
+新建 [packages/app/octoapp/pages/insight/components/preset-prompts.tsx](../../../packages/app/octoapp/pages/insight/components/preset-prompts.tsx):
 
 ```tsx
 type Props = {
@@ -390,8 +392,8 @@ if (queue().length) clearQueue()
 
 ## 4. 数据迁移 / 兼容性
 
-- **删除**:[store/prompt-template.ts](../../../packages/app/src/pages/insight/store/prompt-template.ts)、[components/prompt-template-selector.tsx](../../../packages/app/src/pages/insight/components/prompt-template-selector.tsx) 整个文件
-- **新建**:[store/preset-prompts.ts](../../../packages/app/src/pages/insight/store/preset-prompts.ts)、[components/preset-prompts.tsx](../../../packages/app/src/pages/insight/components/preset-prompts.tsx)
+- **删除**:[store/prompt-template.ts](../../../packages/app/octoapp/pages/insight/store/prompt-template.ts)、[components/prompt-template-selector.tsx](../../../packages/app/octoapp/pages/insight/components/prompt-template-selector.tsx) 整个文件
+- **新建**:[store/preset-prompts.ts](../../../packages/app/octoapp/pages/insight/store/preset-prompts.ts)、[components/preset-prompts.tsx](../../../packages/app/octoapp/pages/insight/components/preset-prompts.tsx)
 - 用户**无持久化数据**依赖被删字段(`templateId` 只是组件 state,不存 localStorage / persist)。无迁移成本。
 - 内网集成手册 [docs/intranet-handoff.md](../../intranet-handoff.md):本 PR **会触发**对外契约变化(模板机制改变),按 CLAUDE.md "内网集成手册维护" 在合入物里程碑前更新。
 
@@ -465,8 +467,8 @@ if (queue().length) clearQueue()
 
 ### 7.4 删除清理
 
-- [ ] [store/prompt-template.ts](../../../packages/app/src/pages/insight/store/prompt-template.ts) 文件已删
-- [ ] [components/prompt-template-selector.tsx](../../../packages/app/src/pages/insight/components/prompt-template-selector.tsx) 文件已删
+- [ ] [store/prompt-template.ts](../../../packages/app/octoapp/pages/insight/store/prompt-template.ts) 文件已删
+- [ ] [components/prompt-template-selector.tsx](../../../packages/app/octoapp/pages/insight/components/prompt-template-selector.tsx) 文件已删
 - [ ] InsightPage 不再 import `PromptTemplateSelector` / `PROMPT_TEMPLATES` / `DEFAULT_TEMPLATE_ID` / `PromptTemplateId`
 - [ ] 删 `templateId / setTemplateId` signal 及所有使用点
 - [ ] 删 `sending / setSending` signal 及所有使用点
@@ -528,7 +530,7 @@ if (queue().length) clearQueue()
 ## 8. 实施步骤
 
 1. **本 spec 评审通过**(user review)
-2. 新建 [store/preset-prompts.ts](../../../packages/app/src/pages/insight/store/preset-prompts.ts) + [components/preset-prompts.tsx](../../../packages/app/src/pages/insight/components/preset-prompts.tsx)
+2. 新建 [store/preset-prompts.ts](../../../packages/app/octoapp/pages/insight/store/preset-prompts.ts) + [components/preset-prompts.tsx](../../../packages/app/octoapp/pages/insight/components/preset-prompts.tsx)
 3. `octo-tokens.css` 加 `.octo-preset-chip` / `.octo-preset-scroll-right` / `.octo-queue-banner` 样式
 4. `index.tsx`:
    - 替换 import + 删除模板相关代码
@@ -538,11 +540,11 @@ if (queue().length) clearQueue()
    - 加切 session 清 queue effect
    - JSX 替换 `<PromptTemplateSelector>` 为 `<PresetPrompts>`,加队列提示条
    - 解 textarea / send 按钮的 busy disable
-5. 删除 [store/prompt-template.ts](../../../packages/app/src/pages/insight/store/prompt-template.ts) + [components/prompt-template-selector.tsx](../../../packages/app/src/pages/insight/components/prompt-template-selector.tsx)
+5. 删除 [store/prompt-template.ts](../../../packages/app/octoapp/pages/insight/store/prompt-template.ts) + [components/prompt-template-selector.tsx](../../../packages/app/octoapp/pages/insight/components/prompt-template-selector.tsx)
 6. 跑 7.1 / 7.2 / 7.3 / 7.4 checklist
 7. 内网包确认:`[octo:preset]` 日志的 expectedTool 与 LLM 实际 tool call 一致
-8. 更新 [docs/intranet-handoff.md](../../intranet-handoff.md)(合入物对外契约变更)
-9. 按 CLAUDE.md "非业务包变更登记":本 PR **未涉及** packages/app 外文件,无需登记 architecture.md §5.4
+8. 更新 [docs/intranet-handoff.md](../../intranet-handoff.md)(对外契约变更)
+9. 改动集中在 `pages/insight/`,不涉及壳 / opencode 上游
 
 ---
 

@@ -1,7 +1,13 @@
 # Spec: Agent 配置部署机制
 
-> 决策见 [ADR-008](../../adr/008-cascading-config.md)，概念背景见 [agent-deploy.md](../../learning/agent-deploy.md)。  
-> 本 spec 是实现的唯一真相来源。
+> 决策见 [ADR-008](../../adr/008-cascading-config.md)，概念背景见 [agent-deploy.md](../../learning/agent-deploy.md)。
+>
+> ⚠️ **适用范围（重要）**：§3–§9 描述的是 **octo-agent 本地 Electron 壳**(`packages/desktop-electron/`)的 cascading 部署机制——
+> `packages/agent/<name>/agents/<name>.md` 源 → `default-config.json` → extraResources 打包 → 主进程 `initOctoConfig()` deepMerge → `~/.config/octo/.octo-runtime.json` → 注入 `OPENCODE_CONFIG`。
+> **UXAI 不走这套**：octo_insight **直接注册在 opencode fork 的 [`packages/opencode/src/agent/agent.ts`](../../../packages/opencode/src/agent/agent.ts)**(硬编码 + `mcp`/`skills` 私有扩展)，prompt 取自 [`packages/opencode/src/agent/prompt/octo_insight.md`](../../../packages/opencode/src/agent/prompt/octo_insight.md)；opencode fork **原生读** `~/.config/octo/octo.json`（[config.ts](../../../packages/opencode/src/config/config.ts) 把 `octo.json` 列为优先配置名），无壳侧 runtime 合并 / 无 `.octo-runtime.json` / 无 extraResources。
+> UXAI 的部署契约见 [intranet-handoff §5/§6](../../intranet-handoff.md) 与 [architecture §5.2](../../architecture.md)。
+>
+> **本篇仍有价值的部分**：§0（agent frontmatter schema 业界对照 + `mcp`/`skills` 为 fork 私有扩展的结论，与 handoff §6 一致）、§2（字段 A/B/C 分类思路）、ADR-008 决策理由。其余为 octo-agent 本地壳实现记录，保留作设计参考。
 
 ---
 

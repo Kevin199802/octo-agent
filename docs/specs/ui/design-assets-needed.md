@@ -4,7 +4,7 @@
 
 **维护规则**：UI 开发过程中凡遇到图标、插图、品牌资产等无法用代码精确还原的元素，须立即在**当前活跃批次**追加一行记录，不得跳过。
 
-**命名约定**：图标文件统一放 `packages/app/src/pages/_shell/icons/` 或各页面目录的 `icons/` 子目录，以 PascalCase SolidJS 组件导出，文件名即下表"图标名"列。
+**命名约定**：图标文件统一放 `packages/app/octoapp/pages/_shell/icons/` 或各页面目录的 `icons/` 子目录，以 PascalCase SolidJS 组件导出，文件名即下表"图标名"列。
 
 **交付格式约定（硬约束）**：
 
@@ -42,7 +42,7 @@
 
 ---
 
-## 1. Topbar（`packages/app/src/pages/_shell/topbar.tsx`）
+## 1. Topbar（`packages/app/octoapp/pages/_shell/topbar.tsx`）
 
 | 图标名 | 用途 | 尺寸 | 当前占位 | 替换位置 |
 |---|---|---|---|---|
@@ -55,7 +55,7 @@
 
 ---
 
-## 2. Sidebar（`packages/app/src/pages/_shell/sidebar.tsx`）
+## 2. Sidebar（`packages/app/octoapp/pages/_shell/sidebar.tsx`）
 
 | 图标名 | 用途 | 尺寸 | 当前占位 | 替换位置 |
 |---|---|---|---|---|
@@ -65,7 +65,7 @@
 
 ---
 
-## 3. Insight 对话区（`packages/app/src/pages/insight/`）
+## 3. Insight 对话区（`packages/app/octoapp/pages/insight/`）
 
 | 图标名 | 用途 | 尺寸 | 当前占位 | 替换位置 |
 |---|---|---|---|---|
@@ -90,7 +90,7 @@
 
 ---
 
-## 5. ResultViewer（`packages/app/src/pages/insight/components/result-viewer/`）
+## 5. ResultViewer（`packages/app/octoapp/pages/insight/components/result-viewer/`）
 
 | 图标名 | 用途 | 尺寸 | 当前占位 | 替换位置 |
 |---|---|---|---|---|
@@ -107,7 +107,7 @@
 
 > spec: [task-card.md](task-card.md)。本批次是 InsightPage 引入长任务异步呈现机制后新增的素材诉求。
 
-## 6. 长任务卡片（`packages/app/src/pages/insight/components/task-card/`）
+## 6. 长任务卡片（`packages/app/octoapp/pages/insight/components/task-card/`）
 
 **视觉态需校准**：5 个状态（pending / processing / completed / failed / stopped）的图标、底色、边框色当前是开发期估值，spec 见 [task-card.md §4 §5](task-card.md)。
 
@@ -121,7 +121,7 @@
 
 ### 设计 token 估值（待校准）
 
-`packages/app/src/pages/insight/octo-tokens.css` 新增的状态色 token 为开发期估值，需设计师给最终值：
+`packages/app/octoapp/pages/insight/octo-tokens.css` 新增的状态色 token 为开发期估值，需设计师给最终值：
 
 | Token | 当前值 | 用途 |
 |---|---|---|
@@ -184,7 +184,7 @@ stopped 态当前复用 `--octo-surface-hover` / `--octo-border-default`，无�
 # Batch 4 — 待交付
 
 > insight 左上角「项目/版本」选择器（复刻 UXAI make-tab ProjectInfo）。组件位于
-> `packages/app/src/pages/insight/components/project-selector/`。
+> `packages/app/octoapp/pages/insight/components/project-selector/`。
 
 ## §8 项目/版本 onboarding 弹窗
 
@@ -200,7 +200,7 @@ stopped 态当前复用 `--octo-surface-hover` / `--octo-border-default`，无�
 
 1. 图标放入对应页面目录的 `icons/` 子目录，以 SolidJS 函数组件导出：
    ```tsx
-   // packages/app/src/pages/_shell/icons/IconSearch.tsx
+   // packages/app/octoapp/pages/_shell/icons/IconSearch.tsx
    export function IconSearch(): JSX.Element {
      return <svg .../>
    }

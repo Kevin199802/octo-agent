@@ -98,7 +98,7 @@ const REFRESH_COOLDOWN_MS = 3 * 60 * 1000   // 3 分钟
 
 ### 3.1 数据来源
 
-opencode SSE 把 MCP `CallToolResult.content[]` 转发为 `Part[]`,InsightPage 已在 [index.tsx:50](../../../packages/app/src/pages/insight/index.tsx) 维护 `dataStore.part[messageID]`。识别逻辑读这份 store,不另起数据通道。
+opencode SSE 把 MCP `CallToolResult.content[]` 转发为 `Part[]`,InsightPage 已在 [index.tsx:50](../../../packages/app/octoapp/pages/insight/index.tsx) 维护 `dataStore.part[messageID]`。识别逻辑读这份 store,不另起数据通道。
 
 ### 3.2 task_id 识别规则
 
@@ -122,7 +122,7 @@ function getTaskIdFromPart(part: Part): { taskId: string; status?: TaskStatus; m
 }
 ```
 
-> ⚠️ **联调待确认**:opencode 把 MCP `structuredContent` 暴露到 Part 的具体字段名未在 spec 之前完整观测过。实现前先用 `console.log` 在 `index.tsx` 现有 `[octo:sse] tool part` 埋点位置(已存在,见 [index.tsx:110](../../../packages/app/src/pages/insight/index.tsx#L110))确认形态,`readStructuredContent` helper 按观测结果实现。
+> ⚠️ **联调待确认**:opencode 把 MCP `structuredContent` 暴露到 Part 的具体字段名未在 spec 之前完整观测过。实现前先用 `console.log` 在 `index.tsx` 现有 `[octo:sse] tool part` 埋点位置(已存在,见 [index.tsx:110](../../../packages/app/octoapp/pages/insight/index.tsx#L110))确认形态,`readStructuredContent` helper 按观测结果实现。
 
 ### 3.3 同一 task_id 跨 turn 聚合
 
@@ -147,7 +147,7 @@ turn 3: 用户再次刷新
 
 ### 3.4 与现有 text-detect 路径的优先级
 
-`InsightTurn` 当前从最后一条 `text` part 跑 `detectCard()`(见 [insight-turn.tsx:107](../../../packages/app/src/pages/insight/components/insight-turn.tsx#L107))。本 spec 修改后的优先级:
+`InsightTurn` 当前从最后一条 `text` part 跑 `detectCard()`(见 [insight-turn.tsx:107](../../../packages/app/octoapp/pages/insight/components/insight-turn.tsx#L107))。本 spec 修改后的优先级:
 
 ```
 该 turn 的 assistant part 里:
@@ -177,7 +177,7 @@ turn 3: 用户再次刷新
 
 业界对照(VS Code / Cursor / Notion 等):同一文件路径 / document ID 在多个入口被打开时,**激活已有 tab,不新建**。我们的 tab 去重 key 应该是 `uri`,而不是 OutputCard.id(因为任务卡和 SSE 卡的 id 不同,但 uri 相同)。
 
-**实现要求**([tab-store.ts](../../../packages/app/src/pages/insight/components/result-viewer/tab-store.ts) 的 `openTab`):
+**实现要求**([tab-store.ts](../../../packages/app/octoapp/pages/insight/components/result-viewer/tab-store.ts) 的 `openTab`):
 
 ```
 1. 优先按 uri 匹配现有 tab → 命中即 activate,不新建
@@ -228,7 +228,7 @@ turn 3: 用户再次刷新
 | `failed` | 失败 | ❌ 隐藏 | ❌ 隐藏 | `--octo-danger`(待 token 确认) |
 | `stopped` | 用户终止 | ❌ 隐藏 | ❌ 隐藏 | `--octo-text-muted` |
 
-> 颜色 token 名称未在 [octo-tokens.css](../../../packages/app/src/pages/insight/octo-tokens.css) 中预定义的(success / danger),实现时按现有 token 命名约定补充,并按 CLAUDE.md "设计素材清单"要求在 [design-assets-needed.md](design-assets-needed.md) 登记需要的设计件。
+> 颜色 token 名称未在 [octo-tokens.css](../../../packages/app/octoapp/pages/insight/octo-tokens.css) 中预定义的(success / danger),实现时按现有 token 命名约定补充,并按 CLAUDE.md "设计素材清单"要求在 [design-assets-needed.md](design-assets-needed.md) 登记需要的设计件。
 
 ---
 
@@ -306,7 +306,7 @@ turn 3: 用户再次刷新
 
 ### 6.1 inject prompt 机制
 
-**复用 [index.tsx:226](../../../packages/app/src/pages/insight/index.tsx#L226) 的 `sendMessage(sessionId, text)`**,不新增 API:
+**复用 [index.tsx:226](../../../packages/app/octoapp/pages/insight/index.tsx#L226) 的 `sendMessage(sessionId, text)`**,不新增 API:
 
 ```ts
 // 刷新按钮
@@ -341,7 +341,7 @@ inject 出来的 user 消息**正常显示在对话流中**(与用户手输无�
 - 收到 "终止任务 X" → LLM 调 `stop_task(X)`
 - 客户端**不**直接调 MCP 工具,**不**直接访问任务管理 API
 
-工具调用约束写在 agent prompt(`packages/agent/octo_insight/agents/octo_insight.md`)里,本 spec 不重复定义。
+工具调用约束写在 agent prompt(`packages/opencode/src/agent/prompt/octo_insight.md`)里,本 spec 不重复定义。
 
 ### 6.3 卡片状态更新
 
@@ -458,7 +458,7 @@ function buildOutputCardFromTask(task: TaskCard): OutputCard {
 
 ## 11. 文件组织
 
-按 CLAUDE.md "页面自包含",全部在 `packages/app/src/pages/insight/` 内:
+按 CLAUDE.md "页面自包含",全部在 `packages/app/octoapp/pages/insight/` 内:
 
 ```
 pages/insight/
@@ -489,7 +489,7 @@ pages/insight/
 | 步骤 | 操作 | 期望看到的 log | 缺失时的判断 |
 |---|---|---|---|
 | **1** | 触发"观点解析",输入框发送 | `[octo:prompt] send` 带 `source: "user"` + `template: "..."` | session.prompt 调用失败 → 看 `[InsightPage] prompt failed` |
-| **2** | 5 秒内 | `[octo:sse] new part` + `[octo:sse] tool part` 含 `tool: "key_findings"` + `state.status: "completed"` + 展开 `fullPart.state.metadata` / `state.output` 看 task_id 形态 | 无 → MCP 工具没被 LLM 调用;看 agent prompt(`packages/agent/octo_insight/agents/octo_insight.md` 是否声明了该工具白名单) |
+| **2** | 5 秒内 | `[octo:sse] new part` + `[octo:sse] tool part` 含 `tool: "key_findings"` + `state.status: "completed"` + 展开 `fullPart.state.metadata` / `state.output` 看 task_id 形态 | 无 → MCP 工具没被 LLM 调用;看 agent prompt(`packages/opencode/src/agent/prompt/octo_insight.md` 是否声明了该工具白名单) |
 | **3** | 紧接着 | `[octo:task] aggregate diff` 含 `changes: [{ taskId, from: null, to: "pending\|processing" }]` + `snapshot` 数组 | 无 → defensive 解析没命中,**粘 step 2 的 `fullPart` 完整对象**;`readStructuredContent` 三个分支需调 |
 | **4** | 卡片渲染后,点 **↻ 刷新** | `[octo:task] refresh click` → `[octo:task] markRefreshed` → `[octo:prompt] send` 带 `source: "task-refresh"` + `text: "查询任务 xxx 的进度"` | "blocked: busy" → 当前 turn 没结束;"blocked: cooldown" → 3 分钟内已刷过 |
 | **5** | 几秒后 | 新一条 `[octo:sse] tool part` 含 `tool: "get_task_result"` → `[octo:task] aggregate diff` 含 status 变化 | LLM 没调 get_task_result → 看 agent prompt 是否落了 [mcp-contract.md §LLM 调用规范](../agents/mcp-contract.md) |
