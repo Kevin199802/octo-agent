@@ -141,6 +141,12 @@ turn 3: 用户再次刷新
 
 **聚合策略**:遍历当前 session 所有 part,按 task_id 分组,每组取**时间上最新的状态**(用 part 所在 message 的 time / createdAt 排序;同 message 内多个匹配 part 取最后一个)。
 
+**产物链接复用原产物(重复查询不重生成)**:`status` / `message` / `resultText` 取**最新** part,但 `resourceLinks` 例外 —— 锁定到**该 task_id 首次 completed 且带 resource_link 的那次捕获**,后续重查返回的链接一律忽略。
+
+> 原因:completed 任务产物逻辑上不可变,但用户每次"查询任务进度"都会重调 `get_task_result`(§6.2、并见 octo_insight agent "无条件重新调用"规则),内网 MCP server **可能为同一任务每次返回一批新 URI**。若取最新链接,会让新 URI 顶替原始文件,用户感知成"又重新生成了一份"。锁定首次产物 = 把最初那批文件稳定地拿回来(右侧栏 tab / 内联卡 / 自动打开三处一致)。
+>
+> 实现:[task-detect.ts](../../../packages/app/src/pages/insight/utils/task-detect.ts) `aggregateTaskCards`,`resourceLinks = group.find(g => g.status==="completed" && g.resourceLinks.length>0)?.resourceLinks ?? latest.resourceLinks`。
+
 **渲染锚点**:任务卡片**只渲染在该 task_id 第一次出现的 turn**(初始提交 turn);后续刷新 turn 产生的 part 仅用于"喂状态",不重复渲染卡片。
 
 理由:卡片"原地更新"语义清晰,与对话线性时间不冲突;后续 turn 里 LLM 的文字回复(如"任务已完成,结果如下...")用现有 SessionTurn 渲染,不被遮蔽。
@@ -172,6 +178,8 @@ turn 3: 用户再次刷新
 #### ⚠️ 入口冗余 ≠ tab 重复(重要边界澄清)
 
 **入口冗余**(保留):turn 1 任务卡片的"查看完整结果"按钮 + turn N 的 SSE inline 卡片,**两个入口**指向同一份产物 — 保留,服务于上述导航兜底。
+
+> **冗余入口也必须指向同一份原始产物**:turn N 的内联卡**不能**直接用本 turn `get_task_result` 返回的链接渲染 —— server 重查可能给新 URI(见 §3.3 产物链接复用),那样 turn N 的卡会比 turn 1 多/换一批文件,"一式两份"变"两份不同"。实现要求:内联卡渲染前按 part 的 `task_id` 经 `resolveTaskLinks(taskId)` 换回该任务首次确定的产物链接,再出卡([insight-turn.tsx](../../../packages/app/src/pages/insight/components/insight-turn.tsx) `outputCards`)。无 `task_id` 的普通 resource_link turn 不受影响,仍走原 `findResourceLinks`。
 
 **tab 重复**(禁止):点击两个入口后,ResultViewer 里**同一 URI 被开成两个独立 tab** — 这是 bug,必须避免。
 
@@ -425,7 +433,9 @@ function buildOutputCardFromTask(task: TaskCard): OutputCard {
 
 **默认不自动打开**右侧 Tab。理由:用户可能正在看其他 Tab(对比另一个分析结果),自动跳走打断专注。点"查看完整结果"按钮才打开。
 
-例外:**当前 ResultViewer 为空态**(`tabs().length === 0`)时,首个 completed 任务自动 openTab — 减少一步无用点击。
+例外:**当前 ResultViewer 为空态**(`tabs().length === 0`)时,自动把**本会话所有 completed 任务的产物一次性 openTab**,默认激活第一个(其余作为待选 tab 并存)。
+
+> 进对话即铺满本会话生成的全部文件(如 a 的 x,y + b 的 m,n → 顶部 tab 栏并排 x,y,m,n),而非只开第一个任务、要求用户逐个叉掉才看到下一个。`autoOpenedTaskIds` 已记录开过的 task,用户**手动关掉后不会被重新弹开**。会话中途新完成的任务因 viewer 非空不再自动插入(点任务卡按钮打开),与"不打断专注"一致。
 
 ---
 
