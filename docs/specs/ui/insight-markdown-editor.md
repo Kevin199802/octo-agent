@@ -95,7 +95,9 @@ ActionBar:  [预览 | 代码]   ……   [✎ 编辑]   [复制]  [下载 ▾]
 
 ### 3.1 落地路径（复用现有 IPC）
 
-[result-viewer FileFallback](../../../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx) 已有：`window.api.downloadResourceToTemp(uri, namespace, filename, baseDir)` → 把 uri 落到 **`<baseDir>/.octo/downloads/`** 并返回 `localPath`（已落地则复用、占用时回退已下载副本，见 [insight-debugging.md](../../insight-debugging.md) `[octo:office] reuse-locked`）。
+[result-viewer FileFallback](../../../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx) 已有：`window.api.downloadResourceToTemp(uri, namespace, filename, baseDir)` → 把 uri 落到 **`<baseDir>/.octo/downloads/`** 并返回 `localPath`（**幂等**：已落地直接复用、不 re-fetch/覆盖,见 `[octo:office] reuse-existing`；文件被外部应用独占锁定时回退已有副本,见 `[octo:office] reuse-locked`；均见 [insight-debugging.md](../../insight-debugging.md)）。
+
+> **2026-06 修复**：`downloadResourceToTemp` 此前**每次都 re-fetch + 覆盖**(本函数最初只服务 Office 只读临时预览),导致「本地打开/编辑 → 改 → 关闭 → 再打开」被重新下载的 MCP 原版盖掉用户改动。改为「目标已存在即复用」后幂等成立,本地工作副本的改动才真正持久。详见 §3.5。
 
 | 入参 | md 编辑器取值 |
 |---|---|
@@ -120,6 +122,16 @@ ActionBar:  [预览 | 代码]   ……   [✎ 编辑]   [复制]  [下载 ▾]
 ### 3.4 未选目录（projectDir 为空）
 
 `downloadResourceToTemp` 无 `baseDir` 时落 **OS 临时目录**（重启可能被清）。此时编辑/保存仍可用，但**非持久** —— 顶栏提示「未关联本地目录，编辑暂存临时目录、可能丢失，建议先关联目录」。不硬禁编辑。
+
+### 3.5 「本地工作副本」模型：卡片预览 / 本地打开 / 编辑 / 下载的一致性（2026-06）
+
+把 uri markdown 卡的本地落地件视为用户的**工作文件**，所有读路径都指向它、唯一例外是「另存为」，对齐主流软件心智（下载即得本地副本可改，要原件重新下载）。三处改动：
+
+1. **`downloadResourceToTemp` 幂等**（[desktop/src/main/ipc.ts](../../../packages/desktop/src/main/ipc.ts)）—— 目标已存在即复用、不覆盖（§3.1 修复）。这是根因修复:`本地打开`(FileFallback)与编辑器都走它,改完此处两条路径的改动才不被 re-fetch 盖掉。
+2. **卡片预览读本地副本**（[result-viewer `UriMarkdownTabBody`](../../../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx)）—— uri markdown 卡不再直接 `fetch(url)`,而是先 `downloadResourceToTemp`(幂等)落本地、再 `readFileBuffer(localPath)` 读盘渲染。于是预览/编辑/重开卡(含 app 重启,`namespace=tab.id` 稳定 → `localPath` 稳定)看到的都是同一份含改动的本地文件。`filename`/`namespace` 与编辑器 `ensureLocalFile` 完全一致才命中同一份。非桌面端(`__dev`/测试)缺能力时退回 `fetch(url)` 只读预览。
+3. **「另存为」= 拉原件**（[result-viewer/action-bar.tsx](../../../packages/app/octoapp/pages/insight/components/result-viewer/action-bar.tsx)）—— uri markdown 卡的下载菜单项改名「另存为」(与 file 类型同名),走 `saveFilePicker` + `downloadResource(url, dest)`,**始终拉 MCP 原始版本**另存到任意目录,不取本地工作副本/编辑后内容。
+
+> 仅作用于 **markdown** 类型;file 类型(Office/二进制,FileFallback 不内嵌预览)维持现状 —— 改动 1 幂等后其`本地打开`也自动持久。其余 uri 类型(json/html/table/mindmap)仍走 `fetch(url)` 只读预览(无编辑场景)。
 
 ---
 
