@@ -6,6 +6,8 @@
 
 **2026-05-07 演化说明**：原方案自写 `OctoWorkbench` / `OctoDataProvider` 作为顶层壳，后确认内网团队直接在 `packages/app/` 上开发，为便于按图索骥对接，改为**直接在 `packages/app/src/pages/insight/` 添加页面**，路径与内网完全一致。`packages/octo-app/` 降级为纯 Electron 启动脚手架，不合入内网。"复用 `@opencode-ai/ui` 零件"原则不变。
 
+> **docs-only 历史注(2026-06)**：下文「代码要合入内网 / 上游一行不动 / 合入零冲突」是当年(两仓代码同步时代)的决策前提。现 octo-agent 已转 docs-only、代码主线在 UXAI(insight 落在 `packages/app/octoapp/pages/insight/`),不再做仓库合入。**ADR 决策本身(复用 `@opencode-ai/ui`、不重写 UI)依然成立**,只是"避免合入冲突"这条理由已成历史。
+
 ## 背景
 
 ADR-002(Vue 3 重写)的隐含前提是 "UI = 聊天框 + 几个表单",1-2 周可重写。Phase 1 推进后两件事改变了前提:

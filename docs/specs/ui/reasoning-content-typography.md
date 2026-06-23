@@ -45,7 +45,7 @@
 
 ### 3.1 首选工具:dev-only「排版样张页」（确定性）
 
-在 insight 下（自由改范围）建一个**仅开发环境可见**的样张页，用**真实组件**渲染固定样张 → 任意时刻可截、无模型随机性，也是搭折叠粗 UI 的地方。
+在 insight 下（insight 自研代码）建一个**仅开发环境可见**的样张页，用**真实组件**渲染固定样张 → 任意时刻可截、无模型随机性，也是搭折叠粗 UI 的地方。
 
 - **正文**:`<Markdown text={全元素样张} />`，渲染 §3.4 的样张。
 - **思维链**:`<div data-component="reasoning-part"><Markdown text={含标题/列表/代码的样张} /></div>`，复刻真实结构。
@@ -126,7 +126,7 @@ export const value = 42 // 代码块 + 复制按钮
 
 - **真相来源**:`docs/tokens.md`（设计命名 `text.primary` 等，与代码 `theme.css` 的 `--text-strong` 是**两套**，中间有翻译层）。
 - **流程**:设计师审 `tokens.md`（决定是否更新）→ 基于它设计聊天区，**优先复用全局 token** → 超出部分由设计师给**组件级 token** → 我们翻译进 **insight 作用域覆盖层**。
-- **防血溅（强约束）**:不改全局 `theme.css`；新值落 `--octo-md-*` / `--octo-reasoning-*` 命名空间，**集中在一个文件**（建议 `packages/app/src/pages/insight/conversation-typography.css`），每块注释「覆盖上游什么 + 为什么 + 设计出处」，确保一处可定位。
+- **防血溅（强约束）**:不改全局 `theme.css`；新值落 `--octo-md-*` / `--octo-reasoning-*` 命名空间，**集中在一个文件**（建议 `packages/app/octoapp/pages/insight/conversation-typography.css`），每块注释「覆盖上游什么 + 为什么 + 设计出处」，确保一处可定位。
 
 ---
 

@@ -2,6 +2,8 @@
 
 > 前置阅读：[agent-mental-model.md](agent-mental-model.md) — 理解 agent.prompt 是什么。  
 > 这篇解释：怎么在不修改 agent 本身的情况下，给单次对话注入额外的系统指令。
+>
+> ⚠️ 文中 §分层表的 **L1**(`packages/agent/.../octo_insight.md` + `default-config.json` cascading 注入)是 **octo-agent 本地壳**机制(历史)。UXAI 现役:agent prompt 在 opencode `agent.ts` 内 import `prompt/octo_insight.txt`,见 [agent-config-deploy.md](../specs/infra/agent-config-deploy.md)。本篇核心(per-call system 注入机制、L2 模板层)不受影响。
 
 ---
 
@@ -132,13 +134,13 @@ Layer 2 和 Layer 3 都是 per-call 的，区别在于：Layer 2 进 system role
 |---|---|---|---|
 | L1 | agent.prompt 源（系统提示词） | `packages/agent/octo_insight/agents/octo_insight.md` | 重启 main 进程，cascading 自动注入到 runtime |
 | L1 | agent 结构 / MCP URL 源 | `packages/desktop-electron/resources/default-config.json` | 重启 main 进程，cascading 自动合并 |
-| L2 | systemHint 定义（6 个模板） | `packages/app/src/pages/insight/store/prompt-template.ts` | HMR 即时生效（前端代码） |
-| L2 | systemHint 调用 | `packages/app/src/pages/insight/index.tsx` 的 `handleSend` | HMR 即时生效 |
+| L2 | systemHint 定义（6 个模板） | `packages/app/octoapp/pages/insight/store/prompt-template.ts` | HMR 即时生效（前端代码） |
+| L2 | systemHint 调用 | `packages/app/octoapp/pages/insight/index.tsx` 的 `handleSend` | HMR 即时生效 |
 | L3 | 用户输入 | （运行时，无文件） | 来自 `PromptInput` 组件 |
 
 **Layer 1 与 Layer 2 在不同包的原因**：
 - Layer 1（agent 定义、prompt）是 opencode 后端读取的，属于 agent 配置，源在 `packages/agent/`（合入物，会同步到内网仓库）
-- Layer 2（提示词模板）是前端 UI 代码，属于客户端业务逻辑，源在 `packages/app/src/pages/insight/`（同样是合入物）
+- Layer 2（提示词模板）是前端 UI 代码，属于客户端业务逻辑，源在 `packages/app/octoapp/pages/insight/`（同样是合入物）
 
 两者都是合入物，但归属不同：L1 给 opencode 读，L2 给前端用。
 

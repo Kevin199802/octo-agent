@@ -3,6 +3,8 @@
 > 前置阅读：[agent-mental-model.md](agent-mental-model.md)  
 > 解答两个问题：①不注册也能对话，注册到底有什么用？②配置文件在本机，发布后用户侧怎么自带？  
 > §3 记录 cascading config 的一次踩坑（2026-05-16）。
+>
+> ⚠️ **机制已更替**：§2 起描述的 `default-config.json` + `extraResources` + 主进程合并 → `.octo-runtime.json` 是 **octo-agent 本地壳**的分发机制(历史)。**UXAI 现役**改为 opencode fork 源码内置(`agent.ts` 注册 + `builtin-mcp.ts` + 原生读 `~/.config/octo/octo.json`),见 [agent-config-deploy.md](../specs/infra/agent-config-deploy.md)。§1「注册的意义」概念仍通用。
 
 ---
 

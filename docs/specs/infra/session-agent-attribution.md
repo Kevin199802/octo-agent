@@ -3,6 +3,8 @@
 > 状态:草案 · 优先级 P0 · 规模 [S] · 领域 infra/session · 类型:架构 + 实现 spec
 >
 > 触发:2026-06-04 内网用户机器 insight 侧栏出现两类异常对话;复盘后定位为 `Session` 缺 `agent` 字段 + `task` 工具未传 agent 的复合 bug。本期一并修复,**对所有 agent(insight / make / studio / 未来的 chat)统一生效**,不仅限 insight。
+>
+> docs-only 历史注:文中"octo-agent 与 UXAI 两仓共用 / reference implementation"是两仓代码同步时代的论证。现代码主线在 UXAI 仓的 opencode fork,`session.agent` 字段化已在其中落地;技术结论不变。
 
 ---
 
