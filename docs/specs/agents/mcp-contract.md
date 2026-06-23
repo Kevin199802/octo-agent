@@ -14,6 +14,28 @@
 | 传输协议 | Streamable HTTP（`POST /mcp`，`GET /mcp` 用于能力发现） |
 | 鉴权 | 暂无（内网部署，依赖网络隔离） |
 | 超时建议 | 业务工具异步返回 task_id（长任务），状态查询走轮询；具体阈值待联调 |
+| server 地址 | 由 **环境变量 `OCTO_UXR_MCP_URL`** 注入；未设置时回退到 beta 内网 IP（详见下方 [§MCP server 地址配置](#mcp-server-地址配置)） |
+
+### MCP server 地址配置
+
+`uxr-tool` 这个内建 MCP server 的地址是客户端写死注册的（不走用户 `opencode.json`），由环境变量 `OCTO_UXR_MCP_URL` 配置，**未设置时回落代码内默认 beta IP**。
+
+**取值优先级**：`process.env.OCTO_UXR_MCP_URL` > 默认 `http://7.192.161.60:8005/mcp`（[`packages/opencode/src/config/builtin-mcp.ts`](../../../packages/opencode/src/config/builtin-mcp.ts) 的 `BUILTIN_MCP_SERVERS["uxr-tool"].url`）。
+
+**注意 opencode 跑在 sidecar 子进程**：sidecar 由 Electron main spawn，**读不到 `.env` / `VITE_`**。所以变量不是写进 `.env` 就能到达 sidecar 的 `process.env`，必须走与 `OCTO_KB_BASE_URL` 完全一致的三步转发链路（与之并列对齐）：
+
+1. **`.env.prod`**（或 `.env.beta`）写 `OCTO_UXR_MCP_URL=http://<ip>:<port>/mcp`（非 `VITE_` 前缀，server 侧变量；文档见 [`packages/desktop/.env.example`](../../../packages/desktop/.env.example)）
+2. **[`packages/desktop/electron.vite.config.ts`](../../../packages/desktop/electron.vite.config.ts)** `define` 把它编译期固化成 `import.meta.env.OCTO_UXR_MCP_URL`（注入 main 进程）
+3. **[`packages/desktop/src/main/server.ts`](../../../packages/desktop/src/main/server.ts)** `createSidecarEnv()` 把它透传进 sidecar 的 `env` → opencode `builtin-mcp` 经 `process.env` 读到
+
+| 环境 | 配置 | 实际生效地址 |
+|---|---|---|
+| 本地 / beta（默认） | `.env*` 不填 `OCTO_UXR_MCP_URL` | `http://7.192.161.60:8005/mcp`（代码内默认值） |
+| 生产 | `.env.prod` 填 `OCTO_UXR_MCP_URL=http://7.185.124.42:8005/mcp` | `http://7.185.124.42:8005/mcp` |
+
+> **配进 `.env.prod` 即可，无需 `export`**：打包后是双击启动的 GUI app，没有 shell export 时机；`.env.prod` 经 define 在**构建期**固化，是生产正路。（`export` 仅在 main 进程 `process.env` 中能透传给 sidecar，用于本地临时覆盖。）
+>
+> **代理注意**：`7.x` / 同类内网非标准私有 IP 不被 `isPrivateUrl` 识别，会误走系统代理触发 504。`uxr-tool` 已显式 `proxy: false` 强制绕过代理；若生产 IP 同属此类内网段，沿用即可，无需额外配置。
 
 ---
 
