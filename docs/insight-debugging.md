@@ -12,6 +12,17 @@
 
 ## 0. 前缀总览
 
+> **日志分两类来源,先认清在哪看**(这是定位的第一步,搞错地方会"搜不到"):
+>
+> | 类 | 来源进程 | 在哪看 | 哪些前缀 |
+> |---|---|---|---|
+> | **A · 客户端 DevTools** | renderer(Electron 渲染层,`packages/app/src/pages/insight/`) | 复现 → 打开 **DevTools Console** → 搜前缀 | §0.1 整表 |
+> | **B · server 端 / sidecar** | opencode 子进程(`packages/opencode/`) | **落盘日志文件**(见 §0.3),**不在 DevTools** | §0.2 整表 |
+>
+> 用构建产物排查、或要看 MCP/上传注入/知识库这类后端链路时,**只能去 B 的日志文件**,DevTools 里搜不到。
+
+### 0.1 客户端 DevTools 日志(renderer · DevTools Console)
+
 | 前缀 | 来源文件 | 关注什么 |
 |---|---|---|
 | `[octo:event]` | [lib/debug-observer.ts](../packages/app/src/pages/insight/lib/debug-observer.ts) | **SSE 服务器推回的事件流**——busy/idle、消息/part 落定、卡轮的 permission/question(发送链路的"另一半") |
@@ -33,9 +44,32 @@
 | `[insight:session-list]` | [components/session-list/index.tsx](../packages/app/src/pages/insight/components/session-list/index.tsx) | 会话重命名 / 删除失败 |
 | `[InsightPage]` | [index.tsx](../packages/app/src/pages/insight/index.tsx) | 兜底 error(session.create / upload 失败) |
 | `[dev:preview]` | [_dev/cards-preview.tsx](../packages/app/src/pages/insight/_dev/cards-preview.tsx) | **仅开发预览页**,mock 不连 SDK,排查线上问题时无视 |
-| `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前把 handle 换成精确 S3 URL([ADR-014](docs/adr/014-url-injection-via-plugin.md))。**注意:出在 opencode 服务进程 console,不在客户端 DevTools** |
-| `[octo:kb]` | [packages/opencode/src/tool/knowledge_search.ts](../packages/opencode/src/tool/knowledge_search.ts) | **server 端工具**:chat 内网知识库检索(getKnowledgeVector)。**出在 opencode 服务进程 console / sidecar 日志,不在客户端 DevTools**。spec 见 [specs/agents/chat-knowledge-search.md](docs/specs/agents/chat-knowledge-search.md) |
-| `[octo:mcp]` | [config/config.ts](../packages/opencode/src/config/config.ts) · [mcp/index.ts](../packages/opencode/src/mcp/index.ts) | **server 端**:内建 MCP(uxr-tool)生效配置 + 连接过程参数。**出在 opencode 服务进程 console / sidecar 日志,不在客户端 DevTools**。地址由 `OCTO_UXR_MCP_URL` 控制(见 [config/builtin-mcp.ts](../packages/opencode/src/config/builtin-mcp.ts) + [specs/agents/mcp-contract.md §MCP server 地址配置](docs/specs/agents/mcp-contract.md)) |
+
+### 0.2 server 端日志(opencode sidecar 进程 · 落盘文件,不在 DevTools)
+
+| 前缀 | 来源文件 | 关注什么 |
+|---|---|---|
+| `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前把 handle 换成精确 S3 URL([ADR-014](docs/adr/014-url-injection-via-plugin.md)) |
+| `[octo:kb]` | [packages/opencode/src/tool/knowledge_search.ts](../packages/opencode/src/tool/knowledge_search.ts) | **server 端工具**:chat 内网知识库检索(getKnowledgeVector)。spec 见 [specs/agents/chat-knowledge-search.md](docs/specs/agents/chat-knowledge-search.md) |
+| `[octo:mcp]` | [config/config.ts](../packages/opencode/src/config/config.ts) · [mcp/index.ts](../packages/opencode/src/mcp/index.ts) | **server 端**:内建 MCP(uxr-tool)生效配置 + 连接过程参数。地址由 `OCTO_UXR_MCP_URL` 控制(见 [config/builtin-mcp.ts](../packages/opencode/src/config/builtin-mcp.ts) + [specs/agents/mcp-contract.md §MCP server 地址配置](docs/specs/agents/mcp-contract.md)) |
+
+### 0.3 server 端日志怎么读取
+
+opencode 子进程的日志**不进 DevTools**,落盘到固定目录(`Global.Path.log`,即 `<xdgData>/opencode/log/`),每次启动新建一个**时间戳命名**的 `.log`(`2026-06-22T020714.log`),保留最近几个、旧的自动清理。
+
+| 平台 | 日志目录 |
+|---|---|
+| macOS / Linux | `~/.local/share/opencode/log/`(设了 `XDG_DATA_HOME` 则为 `$XDG_DATA_HOME/opencode/log/`) |
+| Windows | `%LOCALAPPDATA%\opencode\log\` |
+
+**最新修改时间那个 `.log` = 当前 session**。用编辑器打开 Ctrl+F 搜前缀即可;命令行(macOS/Linux)看最新一个里的 server 端日志:
+
+```bash
+DIR=~/.local/share/opencode/log
+grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
+```
+
+> 实现:日志路径见 `packages/core/src/util/log.ts` 的 `file()` / `Global.Path.log`(`packages/core/src/global.ts`,`app="opencode"`)。dev 模式文件名固定 `dev.log`。
 
 > 约定:`⚠️` 出现在 `console.warn`,`✗`/红色出现在 `console.error`。正常链路只有 `console.log`。
 >
