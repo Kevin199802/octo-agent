@@ -35,6 +35,7 @@
 | `[dev:preview]` | [_dev/cards-preview.tsx](../packages/app/src/pages/insight/_dev/cards-preview.tsx) | **仅开发预览页**,mock 不连 SDK,排查线上问题时无视 |
 | `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前把 handle 换成精确 S3 URL([ADR-014](docs/adr/014-url-injection-via-plugin.md))。**注意:出在 opencode 服务进程 console,不在客户端 DevTools** |
 | `[octo:kb]` | [packages/opencode/src/tool/knowledge_search.ts](../packages/opencode/src/tool/knowledge_search.ts) | **server 端工具**:chat 内网知识库检索(getKnowledgeVector)。**出在 opencode 服务进程 console / sidecar 日志,不在客户端 DevTools**。spec 见 [specs/agents/chat-knowledge-search.md](docs/specs/agents/chat-knowledge-search.md) |
+| `[octo:mcp]` | [config/config.ts](../packages/opencode/src/config/config.ts) · [mcp/index.ts](../packages/opencode/src/mcp/index.ts) | **server 端**:内建 MCP(uxr-tool)生效配置 + 连接过程参数。**出在 opencode 服务进程 console / sidecar 日志,不在客户端 DevTools**。地址由 `OCTO_UXR_MCP_URL` 控制(见 [config/builtin-mcp.ts](../packages/opencode/src/config/builtin-mcp.ts) + [specs/agents/mcp-contract.md §MCP server 地址配置](docs/specs/agents/mcp-contract.md)) |
 
 > 约定:`⚠️` 出现在 `console.warn`,`✗`/红色出现在 `console.error`。正常链路只有 `console.log`。
 >
@@ -45,6 +46,13 @@
 > - `response`:`status`/`ok`/`bodyHead`。**404 = host 不对**(beta/prod 仅 host 不同、路径固定;非服务问题);在对应 `.env.<channel>` 改 `OCTO_KB_BASE_URL` 重打包即可。
 > - `parsed`:`totalDocs`/`topScores`/`titles`——检索成功但答非所问时看命中文档。
 > - `检索失败 url=…`(error):网络层失败(连不上 / 超时 / abort),带完整 url。
+>
+> `[octo:mcp]` 五条(出在 server 进程 / sidecar 日志,不在客户端 DevTools;**确认 uxr-tool 连的是 beta 还是 prod 看这组**):
+> - `builtin-config`:**排查 env/地址首选**(config.ts,每次 config load 打一条)。`url`(uxr-tool 生效地址,拿它判 beta `7.192.161.60` / prod `7.185.124.42`)/ `source`(`env(OCTO_UXR_MCP_URL)` = 读到了环境变量;`default(beta)` = **没读到、回落 beta**,内网出现这个=没在对的 `.env.<channel>` 设 `OCTO_UXR_MCP_URL` 或没用 `build:prod` 打包)/ `proxy` / `timeout` / `userOverridesUxr`(true=用户 opencode.json 也配了 uxr-tool,实际生效以用户配置为准)。
+> - `connect-remote`:连接前的解析入参。`url`(最终请求地址)/ `proxyMode`(代理决策镜像:`bypass(forced)` = 已 `proxy:false` 强制绕过;`system(public)` = 走系统代理,7.x 内网段落到这里易触发 504)/ `timeout` / `oauth` / `headerKeys`。
+> - `transport-try`:每个传输各一条(先 `StreamableHTTP` 后 `SSE`),带 `url` / `timeout`。
+> - `connected`:连上了,带 `transport`(实际生效的传输)/ `url`。
+> - `transport-failed`(warn):某传输失败的 info/warn 级镜像(debug 级 `transport connection failed` 生产可能被过滤),带 `url` / `proxyMode` / `error`——判代理问题看 `proxyMode`。
 > - **完全无 `[octo:kb]` 日志** = 模型没调用该工具(检查是否 octo_ai agent、问题是否被识别为内网问题)。
 
 ---
