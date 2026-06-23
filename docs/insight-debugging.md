@@ -2,7 +2,7 @@
 
 > 用途:内网出 bug 时,照着 console 日志前缀快速定位原因。
 >
-> 范围:`packages/app/src/pages/insight/` 全部 console 日志。这是**只读排查文档**,不改任何代码。
+> 范围:`packages/app/octoapp/pages/insight/` 全部 console 日志。这是**只读排查文档**,不改任何代码。
 >
 > 怎么用:复现一次问题 → 打开 DevTools Console → 按下面 §2 的「症状表」找到对应行 → 顺着「看哪几条日志」逐条核对 → 落到「可能原因 / 下一步」。
 >
@@ -16,7 +16,7 @@
 >
 > | 类 | 来源进程 | 在哪看 | 哪些前缀 |
 > |---|---|---|---|
-> | **A · 客户端 DevTools** | renderer(Electron 渲染层,`packages/app/src/pages/insight/`) | 复现 → 打开 **DevTools Console** → 搜前缀 | §0.1 整表 |
+> | **A · 客户端 DevTools** | renderer(Electron 渲染层,`packages/app/octoapp/pages/insight/`) | 复现 → 打开 **DevTools Console** → 搜前缀 | §0.1 整表 |
 > | **B · server 端 / sidecar** | opencode 子进程(`packages/opencode/`) | **落盘日志文件**(见 §0.3),**不在 DevTools** | §0.2 整表 |
 >
 > 用构建产物排查、或要看 MCP/上传注入/知识库这类后端链路时,**只能去 B 的日志文件**,DevTools 里搜不到。
@@ -25,25 +25,25 @@
 
 | 前缀 | 来源文件 | 关注什么 |
 |---|---|---|
-| `[octo:event]` | [lib/debug-observer.ts](../packages/app/src/pages/insight/lib/debug-observer.ts) | **SSE 服务器推回的事件流**——busy/idle、消息/part 落定、卡轮的 permission/question(发送链路的"另一半") |
+| `[octo:event]` | [lib/debug-observer.ts](../packages/app/octoapp/pages/insight/lib/debug-observer.ts) | **SSE 服务器推回的事件流**——busy/idle、消息/part 落定、卡轮的 permission/question(发送链路的"另一半") |
 | `[global-sdk]` | **opencode 原生**(context/global-sdk.tsx) | **SSE 连接层**自身报错(`event stream error`/`failed`)——判断"事件管道还活着没"的直接证据,非我们打的 |
-| `[octo:sync]` | [index.tsx](../packages/app/src/pages/insight/index.tsx) | 会话加载、busy↔idle 状态切换 |
-| `[octo:prompt]` | [index.tsx](../packages/app/src/pages/insight/index.tsx) | 发送链路全程:入参、optimistic、async 受理、无反馈探测 |
-| `[octo:queue]` | [index.tsx](../packages/app/src/pages/insight/index.tsx) | busy 期间排队 / flush / 取消 |
-| `[octo:assistant]` | [index.tsx](../packages/app/src/pages/insight/index.tsx) | 一轮结束后完整 dump assistant message 原始内容 |
-| `[octo:task]` | [index.tsx](../packages/app/src/pages/insight/index.tsx) · [utils/task-refresh.ts](../packages/app/src/pages/insight/utils/task-refresh.ts) | 长任务卡片:切会话清状态、刷新/终止/打开产物、聚合 diff |
-| `[octo:upload]` | [lib/upload.ts](../packages/app/src/pages/insight/lib/upload.ts) · [index.tsx](../packages/app/src/pages/insight/index.tsx) | 附件上传 5 段链路 + 客户端校验 + 重试 |
-| `[octo:preset]` | [index.tsx](../packages/app/src/pages/insight/index.tsx) | 预置提示词点击 |
-| `[octo:task-detect]` | [utils/task-detect.ts](../packages/app/src/pages/insight/utils/task-detect.ts) | 从 part 读 task_id |
-| `[octo:detect]` / `[octo:card]` | [components/insight-turn.tsx](../packages/app/src/pages/insight/components/insight-turn.tsx) | text → 卡片检测、resource_link 卡片 |
-| `[octo:resource-link]` / `[octo:resource]` | [utils/resource-link.ts](../packages/app/src/pages/insight/utils/resource-link.ts) | resource_link 识别 / fetch |
-| `[octo:tab]` | [components/result-viewer/tab-store.ts](../packages/app/src/pages/insight/components/result-viewer/tab-store.ts) | 产物 tab 打开 / 去重 |
-| `[octo:office]` | [components/result-viewer/index.tsx](../packages/app/src/pages/insight/components/result-viewer/index.tsx) | Office 文件下载 / 打开 / 另存 / 定位 |
-| `[octo:mindmap]` | [components/result-viewer/mindmap-renderer.tsx](../packages/app/src/pages/insight/components/result-viewer/mindmap-renderer.tsx) | 脑图渲染 |
-| `[octo:mdedit]` | [components/markdown-editor/index.tsx](../packages/app/src/pages/insight/components/markdown-editor/index.tsx) | markdown 全屏编辑器(Vditor):open / save-start / save-ok / save-failed / close([spec](specs/ui/insight-markdown-editor.md)) |
-| `[insight:session-list]` | [components/session-list/index.tsx](../packages/app/src/pages/insight/components/session-list/index.tsx) | 会话重命名 / 删除失败 |
-| `[InsightPage]` | [index.tsx](../packages/app/src/pages/insight/index.tsx) | 兜底 error(session.create / upload 失败) |
-| `[dev:preview]` | [_dev/cards-preview.tsx](../packages/app/src/pages/insight/_dev/cards-preview.tsx) | **仅开发预览页**,mock 不连 SDK,排查线上问题时无视 |
+| `[octo:sync]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 会话加载、busy↔idle 状态切换 |
+| `[octo:prompt]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 发送链路全程:入参、optimistic、async 受理、无反馈探测 |
+| `[octo:queue]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | busy 期间排队 / flush / 取消 |
+| `[octo:assistant]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 一轮结束后完整 dump assistant message 原始内容 |
+| `[octo:task]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) · [utils/task-refresh.ts](../packages/app/octoapp/pages/insight/utils/task-refresh.ts) | 长任务卡片:切会话清状态、刷新/终止/打开产物、聚合 diff |
+| `[octo:upload]` | [lib/upload.ts](../packages/app/octoapp/pages/insight/lib/upload.ts) · [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 附件上传 5 段链路 + 客户端校验 + 重试 |
+| `[octo:preset]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 预置提示词点击 |
+| `[octo:task-detect]` | [utils/task-detect.ts](../packages/app/octoapp/pages/insight/utils/task-detect.ts) | 从 part 读 task_id |
+| `[octo:detect]` / `[octo:card]` | [components/insight-turn.tsx](../packages/app/octoapp/pages/insight/components/insight-turn.tsx) | text → 卡片检测、resource_link 卡片 |
+| `[octo:resource-link]` / `[octo:resource]` | [utils/resource-link.ts](../packages/app/octoapp/pages/insight/utils/resource-link.ts) | resource_link 识别 / fetch |
+| `[octo:tab]` | [components/result-viewer/tab-store.ts](../packages/app/octoapp/pages/insight/components/result-viewer/tab-store.ts) | 产物 tab 打开 / 去重 |
+| `[octo:office]` | [components/result-viewer/index.tsx](../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx) | Office 文件下载 / 打开 / 另存 / 定位 |
+| `[octo:mindmap]` | [components/result-viewer/mindmap-renderer.tsx](../packages/app/octoapp/pages/insight/components/result-viewer/mindmap-renderer.tsx) | 脑图渲染 |
+| `[octo:mdedit]` | [components/markdown-editor/index.tsx](../packages/app/octoapp/pages/insight/components/markdown-editor/index.tsx) | markdown 全屏编辑器(Vditor):open / save-start / save-ok / save-failed / close([spec](specs/ui/insight-markdown-editor.md)) |
+| `[insight:session-list]` | [components/session-list/index.tsx](../packages/app/octoapp/pages/insight/components/session-list/index.tsx) | 会话重命名 / 删除失败 |
+| `[InsightPage]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 兜底 error(session.create / upload 失败) |
+| `[dev:preview]` | [__dev/cards-preview.tsx](../packages/app/octoapp/pages/insight/__dev/cards-preview.tsx) | **仅开发预览页**,mock 不连 SDK,排查线上问题时无视 |
 
 ### 0.2 server 端日志(opencode sidecar 进程 · 落盘文件,不在 DevTools)
 
@@ -115,7 +115,7 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 
 ### 1.0 `[octo:event]` — SSE 服务器事件流(排查核心)
 
-> 来源 [lib/debug-observer.ts](../packages/app/src/pages/insight/lib/debug-observer.ts):旁路订阅 `globalSDK.event.listen()`,把当前 session 的每个 SSE event 打成一行。**默认精简模式**只打下表"精简打✓"的类型;`message.part.delta` 高频,按 partID 聚合成 `message.part.delta ×聚合`。要看全部敲 `octoDebug.verbose(true)`(见 §3)。
+> 来源 [lib/debug-observer.ts](../packages/app/octoapp/pages/insight/lib/debug-observer.ts):旁路订阅 `globalSDK.event.listen()`,把当前 session 的每个 SSE event 打成一行。**默认精简模式**只打下表"精简打✓"的类型;`message.part.delta` 高频,按 partID 聚合成 `message.part.delta ×聚合`。要看全部敲 `octoDebug.verbose(true)`(见 §3)。
 >
 > 这是「发了消息有没有动静」的直接证据:一条 event 都不来 = SSE 没连/server 没启动该轮;来 `permission.asked`/`question.asked` = agent 在等用户、这一轮卡住。
 
@@ -141,7 +141,7 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 ### 1.1 `[octo:sync]` — 会话加载与状态
 
 #### `[octo:sync] session.sync`
-- **时机**:切到某会话、或缓存被驱逐导致 `message[id]` 重新变 `undefined` 时,触发原生 sync 加载。([index.tsx:165](../packages/app/src/pages/insight/index.tsx#L165))
+- **时机**:切到某会话、或缓存被驱逐导致 `message[id]` 重新变 `undefined` 时,触发原生 sync 加载。([index.tsx:165](../packages/app/octoapp/pages/insight/index.tsx#L165))
 - **字段**:`sessionID` — 正在加载的会话 id。
 - **正常**:切会话时**恰好打一条**,随后中间区渲染出历史消息。
 - **异常**:
@@ -149,7 +149,7 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
   - **反复刷屏同一 id** → `message[id]` 一直是 `undefined`,sync 始终没把数据写回(server 没响应 / 连接断),配合「白屏」症状,见 §2.1。
 
 #### `[octo:sync] status`
-- **时机**:`sessionStatus` 变化(`idle`↔`busy`)时打,`defer:true` 不打初始值。([index.tsx:241](../packages/app/src/pages/insight/index.tsx#L241))
+- **时机**:`sessionStatus` 变化(`idle`↔`busy`)时打,`defer:true` 不打初始值。([index.tsx:241](../packages/app/octoapp/pages/insight/index.tsx#L241))
 - **字段**:`sessionID`、`type`(`idle` / `busy`)。
 - **正常**:发消息后短时内出现 `type:"busy"`,一轮结束出现 `type:"idle"`。
 - **异常**:发消息后**迟迟不出现 `busy`** → server 没启动该轮(见 §2.2 no-feedback 探测器)。
@@ -159,18 +159,18 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 > 这三条只在 **busy→idle 那一刻**打(`defer:true`,初始 idle 不打),把刚结束的最新 assistant message 原始内容全量 dump。内网抓不到 SSE network 时,靠这几条还原真相。
 
 #### `[octo:assistant] turn-complete`
-- **时机**:busy→idle 切换瞬间。([index.tsx:265](../packages/app/src/pages/insight/index.tsx#L265))
+- **时机**:busy→idle 切换瞬间。([index.tsx:265](../packages/app/octoapp/pages/insight/index.tsx#L265))
 - **字段**:`sessionID`、`msgID`、`partsCount`、`textPartsCount`、`toolPartsCount`、`toolNames[]`。
 - **正常**:`partsCount>0`,`toolNames` 含预期工具。
 - **异常**:`partsCount:0` 或全 0 → LLM 这轮没产出任何 part(空回复 / 被中断)。
 
 #### `[octo:assistant] text-part-detail`
-- **时机**:turn-complete 之后,每个 text part 各打一条,**完整文本不截断**。([index.tsx:277](../packages/app/src/pages/insight/index.tsx#L277))
+- **时机**:turn-complete 之后,每个 text part 各打一条,**完整文本不截断**。([index.tsx:277](../packages/app/octoapp/pages/insight/index.tsx#L277))
 - **字段**:`msgID`、`partIdx`、`partID`、`textLen`、`text`(全文)。
 - **用途**:卡片没出来 / 渲染怪 → 看 `text` 全文里 LLM 实际写了什么(html fence?表格?)。
 
 #### `[octo:assistant] tool-part-detail`
-- **时机**:turn-complete 之后,每个 tool part 各打一条。([index.tsx:296](../packages/app/src/pages/insight/index.tsx#L296))
+- **时机**:turn-complete 之后,每个 tool part 各打一条。([index.tsx:296](../packages/app/octoapp/pages/insight/index.tsx#L296))
 - **字段**:`toolName`、`status`、`metadata`、`outputRaw`(原始字符串)、`outputParsed`(尝试 JSON.parse 后的对象,失败则同 raw)。
 - **用途**:长任务卡片不对 / 产物缺失 → 看 `outputParsed` 里有没有 `task_id` / `resource_link` / `structuredContent`。
 
@@ -179,7 +179,7 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 一次正常发送,按顺序应出现:`send` → `send-full` → `optimistic added` → `sent (async)` →(8s 后)`feedback-ok`。
 
 #### `[octo:prompt] send`
-- **时机**:`doSendPrompt` 调用 `promptAsync` **之前**,组装好入参时。([index.tsx:558](../packages/app/src/pages/insight/index.tsx#L558))
+- **时机**:`doSendPrompt` 调用 `promptAsync` **之前**,组装好入参时。([index.tsx:558](../packages/app/octoapp/pages/insight/index.tsx#L558))
 - **关键字段**:
   - `source` — 触发来源:`user`(手动发送)/ `task-refresh` / `task-stop` /(队列 flush 也是 `user`)。
   - `model` — `{modelID, providerID}` 或 **`undefined`**。
@@ -190,68 +190,68 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 - **异常**:`modelResolved:false` → 见 §2.2 / §2.3;`statusAtSend:"busy"` 而仍走到这里 → 理论不该发生(busy 应走队列),属逻辑异常。
 
 #### `[octo:prompt] send-full`
-- **时机**:紧跟 `send`,**完整不截断**。([index.tsx:572](../packages/app/src/pages/insight/index.tsx#L572))
+- **时机**:紧跟 `send`,**完整不截断**。([index.tsx:572](../packages/app/octoapp/pages/insight/index.tsx#L572))
 - **字段**:`cleanText`(用户可见全文)、`uploadBlock`(synthetic 上传块,喂 LLM、气泡不显示)。
 - **用途**:把怪 case 原样粘到外网复现;核对附件 URL 是否真拼进了 `uploadBlock`。
 
 #### `[octo:prompt] optimistic added`
-- **时机**:乐观消息写入 `sync.data` 之后。([index.tsx:584](../packages/app/src/pages/insight/index.tsx#L584))
+- **时机**:乐观消息写入 `sync.data` 之后。([index.tsx:584](../packages/app/octoapp/pages/insight/index.tsx#L584))
 - **字段**:`messageID`、`partsCount`(1=纯文本,2=带 synthetic 上传块)。
 - **正常**:这条一出,用户气泡应**立即**出现在中间区。
 
 #### `[octo:prompt] sent (async)`
-- **时机**:`promptAsync` **resolve 之后**(server 已受理这轮请求)。([index.tsx:599](../packages/app/src/pages/insight/index.tsx#L599))
+- **时机**:`promptAsync` **resolve 之后**(server 已受理这轮请求)。([index.tsx:599](../packages/app/octoapp/pages/insight/index.tsx#L599))
 - **字段**:`messageID`、`sessionID`、`method:"POST"`、`endpoint`(`.../session/:id/prompt_async`,拿去 Network 面板筛)、`statusAfterSend`(受理后那一刻状态)、`response`(server 返回 data)。
 - **正常**:能看到这条 = HTTP 请求成功返回;`statusAfterSend` 通常很快变 `busy`(也可能此刻还没翻,以 `[octo:sync] status` 为准)。
 - **异常**:**没有这条**但有 `send` → `promptAsync` 抛错了,应同时出现 `[octo:prompt] failed`。
 
 #### `[octo:prompt] failed`
-- **时机**:`promptAsync` 抛异常(catch)。([index.tsx:608](../packages/app/src/pages/insight/index.tsx#L608))
+- **时机**:`promptAsync` 抛异常(catch)。([index.tsx:608](../packages/app/octoapp/pages/insight/index.tsx#L608))
 - **字段**:`source`、`messageID`、`err`。同时会回滚 optimistic 消息 + 弹「发送失败」toast。
 - **用途**:`err` 里看 HTTP 状态 / SDK 报文。
 
 #### `[octo:prompt] no-feedback ⚠️`(无反馈探测器)
-- **时机**:`sent (async)` 后启动 8s 看门狗(`NO_FEEDBACK_WATCHDOG_MS=8000`),到点时若 session **既没进 busy 也没新增 assistant 消息**,打这条 warn。([index.tsx:481](../packages/app/src/pages/insight/index.tsx#L481))
+- **时机**:`sent (async)` 后启动 8s 看门狗(`NO_FEEDBACK_WATCHDOG_MS=8000`),到点时若 session **既没进 busy 也没新增 assistant 消息**,打这条 warn。([index.tsx:481](../packages/app/octoapp/pages/insight/index.tsx#L481))
 - **字段**:`sessionID`、`messageID`、`status`(8s 后的状态)、`messageCount`、`assistantBefore` / `assistantNow`(发送前后 assistant 消息数)、`hint`。
 - **正常**:**不出现**,而是出现 `feedback-ok`。
 - **异常(出现即说明发了消息但没动静)**:
   - `status` 仍是 `idle` 且 `assistantNow <= assistantBefore` → server 没启动该轮 → 查 SSE 事件流是否在收 / server 是否启动了该轮 / `modelResolved` 是否为 false 且 agent 无默认模型。是 §2.2 的主证据。
 
 #### `[octo:prompt] feedback-ok`
-- **时机**:8s 看门狗到点,判定为「有反馈」(已 busy 或已有新 assistant)。([index.tsx:494](../packages/app/src/pages/insight/index.tsx#L494))
+- **时机**:8s 看门狗到点,判定为「有反馈」(已 busy 或已有新 assistant)。([index.tsx:494](../packages/app/octoapp/pages/insight/index.tsx#L494))
 - **字段**:`status`、`assistantBefore` / `assistantNow`。
 - **正常**:发送链路健康的标志。
 
 ### 1.4 `[octo:queue]` — busy 期间排队
 
 #### `[octo:queue] enqueued`
-- **时机**:busy 时用户再次发送,文本入队(单容量,第二次覆盖)。([index.tsx:634](../packages/app/src/pages/insight/index.tsx#L634))
+- **时机**:busy 时用户再次发送,文本入队(单容量,第二次覆盖)。([index.tsx:634](../packages/app/octoapp/pages/insight/index.tsx#L634))
 - **字段**:`sessionID`、`len`。
 #### `[octo:queue] flushing`
-- **时机**:busy→idle 时自动把队列里的文本发出。([index.tsx:656](../packages/app/src/pages/insight/index.tsx#L656))
+- **时机**:busy→idle 时自动把队列里的文本发出。([index.tsx:656](../packages/app/octoapp/pages/insight/index.tsx#L656))
 - **字段**:`sessionID`、`len`。正常后面紧跟一组 `[octo:prompt] send`。
 #### `[octo:queue] canceled, restored to input`
-- **时机**:用户取消排队 / abort 前清队,文本回填输入框。([index.tsx:665](../packages/app/src/pages/insight/index.tsx#L665))
+- **时机**:用户取消排队 / abort 前清队,文本回填输入框。([index.tsx:665](../packages/app/octoapp/pages/insight/index.tsx#L665))
 
 ### 1.5 `[octo:task]` — 长任务卡片
 
 #### `[octo:task] session switched, view state reset (refresh cooldown preserved)`
-- **时机**:切会话时,重置 tabs / 自动开记录 / 队列 / 未发送附件;刷新冷却**不重置**(per task_id 延续倒计时,防切换绕过防抖)。([index.tsx:432](../packages/app/src/pages/insight/index.tsx#L432))
+- **时机**:切会话时,重置 tabs / 自动开记录 / 队列 / 未发送附件;刷新冷却**不重置**(per task_id 延续倒计时,防切换绕过防抖)。([index.tsx:432](../packages/app/octoapp/pages/insight/index.tsx#L432))
 - **正常**:每次切会话一条。(旧文案 `refresh state cleared`,2026-06-11 起更名)
 #### `[octo:task] aggregate diff`
-- **时机**:`taskCards` 聚合结果变化时打快照 diff。([index.tsx:932](../packages/app/src/pages/insight/index.tsx#L932))
+- **时机**:`taskCards` 聚合结果变化时打快照 diff。([index.tsx:932](../packages/app/octoapp/pages/insight/index.tsx#L932))
 - **字段**:`total`、`changes[]`(`{taskId, from, to}`,`to` 形如 `status|message`,`"gone"` 表卡片消失)、`snapshot`。
 - **用途**:卡片状态不更新 / 闪烁 → 看 changes 有没有按预期推进(pending→processing→completed)。
 #### `[octo:task] markRefreshed`
-- **时机**:点刷新成功,记冷却时间戳。([utils/task-refresh.ts:44](../packages/app/src/pages/insight/utils/task-refresh.ts#L44))字段 `cooldownMs`。
+- **时机**:点刷新成功,记冷却时间戳。([utils/task-refresh.ts:44](../packages/app/octoapp/pages/insight/utils/task-refresh.ts#L44))字段 `cooldownMs`。
 #### `[octo:task] refresh blocked: busy` / `refresh blocked: cooldown`
-- **时机**:刷新被拦(正忙 / 冷却中)。([index.tsx:814](../packages/app/src/pages/insight/index.tsx#L814))→ 「刷新点了没反应」正常拦截,不是 bug。
+- **时机**:刷新被拦(正忙 / 冷却中)。([index.tsx:814](../packages/app/octoapp/pages/insight/index.tsx#L814))→ 「刷新点了没反应」正常拦截,不是 bug。
 #### `[octo:task] stop blocked: busy`
-- **时机**:终止被拦(正忙)。([index.tsx:829](../packages/app/src/pages/insight/index.tsx#L829))
+- **时机**:终止被拦(正忙)。([index.tsx:829](../packages/app/octoapp/pages/insight/index.tsx#L829))
 #### `[octo:task] openResult` / `auto-openResult (viewer empty)`
-- **时机**:打开产物(手动 / 首个 completed 自动开)。([index.tsx:880](../packages/app/src/pages/insight/index.tsx#L880) / [index.tsx:902](../packages/app/src/pages/insight/index.tsx#L902))字段 `count`、`tabs[]`。
+- **时机**:打开产物(手动 / 首个 completed 自动开)。([index.tsx:880](../packages/app/octoapp/pages/insight/index.tsx#L880) / [index.tsx:902](../packages/app/octoapp/pages/insight/index.tsx#L902))字段 `count`、`tabs[]`。
 #### `[octo:task] openResult: card not found` / `no result yet` ⚠️
-- **时机**:点「打开结果」但卡片不存在 / 还没产物。([index.tsx:872](../packages/app/src/pages/insight/index.tsx#L872))→ 产物按钮点了打不开时看这两条。
+- **时机**:点「打开结果」但卡片不存在 / 还没产物。([index.tsx:872](../packages/app/octoapp/pages/insight/index.tsx#L872))→ 产物按钮点了打不开时看这两条。
 
 ### 1.6 `[octo:upload]` — 附件上传
 
@@ -259,37 +259,37 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 
 | 日志 | 级别 | 时机 / 含义 | 关键字段 |
 |---|---|---|---|
-| `[octo:upload] client-validate rejected` | warn | 选文件后客户端校验未过(空文件 / 超 100MB / 扩展名不在 txt,md,docx,xlsx,pdf)。**不存 File、不可重试,只能删除重选**。([index.tsx:721](../packages/app/src/pages/insight/index.tsx#L721)) | `code`、`message` |
-| `[octo:upload] 1/5 start` | log | `uploadFile` 入口。([upload.ts:92](../packages/app/src/pages/insight/lib/upload.ts#L92)) | meta |
-| `[octo:upload] validate failed (client-side)` | warn | `uploadFile` 内再校验未过。([upload.ts:96](../packages/app/src/pages/insight/lib/upload.ts#L96)) | `code` |
-| `[octo:upload] endpoint not configured` | error | **`VITE_OCTO_UPLOAD_ENDPOINT` 没配**。`hint` 提示改 `packages/app/.env.local` 后重启 dev。([upload.ts:107](../packages/app/src/pages/insight/lib/upload.ts#L107)) | `hint` |
-| `[octo:upload] 2/5 request` | log | 即将 POST。([upload.ts:113](../packages/app/src/pages/insight/lib/upload.ts#L113)) | `endpoint`、meta |
-| `[octo:upload] network failed` | error | fetch 抛异常(连不上 / 跨域 / DNS)。([upload.ts:123](../packages/app/src/pages/insight/lib/upload.ts#L123)) | `error` |
-| `[octo:upload] 3/5 response` | log | 收到响应,打 `httpStatus` / `httpOk` / `body`(非 JSON 时为 `{rawText:前500字}`)。([upload.ts:137](../packages/app/src/pages/insight/lib/upload.ts#L137)) | `httpStatus`、`httpOk`、`body` |
-| `[octo:upload] http failed` | error | body 不符约定且 HTTP 非 2xx,按状态码兜底(413/415/429/5xx)。([upload.ts:148](../packages/app/src/pages/insight/lib/upload.ts#L148)) | `httpStatus`、`mappedCode` |
-| `[octo:upload] bad response format` | error | HTTP 2xx 但 body 缺 `success`/`errorCode` 字段(不符内网封装约定)。([upload.ts:155](../packages/app/src/pages/insight/lib/upload.ts#L155)) | `body`、`rawText` |
-| `[octo:upload] 4/5 business error` | error | `success:false`,按 `errorCode` 映射(305/413/415/429/5xx)。([upload.ts:161](../packages/app/src/pages/insight/lib/upload.ts#L161)) | `errorCode`、`errorMessage`、`mappedCode` |
-| `[octo:upload] empty content` | error | `success:true` 但 `content` 为空。([upload.ts:171](../packages/app/src/pages/insight/lib/upload.ts#L171)) | `body` |
-| `[octo:upload] 5/5 success` | log | 成功,拿到 `url` / `fileId`。([upload.ts:175](../packages/app/src/pages/insight/lib/upload.ts#L175)) | `url`、`fileId` |
-| `[octo:upload] retry` | log | 点 chip 重试,重新 `doUpload`。([index.tsx:771](../packages/app/src/pages/insight/index.tsx#L771)) | `filename` |
-| `[octo:upload] retry skipped: no original File` | warn | 客户端校验失败的 chip 没有原 File,无法重试(正常该按钮已隐藏,走到此为兜底)。([index.tsx:768](../packages/app/src/pages/insight/index.tsx#L768)) | `id` |
-| `[InsightPage] upload failed` | error | `doUpload` catch 兜底(上面任一 throw 都会落到这,带最终 message,chip 标红可重试)。([index.tsx:750](../packages/app/src/pages/insight/index.tsx#L750)) | `filename`、`err` |
+| `[octo:upload] client-validate rejected` | warn | 选文件后客户端校验未过(空文件 / 超 100MB / 扩展名不在 txt,md,docx,xlsx,pdf)。**不存 File、不可重试,只能删除重选**。([index.tsx:721](../packages/app/octoapp/pages/insight/index.tsx#L721)) | `code`、`message` |
+| `[octo:upload] 1/5 start` | log | `uploadFile` 入口。([upload.ts:92](../packages/app/octoapp/pages/insight/lib/upload.ts#L92)) | meta |
+| `[octo:upload] validate failed (client-side)` | warn | `uploadFile` 内再校验未过。([upload.ts:96](../packages/app/octoapp/pages/insight/lib/upload.ts#L96)) | `code` |
+| `[octo:upload] endpoint not configured` | error | **`VITE_OCTO_UPLOAD_ENDPOINT` 没配**。`hint` 提示改 `packages/app/.env.local` 后重启 dev。([upload.ts:107](../packages/app/octoapp/pages/insight/lib/upload.ts#L107)) | `hint` |
+| `[octo:upload] 2/5 request` | log | 即将 POST。([upload.ts:113](../packages/app/octoapp/pages/insight/lib/upload.ts#L113)) | `endpoint`、meta |
+| `[octo:upload] network failed` | error | fetch 抛异常(连不上 / 跨域 / DNS)。([upload.ts:123](../packages/app/octoapp/pages/insight/lib/upload.ts#L123)) | `error` |
+| `[octo:upload] 3/5 response` | log | 收到响应,打 `httpStatus` / `httpOk` / `body`(非 JSON 时为 `{rawText:前500字}`)。([upload.ts:137](../packages/app/octoapp/pages/insight/lib/upload.ts#L137)) | `httpStatus`、`httpOk`、`body` |
+| `[octo:upload] http failed` | error | body 不符约定且 HTTP 非 2xx,按状态码兜底(413/415/429/5xx)。([upload.ts:148](../packages/app/octoapp/pages/insight/lib/upload.ts#L148)) | `httpStatus`、`mappedCode` |
+| `[octo:upload] bad response format` | error | HTTP 2xx 但 body 缺 `success`/`errorCode` 字段(不符内网封装约定)。([upload.ts:155](../packages/app/octoapp/pages/insight/lib/upload.ts#L155)) | `body`、`rawText` |
+| `[octo:upload] 4/5 business error` | error | `success:false`,按 `errorCode` 映射(305/413/415/429/5xx)。([upload.ts:161](../packages/app/octoapp/pages/insight/lib/upload.ts#L161)) | `errorCode`、`errorMessage`、`mappedCode` |
+| `[octo:upload] empty content` | error | `success:true` 但 `content` 为空。([upload.ts:171](../packages/app/octoapp/pages/insight/lib/upload.ts#L171)) | `body` |
+| `[octo:upload] 5/5 success` | log | 成功,拿到 `url` / `fileId`。([upload.ts:175](../packages/app/octoapp/pages/insight/lib/upload.ts#L175)) | `url`、`fileId` |
+| `[octo:upload] retry` | log | 点 chip 重试,重新 `doUpload`。([index.tsx:771](../packages/app/octoapp/pages/insight/index.tsx#L771)) | `filename` |
+| `[octo:upload] retry skipped: no original File` | warn | 客户端校验失败的 chip 没有原 File,无法重试(正常该按钮已隐藏,走到此为兜底)。([index.tsx:768](../packages/app/octoapp/pages/insight/index.tsx#L768)) | `id` |
+| `[InsightPage] upload failed` | error | `doUpload` catch 兜底(上面任一 throw 都会落到这,带最终 message,chip 标红可重试)。([index.tsx:750](../packages/app/octoapp/pages/insight/index.tsx#L750)) | `filename`、`err` |
 
 ### 1.7 其他前缀(出场较少)
 
-- `[octo:preset] click` — 点预置提示词,填入输入框。([index.tsx:685](../packages/app/src/pages/insight/index.tsx#L685))
-- `[octo:task-detect] readTaskInfo` — 从某 part 读出 task 信息。([utils/task-detect.ts:73](../packages/app/src/pages/insight/utils/task-detect.ts#L73))
-- `[octo:detect] start / reject / match / html-fence-found` — InsightTurn 从 text part 检测能否出卡片(`reject` 带 `reason`)。([components/insight-turn.tsx](../packages/app/src/pages/insight/components/insight-turn.tsx))
-- `[octo:card] resource_links (no task)` — 有 resource_link 但无 task_id 时的卡片路径。([components/insight-turn.tsx:121](../packages/app/src/pages/insight/components/insight-turn.tsx#L121))
-- `[octo:resource-link] found / none-found-but-candidates-present / missing-business-type` — resource_link 识别;后两条 warn 表示有候选但没匹配业务类型。([utils/resource-link.ts](../packages/app/src/pages/insight/utils/resource-link.ts))
-- `[octo:resource] fetch start / ok / failed / error` — `source:"uri"` 卡片的内容拉取。([utils/resource-link.ts:180](../packages/app/src/pages/insight/utils/resource-link.ts#L180))
-- `[octo:resource] md-local` — uri **markdown** 卡不直接 fetch(url),而是先把产物落成本地工作副本(`downloadResourceToTemp` 幂等)再读盘,使预览/编辑/重开卡回显同一份(含改动)。带 `localPath`/`bytes`。([components/result-viewer/index.tsx](../packages/app/src/pages/insight/components/result-viewer/index.tsx))
-- `[octo:resource] download-original-start/ok/failed` — uri md 卡「另存为」:始终从 url 重新拉 MCP 原始版本另存到用户选定目录(不取本地工作副本/编辑后内容;与 file 类型「另存为」同义)。([components/result-viewer/action-bar.tsx](../packages/app/src/pages/insight/components/result-viewer/action-bar.tsx))
-- `[octo:tab] openTab / dedupe-by-uri-and-type / dedupe-by-id` — 产物 tab 打开与去重。([components/result-viewer/tab-store.ts](../packages/app/src/pages/insight/components/result-viewer/tab-store.ts))
-- `[octo:office] download-start/ok · open-path/failed · saveas-* · reveal-* · reuse-existing · reuse-locked` — Office 文件下载、`window.api.openPath` 唤起本地应用、另存、文件夹定位;`reuse-existing`(主进程)= `downloadResourceToTemp` 命中已落地的本地工作副本、直接复用不 re-fetch/覆盖(本地打开/编辑改动持久的关键),`reuse-locked` = 文件被外部应用独占锁定时回退已有副本。([components/result-viewer/index.tsx](../packages/app/src/pages/insight/components/result-viewer/index.tsx) · [desktop/src/main/ipc.ts](../packages/desktop/src/main/ipc.ts))
-- `[octo:mindmap] render failed` — 脑图渲染失败,带 `mdPreview` 前 200 字。([components/result-viewer/mindmap-renderer.tsx:36](../packages/app/src/pages/insight/components/result-viewer/mindmap-renderer.tsx#L36))
-- `[octo:mdedit] open · save-start/ok/failed · close` — markdown 全屏编辑器(Vditor):进入(含 `path`/`persistent`)、自动保存防抖写盘(含 `path`/`bytes`)、关闭回写 tab。写盘走新增 `window.api.writeFile`(主进程校验:`.octo/downloads`/临时目录,或白名单外但已存在的普通文件——覆盖 write 工具产物)。`open-failed` = 定位本地文件失败(uri 未落地 / inline 无本地文件)。**不做「还原初始内容」**(要回原始版本重新从 MCP 下载即可)。([components/markdown-editor/index.tsx](../packages/app/src/pages/insight/components/markdown-editor/index.tsx))
-- `[insight:session-list] rename failed / delete failed` — 会话重命名 / 删除失败。([components/session-list/index.tsx](../packages/app/src/pages/insight/components/session-list/index.tsx))
+- `[octo:preset] click` — 点预置提示词,填入输入框。([index.tsx:685](../packages/app/octoapp/pages/insight/index.tsx#L685))
+- `[octo:task-detect] readTaskInfo` — 从某 part 读出 task 信息。([utils/task-detect.ts:73](../packages/app/octoapp/pages/insight/utils/task-detect.ts#L73))
+- `[octo:detect] start / reject / match / html-fence-found` — InsightTurn 从 text part 检测能否出卡片(`reject` 带 `reason`)。([components/insight-turn.tsx](../packages/app/octoapp/pages/insight/components/insight-turn.tsx))
+- `[octo:card] resource_links (no task)` — 有 resource_link 但无 task_id 时的卡片路径。([components/insight-turn.tsx:121](../packages/app/octoapp/pages/insight/components/insight-turn.tsx#L121))
+- `[octo:resource-link] found / none-found-but-candidates-present / missing-business-type` — resource_link 识别;后两条 warn 表示有候选但没匹配业务类型。([utils/resource-link.ts](../packages/app/octoapp/pages/insight/utils/resource-link.ts))
+- `[octo:resource] fetch start / ok / failed / error` — `source:"uri"` 卡片的内容拉取。([utils/resource-link.ts:180](../packages/app/octoapp/pages/insight/utils/resource-link.ts#L180))
+- `[octo:resource] md-local` — uri **markdown** 卡不直接 fetch(url),而是先把产物落成本地工作副本(`downloadResourceToTemp` 幂等)再读盘,使预览/编辑/重开卡回显同一份(含改动)。带 `localPath`/`bytes`。([components/result-viewer/index.tsx](../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx))
+- `[octo:resource] download-original-start/ok/failed` — uri md 卡「另存为」:始终从 url 重新拉 MCP 原始版本另存到用户选定目录(不取本地工作副本/编辑后内容;与 file 类型「另存为」同义)。([components/result-viewer/action-bar.tsx](../packages/app/octoapp/pages/insight/components/result-viewer/action-bar.tsx))
+- `[octo:tab] openTab / dedupe-by-uri-and-type / dedupe-by-id` — 产物 tab 打开与去重。([components/result-viewer/tab-store.ts](../packages/app/octoapp/pages/insight/components/result-viewer/tab-store.ts))
+- `[octo:office] download-start/ok · open-path/failed · saveas-* · reveal-* · reuse-existing · reuse-locked` — Office 文件下载、`window.api.openPath` 唤起本地应用、另存、文件夹定位;`reuse-existing`(主进程)= `downloadResourceToTemp` 命中已落地的本地工作副本、直接复用不 re-fetch/覆盖(本地打开/编辑改动持久的关键),`reuse-locked` = 文件被外部应用独占锁定时回退已有副本。([components/result-viewer/index.tsx](../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx) · [desktop/src/main/ipc.ts](../packages/desktop/src/main/ipc.ts))
+- `[octo:mindmap] render failed` — 脑图渲染失败,带 `mdPreview` 前 200 字。([components/result-viewer/mindmap-renderer.tsx:36](../packages/app/octoapp/pages/insight/components/result-viewer/mindmap-renderer.tsx#L36))
+- `[octo:mdedit] open · save-start/ok/failed · close` — markdown 全屏编辑器(Vditor):进入(含 `path`/`persistent`)、自动保存防抖写盘(含 `path`/`bytes`)、关闭回写 tab。写盘走新增 `window.api.writeFile`(主进程校验:`.octo/downloads`/临时目录,或白名单外但已存在的普通文件——覆盖 write 工具产物)。`open-failed` = 定位本地文件失败(uri 未落地 / inline 无本地文件)。**不做「还原初始内容」**(要回原始版本重新从 MCP 下载即可)。([components/markdown-editor/index.tsx](../packages/app/octoapp/pages/insight/components/markdown-editor/index.tsx))
+- `[insight:session-list] rename failed / delete failed` — 会话重命名 / 删除失败。([components/session-list/index.tsx](../packages/app/octoapp/pages/insight/components/session-list/index.tsx))
 
 ---
 
@@ -327,7 +327,7 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 | | |
 |---|---|
 | **看哪几条** | `[octo:prompt] send` 的 `model` / `modelResolved` |
-| **判读** | 顶部标签文案 = `local.model.current()?.name ?? "选择模型"`([index.tsx:1106](../packages/app/src/pages/insight/index.tsx#L1106) / [index.tsx:1292](../packages/app/src/pages/insight/index.tsx#L1292))。显示「选择模型」= `local.model.current()` 返回 `undefined`。此时 `send` 里 `model:undefined`、`modelResolved:false`,但发送不被拦截,照样把 `model:undefined` 发给 server 兜底 |
+| **判读** | 顶部标签文案 = `local.model.current()?.name ?? "选择模型"`([index.tsx:1106](../packages/app/octoapp/pages/insight/index.tsx#L1106) / [index.tsx:1292](../packages/app/octoapp/pages/insight/index.tsx#L1292))。显示「选择模型」= `local.model.current()` 返回 `undefined`。此时 `send` 里 `model:undefined`、`modelResolved:false`,但发送不被拦截,照样把 `model:undefined` 发给 server 兜底 |
 | **可能原因** | `useLocal().model.current()` 的回退链(会话级 → agent 默认 → 全局兜底)全部落空:模型列表(ModelsProvider)还没加载好,或 agent/全局都没配默认模型。SPEC-INS-010 D2 已统一走 `useLocal().model`,设计目标是「初次进入不再显示未选却可发送」——若仍出现,是回退链没兜住 |
 | **下一步** | 1) 确认 ModelsProvider 模型列表是否加载成功(无模型 → `current()` 永远 undefined);2) 检查 agent `octo_insight` 是否配了默认模型;3) 若 `modelResolved:false` 且发送后 `no-feedback ⚠️`,说明 server 端也无默认 → 这正是 §2.2-C,需补 agent 默认模型或让用户手动选 |
 
@@ -348,13 +348,13 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 | `empty content` | `success:true` 但 `content` 为空 → 服务端逻辑问题 |
 | **下一步** | 1) 先看 `3/5 response` 的 `httpStatus`/`body` 锁定是「没到服务」(network)还是「服务拒了」(business/http);2) `[InsightPage] upload failed` 是最终兜底,带用户看到的 message;3) 失败 chip 若可重试会有 `[octo:upload] retry`,客户端校验失败的不可重试 |
 
-> 注:上传失败**不影响文字发送**——只有 `status:"done"` 的附件才会进 `uploadBlock`([index.tsx:507](../packages/app/src/pages/insight/index.tsx#L507));但 `hasUploadingAttachments()` 为真(还在传)时 `handleSubmit` 会拦发送,表现为「点发送没反应」,与 §2.2-A 区分。
+> 注:上传失败**不影响文字发送**——只有 `status:"done"` 的附件才会进 `uploadBlock`([index.tsx:507](../packages/app/octoapp/pages/insight/index.tsx#L507));但 `hasUploadingAttachments()` 为真(还在传)时 `handleSubmit` 会拦发送,表现为「点发送没反应」,与 §2.2-A 区分。
 
 ---
 
 ## 3. `window.octoDebug` 控制台命令(内网只有 console 时的主力)
 
-内网抓不到 Network/SSE 时,**不必预先开日志重现**:出 bug 后直接在 DevTools Console 敲命令,即可回放最近发生的一切、dump 当前 session 原始数据。来源 [lib/debug-observer.ts](../packages/app/src/pages/insight/lib/debug-observer.ts),进入 insight 页面即自动挂载(切走/重挂会清理重建)。
+内网抓不到 Network/SSE 时,**不必预先开日志重现**:出 bug 后直接在 DevTools Console 敲命令,即可回放最近发生的一切、dump 当前 session 原始数据。来源 [lib/debug-observer.ts](../packages/app/octoapp/pages/insight/lib/debug-observer.ts),进入 insight 页面即自动挂载(切走/重挂会清理重建)。
 
 > **阶段1/2(SPEC-INS-011)**:三个环形缓冲并存 —— **event ring**(SSE 事件,500条)、**send ring**(发送记录,50条)、**log ring**(console.error/warn 镜像 + `[octo:*` 前缀 console.log 链路日志 + window.onerror/unhandledrejection,200条)。全字段缓冲，展示时才精简。**阶段2 起持久化到 IndexedDB**(per-origin,与工作目录无关),**跨 reload/重启读回**——snapshot 顶部会标注「含 N 条重启前」。无 IndexedDB 时自动降级为纯内存([IndexedDB / happy-dom 科普](learning/happy-dom-and-indexeddb.md))。
 
@@ -444,7 +444,7 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 - **整页崩时**:console 往往够不着(白屏),insight 自己的 `ErrorBoundary` fallback 会显示一个**「复制错误」按钮**(等价 `lastError()`),崩溃态也能一键带出。
 - **每条带** `directory` + `sessionID`(出错时的上下文)。HTTP 条目含 `method`/`url`/`status`/响应体(截断 ~2KB);异常/整页崩条目含 `message`/`stack`。
 - **与 snapshot 的分工**:日常出错**先看 `lastError()`**(精炼、不用懂);要更全的 SSE 上下文再 `snapshot()` 补。
-- 来源 [lib/error-beacon.ts](../packages/app/src/pages/insight/lib/error-beacon.ts)。
+- 来源 [lib/error-beacon.ts](../packages/app/octoapp/pages/insight/lib/error-beacon.ts)。
 
 > 这是 SPEC-INS-011 §1.4 方向纠偏的产物:此前观测维度押在 SSE,但真实高频 bug 是「HTTP 失败 + 异常 + 整页崩」,完全在 SSE 维度之外。
 
