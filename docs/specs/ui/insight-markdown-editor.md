@@ -259,6 +259,33 @@ markdown 卡的「预览」态原走上游 `<Markdown>`，与编辑器内的 Vdi
 
 预览里点 `http(s)` / `mailto` 外链 → 拦截后走 `window.api.openLink`（`shell.openExternal`）**唤起系统浏览器**；不在 Electron webview 内导航（否则无返回入口、用户被困）。锚点（`#标题`，大纲跳转）与相对链接放行。
 
+### 6.6 双向同步滚动（2026-06 补）
+
+**Vditor `sv` 模式自带的同步滚动是单向的**——只在「左源编辑器（`.vditor-sv`）」上绑 scroll 监听、按比例驱动「右预览（`.vditor-preview`）」，**没有反向**（核对 dist 源码：`.vditor-preview` 上 0 个 scroll 监听）。所以默认左滚右动、右滚左不动，与 Arya 的双向体验不一致。
+
+**落地补「右 → 左」反向同步**（`setupScrollSync`，`after()` 里给右栏挂监听）。难点是 Vditor 正向监听**无条件、无节流**（左滚就写右），拖右栏时它会和用户拖拽抢着写右栏 → 闪烁。两件事配合解决：
+
+**① 反解 Vditor 正向公式做映射**（保证两向对齐一致）：
+
+```
+Vditor 正向(dist 实测): pv = sv/r>0.5 ? (sv+r)*i/pvSH - r : sv*i/pvSH
+  r=左 clientHeight, i=左 scrollHeight - paddingBottom(内联), pvSH=右 scrollHeight
+逆解(目标 pv=P): 线性支 sv=P*i/pvSH;若 >r/2(拐点支)则 sv=(P+r)*i/pvSH - r
+```
+
+**② 拦掉 Vditor 对右栏的回写（防闪核心）**：用户拖右栏期间，给右栏元素的 `scrollTop` **setter 做实例级覆盖**、丢弃写入。原理——用户原生拖拽/滚轮是引擎层改 scrollTop，**不走 JS setter**；只有 Vditor 的 `pv.scrollTop=` 走 setter。于是右栏被用户独占、不被 Vditor 拽回，不闪。
+
+**「用户正驱动右栏」的判定**（关键，踩过坑）：
+- **拖拽**：右栏 `pointerdown` 起、`pointerup`/`pointercancel`/窗口 `blur` 止——**整段按住都算**。⚠️ 不能只靠 scroll 事件续期：拖到顶/底时 scrollTop 夹住、不再发 scroll 事件，锁会过期，再拖回来左栏就不同步了（实测 bug）。故拖拽必须靠 pointer 维持。
+- **滚轮/惯性**：右栏 `wheel` 起、末次滚动后 200ms 内（scroll 事件续期）。
+- 左栏发生手势 → 释放右栏动量锁，让 Vditor 正向接管。
+
+> 对齐**按比例**（与 Vditor 左→右一致），非「共用一个滚动条」的像素方案（长文档源/渲染高度差大时会漂，设计评估「效果一般」未采用）。
+> **固有小瑕疵**（非本实现引入）：Vditor 正向公式在「滚动≈半屏」处有拐点，左右内容高度不等时该公式本身不连续 → 两向都可能有个小跳（Arya 同款，可接受）。
+> **代价**：耦合 Vditor 正向公式 + `Element.prototype.scrollTop` 覆盖；若上游改公式，逆解会偏、退化回轻微抖（不崩）。cleanup 解绑监听 + `delete pv.scrollTop` 还原访问器。
+
+**两栏滚动条统一**：Vditor 默认 `.vditor-preview::-webkit-scrollbar { display:none }`（单向假设下藏掉预览滚动条），左栏 `.vditor-sv` 则是系统原生。双向后两者并存就**不一致**（左原生 overlay、右自定义）。右栏**无法退回真·原生**——WebKit 里元素只要存在任意 `::-webkit-scrollbar` 作者规则就进自定义渲染、回不去原生，而 Vditor 已声明该规则。故反过来**让两栏都用同一套自定义样式**（细、深色半透明圆角 thumb：`border:3px solid transparent` + `background-clip:content-box` 做内缩细条，贴近 Mac 观感；透明 track，hover 加深）→ 两边一模一样。**不做自动显隐**（始终可见，从简，设计决定）。在 `octo-tokens.css`。
+
 ---
 
 ## 7. 安全
@@ -275,7 +302,7 @@ markdown 卡的「预览」态原走上游 `<Markdown>`，与编辑器内的 Vdi
 > 前置：InsightPage 配好 provider；有一个 markdown 卡（联调期可 hardcode 一个 `text/markdown` resource_link，或本地放一份 .md 走 inline）。
 
 - **A 触发 + 全屏**：markdown 卡 ActionBar 出现「✎ 编辑」；点击 → 全屏 overlay 盖住三栏；Esc / ✕ 退出回原 tab
-- **B 分屏 + 同步滚动**：固定 `sv` 左右分栏；左改右即时更新；滚动同步（已去 `edit-mode` 模式切换，§6.3）。工具栏 hover 显示原生 title（功能名）
+- **B 分屏 + 同步滚动**：固定 `sv` 左右分栏；左改右即时更新；**滚动双向同步**（左滚右动、右滚左也动，§6.6；连续滚 / 鼠标在哪栏滚都不抖、不卡死）（已去 `edit-mode` 模式切换，§6.3）。工具栏 hover 显示功能名（CSS tooltip，§6.3）
 - **B2 预览一致 + 代码源完整**：卡片「预览」与编辑器预览**渲染效果一致**（Vditor 同源，§6.3.1）；切「代码」显示**完整 md 源**（含代码围栏，不再被 strip 成一行）
 - **C 自动保存**：编辑停手约 1s → 顶栏 `保存中…`→`已保存`；到 `<projectDir>/.octo/downloads/` 下确认**本地 .md 文件真被覆盖写入**且内容一致；重开同卡 / 用「本地应用打开」看到的都是这一份；重开编辑器内容延续
 - **D 兜底**：① 误删后 Cmd+Z 可撤销（不再有「还原初始内容」按钮，§4.2）；② mock writeFile 拒绝 / 文件被占用 → toast「保存失败」+ 状态红 + 内容不丢；③ projectDir 为空 → 落临时目录 + 顶栏提示（不硬禁编辑）
