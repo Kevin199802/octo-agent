@@ -73,7 +73,7 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 | `mindmap` | 思维导图 | JSON 结构（UXR 现有接口） | 思维导图 | MindmapRenderer（markmap-view）+ 预览/代码切换 | ✅ 已实现 |
 | `html` | 未来富展示类 MCP tool（如独立的用户画像/可视化 tool）| HTML 字符串（建议 ```html``` fence 包裹） | 可视化页面 | HtmlRenderer（iframe sandbox）| ✅ 已实现 |
 | `markdown` | 用研知识问答 + 走 MCP `text/markdown` resource_link | Markdown 纯文本 | Markdown 文档 | MarkdownRenderer（**2026-06 起复用 Vditor 渲染引擎 `MarkdownPreview`**，与全屏编辑器同源、效果一致；~~旧:上游 `<Markdown>`~~，见 [insight-markdown-editor §6.3.1](insight-markdown-editor.md)）| ✅ 已实现 |
-| `json` | 路径 A `application/json` resource_link（非 mindmap shape）/ 路径 B 嗅探到独立 JSON | JSON 字符串 | JSON 数据 | JsonRenderer（**上游 `<Markdown>` ```json fence 获 shiki 高亮**） | ✅ 已实现 |
+| `json` | 路径 A `application/json` resource_link（无 `business_type:"mindmap"`）/ **路径 C `.json` write 产物** / 路径 B 嗅探到独立 JSON | JSON 字符串 | JSON 数据 | JsonRenderer（**上游 `<Markdown>` ```json fence 获 shiki 高亮**） | ✅ 已实现 |
 | `file` | 路径 A Office / PDF / 图片 / 二进制 resource_link | 二进制 URI | 文件名 | FileFallback（"用本地应用打开"+"下载"双按钮）| ✅ 已实现 |
 | `code` | **路径 C** write 工具写的代码/纯文本(.py/.ts/.txt/.sql/无扩展名…;csv/office/二进制走 `file`) | 本地文本文件 | 文件名 | SourceCodeView(上游 `<Markdown>` ```lang fence 获 shiki 高亮,lang 按扩展名 `langFromPath`)单视图 | ✅ 已实现 |
 
@@ -88,10 +88,12 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 | `html` | iframe 渲染 | HTML 源(shiki) | ✅ |
 | `table` | 样式化表格(抽 table token) | **表格本体的 Markdown 源**(`extractTableMarkdown`,shiki) | ✅ |
 | `markdown` | 渲染后文档 | Markdown 源(shiki) | ✅ |
-| `json` | —(JSON 本身即"代码") | shiki 高亮 JSON | ❌ 单视图 |
+| `json` | **思维导图 shape(树)→ markmap;否则无预览态** | shiki 高亮 JSON | **条件切换(2026-06-24)**:内容是导图 shape(顶层带 `children`)→ 默认 markmap 预览 + 出「预览/代码」切换;普通配置 JSON 单显源、无切换 |
 | `file` | —(不在应用内预览) | —(二进制无源) | ❌ 单视图,且 ActionBar 隐藏复制/下载(交给 FileFallback) |
 
-实现:`ResultTab.viewMode: "preview" \| "source"`(缺省 preview),`tab-store.setViewMode` 更新;`isToggleType()` 判定是否出切换控件;代码态统一走 `SourceCodeView`(把内容包 ```lang fence 喂上游 `<Markdown>` 获 shiki 高亮)。切换控件在 ActionBar 行左侧,与复制/下载同排。
+实现:`ResultTab.viewMode: "preview" \| "source"`(缺省 preview),`tab-store.setViewMode` 更新;切换控件可见性 = `isToggleType(type)`(mindmap/html/table/markdown 恒显)**或** `type==="json" && isMindmapJSON(content)`(json 卡按内容判定,见 `action-bar.showToggle`);代码态统一走 `SourceCodeView`(把内容包 ```lang fence 喂上游 `<Markdown>` 获 shiki 高亮)。切换控件在 ActionBar 行左侧,与复制/下载同排。
+
+> **`json` 卡的条件切换(2026-06-24,选项 C)**:`json` 与 `mindmap` 在 `ResultViewer` 内**共用同一条渲染分支**——预览态且 `isMindmapJSON(content)` 真 → `MindmapRenderer`(markmap),否则 → `SourceCodeView`(json shiki)。差异只在「切换控件是否出」:`mindmap` 卡(路径 A `business_type:"mindmap"`)恒出切换、默认预览;`json` 卡(路径 C `.json` / 路径 A 泛型 `application/json` / 路径 B 嗅探)**按内容**——树形 JSON(如 `{name,type,children}` 组织架构)默认 markmap 预览且可切「代码」,普通配置 JSON 单显源。这样既不在入口卡误标(图标仍是 JSON),又让"能渲染成导图的树"默认就看到可视化,与业界"JSON 为主、可视化是可选 view"(JSON Crack)一致。**注**:markmap 仅取节点 `name`/`children`,`type`/`title` 等额外字段不进图(渲染器现状)。
 
 > ⚠️ **`SourceCodeView` 的 `stripCodeFence` 只对 json/html 生效**(2026-06 修):这两类内容可能被 LLM 整段 ```lang 包裹,需剥壳;但 **markdown / code 源不可 strip** —— md 源里合法含代码围栏,`stripCodeFence` 会把整篇抠成第一个围栏的内容(曾致 markdown「代码」视图只剩一行)。markdown 卡「预览」态自 2026-06 改用 Vditor `MarkdownPreview`(与编辑器同源,见 [insight-markdown-editor §6.3.1](insight-markdown-editor.md))。
 
@@ -163,6 +165,14 @@ function isMindmapJSON(text: string): boolean {
 // 为什么不再单独写 hasMindmapShape:旧实现的 shape 嗅探比渲染规则更松
 // (对 { nodes: [] } / 空 mindmaps 判 true,但 collectRoots 收不到根 → 渲染为空),
 // 导致"判定命中但渲染失败兜底"的漂移。检测与渲染共用同一条规则后,从根上消除该不一致。
+//
+// collectRoots 顶层裸对象判定(2026-06-24 收紧):
+//   - 旧:typeof obj.name === "string" || Array.isArray(obj.children)  ← 过松,{name,version,...} 误判为单根导图
+//   - 新:仅 Array.isArray(obj.children)(必须有树边);name 字段单独不再成立
+//   - 显式容器 mindmaps/nodes 数组内的元素是"已声明导图节点"(declared 标记),沿用旧宽松规则 →
+//     内网 MCP 的 { mindmaps:[{name,children}] } 确定格式渲染零变化。
+// 业界一致:导图由 父→children 树关系定义,而非单个标签字段(jsMind: format:"node_tree"+topic/children;
+// mind-elixir: nodeData.children)。任意 JSON 自动渲染只见于"JSON 浏览器"(JSON Crack)那类通用结构图,非语义导图。
 
 // 3. HTML：扫所有 text part 找 ```html fence（多 fence → 多卡）
 //    单 part 内既支持闭合 fence,也接受流式中途未闭合的 fence(取到字符串末尾)
@@ -273,7 +283,7 @@ opencode 将 MCP `CallToolResult.content[]` 中的 `resource_link` 项作为独�
 |---|---|---|
 | `text/html` | `html` | fetch URI → 拿到 HTML → 走 HtmlRenderer 的 iframe sandbox（§5）|
 | `text/markdown` | `markdown` | fetch URI → 走 MarkdownRenderer。**含上游原 docx 文档产物**——2026-06 起 UXR 把原以 docx 返回的文档类产物改为 `text/markdown` 返回(详见 [mcp-contract.md](../agents/mcp-contract.md))，故走 markdown 卡(可应用内预览)而非 file fallback。后续将在此卡支持编辑(见 [insight-markdown-editor.md](insight-markdown-editor.md))|
-| `application/json` | `mindmap` | fetch URI → 走 mindmap 卡:`isMindmapJSON` 真→markmap,否则降级 json 源(shiki)。**2026-06 起统一走 mindmap 卡**(与路径 C `.json` 一套规则);`business_type:"mindmap"` 也汇到这里。普通 json 数据点开看到的是降级的 json 源视图,等价于旧 json 卡 + 一个预览/代码切换 |
+| `application/json` | `json` | fetch URI → json 卡。**2026-06-24 起改走 json 卡**(此前误统一走 mindmap):泛型 `application/json` mimeType **不携带"这是导图"语义**,把它当 mindmap 会令普通 JSON 误渲成单根 markmap。思维导图由 `business_type:"mindmap"` 显式声明(在 `linkToOutputType` 中先于 mimeType 拦截),不靠泛型 mimeType 嗅探。json 卡内容若为树形 → 默认 markmap 预览 + 预览/代码切换(选项 C,见 §1);普通 JSON 单显源。与路径 C `.json` 同一套原则(见 §2.6.1)|
 | `text/csv` | `table` | fetch URI → 转 Markdown 表格 → 走 TableRenderer |
 | Office（xlsx / pptx）/ PDF / 图片 / 二进制 | `file` | 不在 ResultViewer 内渲染，FileFallback 提供**双按钮**：①「用本地应用打开」`download-resource` IPC → 落地临时文件 → `window.api.openPath` 唤起 OS 关联应用（Excel/WPS/Numbers）②「下载到本地」`window.api.saveFilePicker` 用户选目录 → 落地。详见 §5 + [ADR-009](../../adr/009-no-office-preview.md)。**注**：docx 文档产物 2026-06 起改以 `text/markdown` 返回(见上一行)，不再走 file fallback |
 | 其他未识别 | `file` fallback | 同上双按钮 |
@@ -287,6 +297,8 @@ opencode 将 MCP `CallToolResult.content[]` 中的 `resource_link` 项作为独�
 新设计:服务端 `business_type: "mindmap"` 显式声明,客户端直接出**单卡**(`type: "mindmap"`,预览/代码切换),**零嗅探**。
 
 **路径 A 内容违约的兜底(2026-06 修订)**:服务端声明 `business_type: "mindmap"` 但实际文件内容不是 mindmap shape 时(服务端违反契约),客户端无法在出卡阶段预校验——内容是打开卡片时才 fetch 的(`UriTabBody`),出卡时只有 `uri`。因此降级发生在**卡内渲染时**:`ResultViewer` 的 mindmap 分支用 `isMindmapJSON(content)` 校验,不符就**直接显示代码视图(原始 JSON)**而非空的错误占位,也**不另起新卡**(原始 JSON 本就在这张卡的「代码」切换里)。与路径 B 共用同一条 `isMindmapJSON` 规则。
+
+> **`isMindmapJSON` shape 嗅探收紧(2026-06-24)**:旧 `collectRoots` 的顶层裸对象判定为「`name` 字符串 **或** `children` 数组任一即算导图根」,过松——`{ name, version, ... }` 这类普通配置 JSON 光凭 `name` 字段就被判成单根思维导图(渲出一个孤零零的标题)。收紧为:**顶层裸对象必须带 `children` 数组(树边)才算根**;`name` 字段单独不再成立。业界一致——思维导图由 父→children 树关系定义,而非单个标签字段(jsMind 用 `format:"node_tree"` + `topic`/`children` 判别;mind-elixir 用 `nodeData.children` 包裹)。**显式 mindmap 容器(`mindmaps`/`nodes` 数组)内的节点不受影响**(`declared` 标记沿用旧宽松规则),保证内网 MCP 返回的 `{ mindmaps:[{name,children}] }` 确定格式渲染零变化。详见 §2.2。
 
 ### 2.5.3 OutputCard / ResultTab 类型扩展
 
@@ -377,7 +389,7 @@ Agent 用写文件工具(opencode `write` 新建 / `edit` 修改)把分析结论
 |---|---|
 | `markdown` | `md` `markdown` `mdown` `mkd` |
 | `html` | `html` `htm` `xhtml` |
-| `mindmap`(json) | `json`(是思维导图 shape→markmap,否则降级 json 源) |
+| `json` | `json`(JsonRenderer:shiki 高亮 + 复制,单视图) |
 | `file`(拉本地应用) | **表格** `csv` `tsv` `xls` `xlsx` `xlsm` `xlsb` `ods` · **文档** `doc` `docx` `ppt` `pptx` `odt` `odp` `rtf` `pdf` `pages` `numbers` `key` `epub` · **图片** `png` `jpg` `jpeg` `gif` `webp` `bmp` `tiff` `tif` `ico` `svg` `heic` `heif` `avif` `psd` `ai` `sketch` `fig` · **音视频** `mp4` `mov` `avi` `mkv` `webm` `flv` `wmv` `m4v` `mp3` `wav` `flac` `m4a` `aac` `ogg` `opus` · **压缩/镜像/包** `zip` `tar` `gz` `tgz` `bz2` `xz` `zst` `rar` `7z` `iso` `dmg` `pkg` `deb` `rpm` `msi` `apk` · **字体** `woff` `woff2` `ttf` `otf` `eot` · **可执行/库** `exe` `dll` `so` `dylib` `bin` `o` `a` `lib` `obj` `class` `wasm` `app` |
 | `code`(兜底) | **以上之外的一切**:`py` `ts` `tsx` `js` `jsx` `go` `rs` `c` `h` `cpp` `cc` `cxx` `hpp` `cs` `java` `kt` `swift` `rb` `php` `lua` `r` `sql` `sh` `bash` `yaml` `toml` `xml` `css` `scss` `vue` … + 无扩展名(Makefile/Dockerfile)+ 未知扩展名 |
 
@@ -385,7 +397,7 @@ Agent 用写文件工具(opencode `write` 新建 / `edit` 修改)把分析结论
 >
 > **`canOpenLocally`**:`file` 卡里可执行/库类(`exe` `dll` `so` `dylib` `bin` `o` `a` `lib` `obj` `class` `wasm`)隐藏"本地打开",只留"文件夹打开"(唤起无意义/不安全)。
 >
-> **为什么 `.json` 走 mindmap**:write 产物无 `business_type`(不像路径 A),出卡阶段也拿不到内容(只有 path)。统一走 mindmap 卡 + 渲染时 `isMindmapJSON` 判断 = "是思维导图就可视化,不是就退回 json 源",无需出卡前读盘。与 §2.5.2「路径 A 内容违约兜底」对称,也让 A/C 的 json 一套规则。
+> **为什么 `.json` 走 json 卡而非 mindmap(2026-06-24 修订)**:扩展名 `.json` **不携带语义**——普通配置 JSON 与思维导图 JSON 同扩展名,出卡阶段又只有 path、拿不到内容,无法靠扩展名区分。此前(2026-06)曾让 `.json` 统一走 mindmap 卡 + 渲染时 `isMindmapJSON` 兜底,但因 shape 嗅探过松(光有 `name` 字段即判中),普通配置 JSON(如 `{name,version,...}`)既被误标"思维导图"、又渲成单根 markmap。现一律出 `json` 卡(入口图标=JSON,不误标"思维导图")。**但 json 卡按内容条件可视化(2026-06-24 选项 C)**:打开后若 `isMindmapJSON(content)` 真(顶层带 `children` 的树),默认 markmap 预览 + 出「预览/代码」切换;普通配置 JSON 单显源。即"默认 JSON、能渲染成导图的树按需(且默认)给可视化",与业界"JSON 为主、图是可选 view"一致(见 §1 视图切换)。**强声明的思维导图产物仍走路径 A**(MCP `resource_link` + `business_type:"mindmap"`)→ 恒出 mindmap 卡。
 >
 > **为什么 `.csv` 走 file 而路径 A 的 `text/csv` 走 table**:A/C **唯一的来源差异**(见 §2.6.8)。路径 A 的 csv 是服务端业务分析表格(应用内 TableRenderer + Excel 导出,成熟);路径 C 的 csv 是 Agent 写的原始逗号数据,TableRenderer 渲染不了,用 Excel/Numbers 打开更好。
 
@@ -492,8 +504,8 @@ write 产物在**本地磁盘**,有 `filePath`——所以"用本地应用打开
 |---|---|---|
 | 1 | 让 Agent「用 write 写 `测试报告.md`,含三级标题」 | 出入口卡(md 图标);点开右栏 markdown 渲染,「预览/代码」可切换;ActionBar 有 复制/下载 + **本地打开/文件夹打开**;控制台 `[octo:write-card] found` `[octo:path] read ok` |
 | 2 | 让它写 `.html` | 出卡 → iframe 预览,可切源 |
-| 3 | 让它写思维导图 shape 的 `.json`(单根 `{name,children}` 或双层数组) | 出卡 → 点开 **markmap 思维导图**,切代码看原始 json |
-| 4 | 让它写**普通数据** `.json`(非 mindmap) | 出卡 → 点开退回 json 源视图(不报错/不空白) |
+| 3a | 让它写**树形** `.json`(顶层带 `children`,如组织架构 `{name,type,children}`) | 出 **json 卡**(入口图标=JSON,不误标"思维导图") → 点开**默认 markmap 思维导图预览**,ActionBar 出「预览/代码」切换,切代码看原始 json(2026-06-24 选项 C) |
+| 3b | 让它写**普通配置** `.json`(无 `children`,如 `{name,version,...}`) | 出 json 卡 → 点开 **shiki 高亮 json 源,单视图无切换**;**不再被误渲成单根思维导图**(2026-06-24 修) |
 | 5 | 让它写 `.py` / `.txt` / `.sql` | 出 `code` 卡 → shiki 高亮;ActionBar 有"本地打开/文件夹打开"(可用 VSCode 打开) |
 | 6 | 让它写 `.cpp` / `.py` / 任意冷门代码扩展名 | 出 `code` 卡 → shiki 高亮(冷门语言走 text 也正常显示);**验证"任何文本都内预览"兜底** |
 | 7 | 让它写 `.csv`(关键:表格走本地) | 出 **file 卡** → 「本地打开」唤起 Excel/Numbers、「文件夹打开」定位;控制台 `[octo:path] open-local` |
@@ -503,7 +515,7 @@ write 产物在**本地磁盘**,有 `filePath`——所以"用本地应用打开
 
 > **关于 `.xlsx`/`.docx` 等真二进制**:见 §2.6.1 已知边界——`write` 写不出有效二进制,出卡能点本地打开但文件损坏;Agent 用 python 生成的则是 bash 产物,当前抓不到。**这两种都不是路径 C 的 bug,是工具能力边界**,验证时不必纠结。
 >
-> **纯逻辑单测**:`extToOutputType`(md/html→渲染 / `.json`→mindmap / 任意代码→code / office-二进制→file)、`canOpenLocally`、`langFromPath`、`basename`、`findWriteCards`(全部出卡 / write+edit 工具 / 去重 / 防御字段)见 `packages/app/octoapp/pages/insight/utils/write-output.test.ts`(19 cases),与 §2.6.1~§2.6.2 对齐。
+> **纯逻辑单测**:`extToOutputType`(md/html→渲染 / `.json`→json / 任意代码→code / office-二进制→file)、`canOpenLocally`、`langFromPath`、`basename`、`findWriteCards`(全部出卡 / write+edit 工具 / 去重 / 防御字段)见 `packages/app/octoapp/pages/insight/utils/write-output.test.ts`,与 §2.6.1~§2.6.2 对齐。
 
 ### 2.6.8 路径 A(MCP 产物)vs 路径 C(write 产物)规则对照
 
@@ -515,7 +527,8 @@ write 产物在**本地磁盘**,有 `filePath`——所以"用本地应用打开
 |---|---|
 | 卡类型体系 | 同一组 `OutputCardType`(table/mindmap/markdown/html/json/file/code) |
 | html / markdown | text/html ↔ `.html` → html 卡;text/markdown ↔ `.md` → markdown 卡 |
-| json / 思维导图 | application/json ↔ `.json` → **mindmap 卡**(`isMindmapJSON` 真→markmap,否则降级 json 源);business_type:"mindmap" 也汇入 |
+| json | application/json ↔ `.json` → **json 卡**(shiki + 复制);泛型 json 不当导图(2026-06-24 修)。但内容若为树形(顶层带 `children`)→ 默认 markmap 预览 + 预览/代码切换(选项 C,见 §1) |
+| 思维导图 | **强声明**走 `business_type:"mindmap"`(路径 A 强契约)→ 恒出 mindmap 卡(markmap;内容违约降级 json 源)。**不靠** application/json mimeType / `.json` 扩展名嗅探出"mindmap 卡";但泛型 json 内容是树形时,json 卡仍按内容默认 markmap 预览(同一渲染分支,差别只在切换是否恒显)|
 | 二进制(office/pdf/图片/媒体) | → `file` 卡,FileFallback 本地应用打开 + 文件夹打开 |
 | 视图切换 / 渲染器 | mindmap/html/table/markdown 的「预览/代码」切换、各 renderer 完全共用 |
 | 出卡并列 | 同 turn A、C 卡并列追加,互不顶替;长任务卡(taskCards)优先接管 |
@@ -1238,7 +1251,7 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 下列项已在 `detect.test.ts` 验证，改代码会自动回归，不必每次手动跑：
 
 - 路径 B 现仅两条规则：`scanFencedHtml`（html）+ `isMindmapJSON`（mindmap）；~~`isMarkdownTable` / `isPlainJSON` 已移除~~
-- `isMindmapJSON` 对带 fence / 不带 fence / 单根 / 双层数组 shape 的识别
+- `isMindmapJSON` 对带 fence / 不带 fence / 单根 / 双层数组 shape 的识别;**收紧后**:顶层裸对象需带 `children` 树边(光有 `name` 字段的普通配置 JSON 不命中,见 §2.2);显式 `mindmaps`/`nodes` 容器内节点仍宽松(MCP 确定格式零变化)
 - `isHTML` 对 fence / doctype / 富片段（≥3 标签）的识别（保留供单测复用）
 - `scanFencedHtml` 多 fence / 未闭合 fence 行为（新增）
 - `parseMarkdownTable` 切分 + `tableToCSV` 引号转义
