@@ -11,6 +11,7 @@
 
 | 规模 | 任务 | 说明 |
 |---|---|---|
+| `[M]` | **insight 会话列表服务端分页** | spec [insight-session-list-pagination](docs/specs/ui/insight-session-list-pagination.md)（SPEC-INS-013,草案）。修「会话超 100 条后最早的看不到」:新建 **insight 专用** server 端点 `/insight/sessions`(独立成组照 studio 样板,硬编码 `agent=octo_insight` 服务端过滤 + `{items,total}` 分页),前端 `session-list` 切到新端点 + 加载更多。承接 [session-agent-attribution §10](docs/specs/infra/session-agent-attribution.md) 预留项。**待**:服务端走 intranet-handoff 非绿灯流程落地 + SDK 重生成(后端先于前端);性能(复合索引 / 游标 / 虚拟滚动)归后续阶段 |
 | `[S]` | **弱模型工具意图识别评测** | 预置文案 2026-06-15 去掉明示工具名后(SPEC-INS-007 §3.1.2),"选对 tool"压在弱模型 + 提示词上。按 [SPEC-INS-007 §11](docs/specs/ui/insight-prompt-redesign.md) 做 `expectedTool` 对账评测(按钮命中率 ≥95%、自由输入 ≥85%),不达标按 §11.3 升级阶梯回退。区分"选错工具"与"文件拆桶错"两类错误。**待**:内网真机评测数据 |
 | `[M]` | **chat 接内网知识库 RAG** | spec [chat-knowledge-search](docs/specs/agents/chat-knowledge-search.md) + learning [rag-chat-integration](docs/learning/rag-chat-integration.md)/[rag-mental-model](docs/learning/rag-mental-model.md)。**V1 代码已落 UXAI**(knowledge_search 工具 + registry 网关 octo_ai + octo_ai prompt + base_url 桥 + mock,typecheck 通过、未 commit)。**待**:真机 chat 验证、引用角标/参考卡片 UI(后续迭代)、真实 account 的 session 注入(后续) |
 | `[L]` | **文档视角迁移到 UXAI** | architecture / development / 各 spec / ADR 里的代码路径、开发流程逐篇调成 UXAI 视角(路径映射见 [handoff §0](docs/intranet-handoff.md)),让文档直接服务 UXAI 开发,而非要求读者心算映射。执行清单见 [spec docs-uxai-perspective-rewrite](docs/specs/infra/docs-uxai-perspective-rewrite.md)。**进度**:✅ architecture.md(全文 UXAI 化 + 删本地壳台账 §5.4);⬜ insight-debugging / development / 各 spec / ADR |
