@@ -125,6 +125,8 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 | `ALLOWED_EXT` | txt/md/docx/xlsx/pdf | 由 MCP 工具 `analyze_interview` 决定可处理格式 |
 | `MAX_ATTACHMENTS` | 10 | 单轮对话最多附件数（页面级常量，见 `insight/index.tsx`）。超出弹 toast「请保持上传文件不超过10个或分多轮对话处理」，单次批量超额截取前 N 个 |
 
+> **前端先行项（图片）**：应产品要求，输入框需支持粘贴/上传图片，与 chat 粘贴体验对齐。前端 `ALLOWED_EXT` 已额外放开 `png/jpg/jpeg/gif/webp`，**领先于本 spec 的服务端白名单**。这是「前端先放校验、后端后续跟进」的有意为之：当事人明确选择前端先放开、暂不阻塞于后端。在服务端/`analyze_interview` 正式支持图片前，图片可能在上传步骤被服务端 415 拒。待后端跟进后，将本表与下文 §扩展名/MIME 白名单一并对齐补图片。
+
 **客户端 chip 交互**：附件 chip 渲染在**输入胶囊内部顶部**（不在胶囊外），单行横向滚动（类 Claude/Gemini），不随内容撑开胶囊；单 chip 文件名溢出省略，chip 数量溢出横向滚动；下方 textarea 自有纵向滚动区。
 
 **文件选择器 accept**：`<input accept>` 由 `ALLOWED_EXT` 派生（`.txt,.md,.docx,.xlsx,.pdf`），让原生弹窗预过滤、减少误选。但 accept 仅是 UX 提示**不做强制**——拖拽完全绕过它，用户也可在弹窗切「所有文件」，故校验仍以 `validateFile`（扩展名 + 大小 0/上限）为唯一事实源。
@@ -219,6 +221,8 @@ agent 项目层不需要"清理某个 session 的文件"这种业务接口，靠
 服务端校验，与客户端 `ALLOWED_EXT` 保持一致：`txt, md, docx, xlsx, pdf`。
 
 不在白名单返回 415。MIME 头与扩展名不一致时以扩展名为准（防止伪造 MIME）。
+
+> 注：客户端当前已先行放开图片 `png/jpg/jpeg/gif/webp`（见上文 §大小/扩展名常量 的「前端先行项」）。服务端白名单尚未含图片，图片上传会被 415 拒，属已知差异，待后端跟进对齐。
 
 ### 接口合同
 
