@@ -41,7 +41,7 @@ UXAI-tab（`D:\project2026\UXAI`，dev 分支，chat 页）已将同类标题 he
 - `Escape` → 取消，恢复原标题
 - 改名中途切换 session（`params.id` 变化） → 清空 title 状态（`createEffect on sessionKey`）
 
-### 2.4 dot-grid 菜单（右侧 IconButton）
+### 2.4 ellipsis 菜单（右侧 IconButton，竖向三点）
 
 | 菜单项 | 行为 |
 |---|---|
