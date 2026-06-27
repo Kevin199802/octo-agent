@@ -28,7 +28,9 @@ packages/desktop/   — Electron 壳，renderer 层 import @opencode-ai/app
 | `bun run dev:prod` | `.env` + `.env.prod` + `.env.local` | prod |
 | `bun run build:prod` | `.env` + `.env.prod` + `.env.local` | prod |
 
-优先级（高→低）：`.env.local` > `.env.beta/.env.prod` > `.env`
+优先级（高→低，**文件层面**）：`.env.local` > `.env.beta/.env.prod` > `.env`
+
+> ⚠ 这只是**文件之间**的优先级。真实优先级最高的是 **`process.env`**（`process.env` > `.env.<mode>` > `.env`），而 `bun <file>`（如 `release.ts`）启动会把 `.env` 自动灌进 `process.env`，于是 `.env` 里的值会**反向盖过** `.env.prod`/`.env.beta`。**结论:分环境的业务地址只放 `.env.beta`/`.env.prod`,别放 `.env`/`.env.local`。** 详见 [env-dotenv-override-trap.md](env-dotenv-override-trap.md)。
 
 ---
 
@@ -46,7 +48,7 @@ packages/desktop/   — Electron 壳，renderer 层 import @opencode-ai/app
 | 文件 | 外网 git | 内网 git | 说明 |
 |------|---------|---------|------|
 | `.env.example` | ✅ | ✅ | 文档模板，占位符 |
-| `.env` | ❌ | ✅ | 公共域名，所有命令的基础值 |
+| `.env` | ❌ | ✅ | **仅放所有环境相同的通用项**;分环境业务地址别放这(会被自动加载污染,见上方 ⚠) |
 | `.env.local` | ❌ | ❌ | 个人临时覆盖（可选） |
 | `.env.beta` | ❌ | ❌ | beta 环境专属域名 |
 | `.env.prod` | ❌ | ❌ | prod 环境专属域名 |

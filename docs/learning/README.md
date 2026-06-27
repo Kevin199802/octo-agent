@@ -39,6 +39,8 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 20. [file-card-depends-on-current-turn-tool-call.md](file-card-depends-on-current-turn-tool-call.md) — insight 文件卡片只渲染"本轮工具返回":模型凭上下文跳过 `get_task_result` 调用 → "详见下方文件卡片"话术与界面脱节;prompt 承诺 UI 存在的话术必须条件化
 21. [mock-server-patterns.md](mock-server-patterns.md) — mock server 两种模式:Vite 插件 middleware(renderer 侧,自动降级)vs 独立进程(Node.js sidecar 侧,显式配置);选型依据、对比表、MSW 定位说明
 22. [cherry-pick-feature-to-two-branches.md](cherry-pick-feature-to-two-branches.md) — 一份自包含功能同时进两条分叉分支(main 打包 / dev 给测试):cherry-pick vs merge 何时干净何时别用 / 冲突只看"目标分支动没动过那几个文件"(每个 base 各验一遍)/ cherry-pick 产生重复 SHA 的副作用 / both-add 冲突两边都留 / git worktree 旁路不污染当前工作区 / feature 分支当一次性资源:auto-delete + fetch --prune + worktree prune 的清理节奏
+23. [env-dotenv-override-trap.md](env-dotenv-override-trap.md) — 事故复盘:`release:win` 打 prod 包却连 beta MCP,手动 `build:prod` 却对。根因 = `bun <file>`(release.ts)自动加载 `.env` 进 `process.env` + `loadEnv(prefix="")` 优先级 `process.env > .env.<mode> > .env`,`.env` 业务值**反向盖过** `.env.prod` / 为何 release.ts 中招、`bun run build:prod` 不中招 / 为何 REPORT 不暴露 MCP 暴露 / 解药:环境专属值只放 `.env.beta`/`.env.prod` + `[octo:env]` 构建/启动日志(dev 经 configureServer 避开 clearScreen)
+> 与 [build-channel-injection.md](build-channel-injection.md) 坑 4/5 同机制:那篇是 `OCTO_CHANNEL` 被污染,本篇是业务地址变量被污染
 
 > 后续可能补:
 >

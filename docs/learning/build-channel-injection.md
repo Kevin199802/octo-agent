@@ -178,6 +178,8 @@ bun 启动会自动把 `.env` 读进 `process.env`（但**不**自动读 `.env.b
 
 这种"恰好对了"最坑，因为它掩盖了机制缺陷。解药：channel 一律 cross-env 强制（真实环境变量优先级高于 `.env` 自动加载），并把 `OCTO_CHANNEL` 从所有 `.env` 文件里删掉。
 
+> 同机制还会咬**业务地址变量**:`.env` 里的 `VITE_OCTO_*` / `OCTO_UXR_MCP_URL` 经自动加载进 `process.env` 后,会**反向盖过** `.env.prod`(因为 `loadEnv` 优先级 `process.env > .env.<mode>`),导致 prod 包连到 `.env` 里的 beta 地址。完整复盘见 [env-dotenv-override-trap.md](env-dotenv-override-trap.md)。结论一致:分环境的值别放 `.env`,只放 `.env.<mode>`。
+
 ### 坑 5：三层 channel 优先级要心里有数
 同一个 `OCTO_CHANNEL` 可能来自三个地方，优先级高→低：
 1. **真实环境变量**（cross-env 设的 / CI Actions `env:` / shell 手敲）——最高，会盖过下面
