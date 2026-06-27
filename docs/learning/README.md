@@ -41,6 +41,7 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 22. [cherry-pick-feature-to-two-branches.md](cherry-pick-feature-to-two-branches.md) — 一份自包含功能同时进两条分叉分支(main 打包 / dev 给测试):cherry-pick vs merge 何时干净何时别用 / 冲突只看"目标分支动没动过那几个文件"(每个 base 各验一遍)/ cherry-pick 产生重复 SHA 的副作用 / both-add 冲突两边都留 / git worktree 旁路不污染当前工作区 / feature 分支当一次性资源:auto-delete + fetch --prune + worktree prune 的清理节奏
 23. [env-dotenv-override-trap.md](env-dotenv-override-trap.md) — 事故复盘:`release:win` 打 prod 包却连 beta MCP,手动 `build:prod` 却对。根因 = `bun <file>`(release.ts)自动加载 `.env` 进 `process.env` + `loadEnv(prefix="")` 优先级 `process.env > .env.<mode> > .env`,`.env` 业务值**反向盖过** `.env.prod` / 为何 release.ts 中招、`bun run build:prod` 不中招 / 为何 REPORT 不暴露 MCP 暴露 / 解药:环境专属值只放 `.env.beta`/`.env.prod` + `[octo:env]` 构建/启动日志(dev 经 configureServer 避开 clearScreen)
 > 与 [build-channel-injection.md](build-channel-injection.md) 坑 4/5 同机制:那篇是 `OCTO_CHANNEL` 被污染,本篇是业务地址变量被污染
+24. [resource-accessor-refetch-flashes-global-suspense.md](resource-accessor-refetch-flashes-global-suspense.md) — 排查复盘:Insight"每次发送/生成完整页闪一下初始加载动画"。真凶是会话列表 `createResource` 的 accessor 被在 render(`hasMore`)里读 → `session.updated` 事件触发 refetch → Solid"refetch 重新挂起 Suspense"把最外层全屏 `<Splash>` fallback 顶出来,子树却不卸载(故无重挂、数据不变)/ A/B/C/D 四假设按代价排除的方法论 /「整页像重置但代码无重挂」= 优先查祖先 Suspense / 根治:render 只读镜像信号·`.loading`·`.error`,绝不读 resource accessor
 
 > 后续可能补:
 >
