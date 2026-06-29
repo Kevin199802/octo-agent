@@ -39,6 +39,7 @@
 | `[octo:resource-link]` / `[octo:resource]` | [utils/resource-link.ts](../packages/app/octoapp/pages/insight/utils/resource-link.ts) | resource_link 识别 / fetch |
 | `[octo:tab]` | [components/result-viewer/tab-store.ts](../packages/app/octoapp/pages/insight/components/result-viewer/tab-store.ts) | 产物 tab 打开 / 去重 |
 | `[octo:office]` | [components/result-viewer/index.tsx](../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx) | Office 文件下载 / 打开 / 另存 / 定位 |
+| `[octo:worktree]` | [desktop/src/main/ipc.ts](../packages/desktop/src/main/ipc.ts)(主进程·terminal) | **SPEC-INS-014 本地工作目录布局**:源文件拷贝进 `insight/sources`、产物落 `insight/outputs`。见下 §1.6.1 |
 | `[octo:mindmap]` | [components/result-viewer/mindmap-renderer.tsx](../packages/app/octoapp/pages/insight/components/result-viewer/mindmap-renderer.tsx) | 脑图渲染 |
 | `[octo:mdedit]` | [components/markdown-editor/index.tsx](../packages/app/octoapp/pages/insight/components/markdown-editor/index.tsx) | markdown 全屏编辑器(Vditor):open / save-start / save-ok / save-failed / close([spec](specs/ui/insight-markdown-editor.md)) |
 | `[insight:session-list]` | [components/session-list/index.tsx](../packages/app/octoapp/pages/insight/components/session-list/index.tsx) | 会话重命名 / 删除失败 |
@@ -271,9 +272,21 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 | `[octo:upload] 4/5 business error` | error | `success:false`,按 `errorCode` 映射(305/413/415/429/5xx)。([upload.ts:161](../packages/app/octoapp/pages/insight/lib/upload.ts#L161)) | `errorCode`、`errorMessage`、`mappedCode` |
 | `[octo:upload] empty content` | error | `success:true` 但 `content` 为空。([upload.ts:171](../packages/app/octoapp/pages/insight/lib/upload.ts#L171)) | `body` |
 | `[octo:upload] 5/5 success` | log | 成功,拿到 `url` / `fileId`。([upload.ts:175](../packages/app/octoapp/pages/insight/lib/upload.ts#L175)) | `url`、`fileId` |
-| `[octo:upload] retry` | log | 点 chip 重试,重新 `doUpload`。([index.tsx:771](../packages/app/octoapp/pages/insight/index.tsx#L771)) | `filename` |
-| `[octo:upload] retry skipped: no original File` | warn | 客户端校验失败的 chip 没有原 File,无法重试(正常该按钮已隐藏,走到此为兜底)。([index.tsx:768](../packages/app/octoapp/pages/insight/index.tsx#L768)) | `id` |
-| `[InsightPage] upload failed` | error | `doUpload` catch 兜底(上面任一 throw 都会落到这,带最终 message,chip 标红可重试)。([index.tsx:750](../packages/app/octoapp/pages/insight/index.tsx#L750)) | `filename`、`err` |
+| `[octo:upload] retry` | log | 点 chip 重试,重新 `doUpload`(eager 重传)。([index.tsx](../packages/app/octoapp/pages/insight/index.tsx)) | `filename` |
+| `[octo:upload] retry skipped: no original File` | warn | 客户端校验失败的 chip 没有原 File,无法重试(正常该按钮已隐藏,走到此为兜底)。([index.tsx](../packages/app/octoapp/pages/insight/index.tsx)) | `id` |
+| `[InsightPage] upload failed` | error | `doUpload` catch 兜底(上面任一 throw 落到这,chip 标红可重试)。([index.tsx](../packages/app/octoapp/pages/insight/index.tsx)) | `filename`、`err` |
+
+### 1.6.1 `[octo:worktree]` — 本地工作目录布局(SPEC-INS-014,主进程·terminal)
+
+源文件拷贝进 `insight/sources`、MCP 产物落 `insight/outputs`。**均在主进程**(看 terminal,非 DevTools)。
+> S3 上传仍是今天的 eager(走 `[octo:upload]`);上传时机改造(改前缀/下沉插件)在 [SPEC-INS-015 按需上传](specs/infra/insight-mcp-lazy-upload.md),落地后再补 `s3-upload` 类日志。
+
+| 日志 | 级别 | 时机 / 含义 | 关键字段 |
+|---|---|---|---|
+| `[octo:worktree] ensure-dir` | log | 首次创建 `insight/sources` 或 `insight/outputs`。([desktop/src/main/ipc.ts](../packages/desktop/src/main/ipc.ts)) | `dir`、`created` |
+| `[octo:worktree] source-copy ok` | log | 源文件拷贝进 `insight/sources` 成功(选文件即触发)。 | `srcPath`、`dest` |
+| `[octo:worktree] source-copy failed` | error | 拷贝失败 —— **不阻断** MCP/发送,仅该文件本地能力线不可用。 | `srcPath`、`dest`、`reason` |
+| `[octo:worktree] result-materialize` | log | MCP 产物落地 `insight/outputs`;`reused:true` = 命中本会话内存表/已落地副本(含用户改动),不 re-fetch。 | `filename`、`path`、`reused` |
 
 ### 1.7 其他前缀(出场较少)
 
@@ -286,9 +299,9 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 - `[octo:resource] md-local` — uri **markdown** 卡不直接 fetch(url),而是先把产物落成本地工作副本(`downloadResourceToTemp` 幂等)再读盘,使预览/编辑/重开卡回显同一份(含改动)。带 `localPath`/`bytes`。([components/result-viewer/index.tsx](../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx))
 - `[octo:resource] download-original-start/ok/failed` — uri md 卡「另存为」:始终从 url 重新拉 MCP 原始版本另存到用户选定目录(不取本地工作副本/编辑后内容;与 file 类型「另存为」同义)。([components/result-viewer/action-bar.tsx](../packages/app/octoapp/pages/insight/components/result-viewer/action-bar.tsx))
 - `[octo:tab] openTab / dedupe-by-uri-and-type / dedupe-by-id` — 产物 tab 打开与去重。([components/result-viewer/tab-store.ts](../packages/app/octoapp/pages/insight/components/result-viewer/tab-store.ts))
-- `[octo:office] download-start/ok · open-path/failed · saveas-* · reveal-* · reuse-existing · reuse-locked` — Office 文件下载、`window.api.openPath` 唤起本地应用、另存、文件夹定位;`reuse-existing`(主进程)= `downloadResourceToTemp` 命中已落地的本地工作副本、直接复用不 re-fetch/覆盖(本地打开/编辑改动持久的关键),`reuse-locked` = 文件被外部应用独占锁定时回退已有副本。([components/result-viewer/index.tsx](../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx) · [desktop/src/main/ipc.ts](../packages/desktop/src/main/ipc.ts))
+- `[octo:office] download-start/ok · open-path/failed · saveas-* · reveal-*` — Office 文件下载、`window.api.openPath` 唤起本地应用、另存、文件夹定位(渲染进程)。**SPEC-INS-014 后**幂等/复用语义改由主进程的 `[octo:worktree] result-materialize`(`reused` 字段)体现,旧 `reuse-existing` / `reuse-locked` 已删除(落点扁平 + 内存表幂等,首次总写新文件、不再覆盖已开文件)。([components/result-viewer/index.tsx](../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx) · [desktop/src/main/ipc.ts](../packages/desktop/src/main/ipc.ts))
 - `[octo:mindmap] render failed` — 脑图渲染失败,带 `mdPreview` 前 200 字。([components/result-viewer/mindmap-renderer.tsx:36](../packages/app/octoapp/pages/insight/components/result-viewer/mindmap-renderer.tsx#L36))
-- `[octo:mdedit] open · save-start/ok/failed · close` — markdown 全屏编辑器(Vditor):进入(含 `path`/`persistent`)、自动保存防抖写盘(含 `path`/`bytes`)、关闭回写 tab。写盘走新增 `window.api.writeFile`(主进程校验:`.octo/downloads`/临时目录,或白名单外但已存在的普通文件——覆盖 write 工具产物)。`open-failed` = 定位本地文件失败(uri 未落地 / inline 无本地文件)。**不做「还原初始内容」**(要回原始版本重新从 MCP 下载即可)。([components/markdown-editor/index.tsx](../packages/app/octoapp/pages/insight/components/markdown-editor/index.tsx))
+- `[octo:mdedit] open · save-start/ok/failed · close` — markdown 全屏编辑器(Vditor):进入(含 `path`/`persistent`)、自动保存防抖写盘(含 `path`/`bytes`)、关闭回写 tab。写盘走新增 `window.api.writeFile`(主进程校验:`insight/outputs`、旧 `.octo/downloads`、临时目录,或白名单外但已存在的普通文件——覆盖 write 工具产物)。`open-failed` = 定位本地文件失败(uri 未落地 / inline 无本地文件)。**不做「还原初始内容」**(要回原始版本重新从 MCP 下载即可)。([components/markdown-editor/index.tsx](../packages/app/octoapp/pages/insight/components/markdown-editor/index.tsx))
 - `[insight:session-list] rename failed / delete failed` — 会话重命名 / 删除失败。([components/session-list/index.tsx](../packages/app/octoapp/pages/insight/components/session-list/index.tsx))
 
 ---

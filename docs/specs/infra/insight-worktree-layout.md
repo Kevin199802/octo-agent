@@ -24,7 +24,7 @@
 - **产物显性可见** → 兑现"显性存储、管理上下文中的文件"诉求；[SPEC-INS-004 Workspace 面板](../ui/insight-workspace.md) 可直接列这两个目录
 - **跨会话共享天然成立** → 目录按 **projectDir 键控、而非 session**（[SPEC-INS-012](../ui/insight-directory-scoping.md)），同目录下多 session 看到同一份文件，无需任何同步逻辑
 
-**与 MCP 的边界（团队解耦）**：本 spec **不改 MCP 工具契约 / 服务**，模型侧 handle/url 契约与 `octo-upload-inject` 插件也**不变**。我们这侧有两处动作、都不碰他们：① 把结果 `resource_link` 下载到本地（消费他们的输出）；② S3 上传时机改 lazy（S3 上传服务是我们自己的，见 [§4.1.1](#411-s3-上传改-lazy只在触发-mcp-时上传)）。详见 [§5](#5-与-mcp-的边界纯消费不改其流程)。
+**与 MCP 的边界（团队解耦）**：本 spec **不改 MCP 工具契约 / 服务**，模型侧 handle/url 契约与 `octo-upload-inject` 插件也**不变**。我们这侧有两处动作、都不碰他们：① 把结果 `resource_link` 下载到本地（消费他们的输出）；② 源文件上传 S3（我们自己的上传服务）——**上传时机的改造已移出本 spec**，见 [SPEC-INS-015 按需上传](insight-mcp-lazy-upload.md)；本 spec 地基期保持今天的 eager。详见 [§5](#5-与-mcp-的边界纯消费不改其流程)。
 
 ---
 
@@ -86,7 +86,7 @@
 
 ### 4.1 源文件导入 worktree（本质是拷贝）
 
-对本地路径而言这不是"上传"，是**把用户的文件拷贝进 worktree**。S3 上传是另一件只为 MCP 服务的事（§4.1.1）。
+对本地路径而言这不是"上传"，是**把用户的文件拷贝进 worktree**。S3 上传是另一件只为 MCP 服务的事（地基期保持今天 eager；时机改造见 [SPEC-INS-015](insight-mcp-lazy-upload.md)）。
 
 ```
 用户选文件 / 拖拽
@@ -100,28 +100,17 @@
 - **无 projectDir / 非桌面端**：跳过本地拷贝，本地能力线在该会话不可用——降级而非报错。
 - **失败处理**：拷贝失败**不阻断** MCP 主流程；记 `[octo:worktree] source-copy-failed`，本地能力线对该文件不可用。
 
-#### 4.1.1 S3 上传改 lazy（只在触发 MCP 时上传）
+#### 4.1.1 S3 上传时机 —— 移出本 spec，见 SPEC-INS-015（按需上传）
 
-S3 上传是**我们自己的上传服务**（[file-upload.md](file-upload.md)，不归 UXR）。本期把它从"选文件即传"（eager）改为"**发预置（MCP）提示词时才传**"（lazy）。
-
-**时序（关键：上传 await 完成后才发消息，杜绝 race）**：
-
-```
-发预置提示词
-  → 客户端对本轮引用、且尚未上传的源文件：await POST S3 → 拿 url + 派生 handle
-  → 组 [已上传文件] block（handle: 真实url）注入该消息
-  → 发送 → 模型见 handle → 调 MCP 工具 → octo-upload-inject 插件 handle→url（与今天完全一致）
-```
-
-**为什么不影响 MCP / 无时序问题**：
-
-- **模型侧契约 + 注入插件完全不变**：block 仍是 `handle: 真实url`，插件按现状解析替换。lazy 只改了**客户端何时上传**，没动 server / plugin / 模型看到的东西。
-- **无 race**：上传是 **await 在发送之前**完成的——模型见到消息时 url 已存在，不存在"先调 MCP 后上传"的竞态。
-- **幂等**：客户端缓存"文件→已传 url"，多轮 / 多次引用同一文件不重复上传。
-- **失败**：preset 发送时上传失败 → 不提交 MCP、提示重试（与今天上传失败处理相同，只是时点从"选文件"移到"发送"）。
-
-**一个前提（行为变化，需确认）**：lazy 把"文件进 S3"绑在**预置（MCP）发送**这一刻 ⇒ 隐含 **"MCP 只经预置触达"**。今天 eager 下自由提示词也能拿 handle 喂 MCP；改 lazy 后自由词不触发上传，文件只走本地能力线。与早先"自由词永远本地、MCP 只走预置"取向一致，但确是相对今天的行为变化。
-> 将来若要让自由词也能触发 MCP，则上传不能靠预置 gate，需改插件侧按需上传（动 [ADR-014](../../adr/014-url-injection-via-plugin.md)），那时另立 spec。
+> **范围收敛（2026-06-29，已与用户对齐）**:S3 上传时机的改造**不在本 spec**。
+>
+> 探讨过两版且都**作废**:① 原草案「绑预置发送」(隐含 MCP 只经预置触达,行为回退);② 中途「绑任意发送」(自由消息发本地模型也上传——无意义、且上传服务不可用时阻断发送)。
+>
+> 想清楚后(见 [ADR-015](../../adr/015-file-passing-architecture.md)):S3 上传只为 MCP/UXR 工具服务,正确时机是「**模型真正调 MCP 工具时**」由插件按需上传,与「发送」无关。这是独立改造,拆到 **[SPEC-INS-015 MCP 文件按需上传](insight-mcp-lazy-upload.md)**(动 [ADR-014](../../adr/014-url-injection-via-plugin.md))。
+>
+> **本 spec(INS-014)地基期不改上传时机**:保持今天的 eager(选文件即传 + `[已上传文件]` 块),MCP 照常工作;本 spec 只新增 sources 拷贝(§4.1)+ outputs 迁移(§4.2)。
+>
+> 另:图片附件改走 S3 URL(而非 base64)也独立,见 [图片附件 spec](../ui/insight-image-attachment.md)。
 
 ### 4.2 产物落点迁移（`.octo/downloads` → `insight/outputs`）
 
@@ -144,7 +133,7 @@ S3 上传是**我们自己的上传服务**（[file-upload.md](file-upload.md)�
 | 动作 | 归属 | 是否动 MCP |
 |---|---|---|
 | handle 注入格式 + `octo-upload-inject` 插件替换 | 现有胶水（我们侧）+ MCP 工具（他们侧） | **一行不改**（block 仍 `handle:真实url`）|
-| S3 上传**时机**改 lazy（选文件→预置发送）| 我们侧（自有上传服务）| 否——只改我们何时上传，模型/插件看到的不变（§4.1.1）|
+| S3 上传**时机**改造（→ 模型调 MCP 时按需上传）| 我们侧（自有上传服务）| 否——移至 [SPEC-INS-015](insight-mcp-lazy-upload.md)；本 spec 不动上传时机 |
 | 提交 MCP 任务 / 查询 / resource_link 形态 | MCP 团队 | **一行不改** |
 | 把 resource_link 结果**下载到 `insight/outputs`** | 我们侧新增 | 否——通过现有 `resource_link` 接口**读他们的输出**，不改他们的行为 |
 | 源文件拷贝进 `insight/sources` | 我们侧新增 | 否，与 MCP 无关 |
@@ -159,7 +148,6 @@ S3 上传是**我们自己的上传服务**（[file-upload.md](file-upload.md)�
 |---|---|---|
 | `[octo:worktree] ensure-dir` | 首次创建 `insight/sources` 或 `insight/outputs` | dir / created(bool) |
 | `[octo:worktree] source-copy ok/failed` | 源文件拷贝进 worktree | srcPath / dest / reason |
-| `[octo:worktree] s3-upload ok/skip-cached/failed` | lazy 上传（预置发送时） | filename / url / reason |
 | `[octo:worktree] result-materialize` | 产物落地（迁移后） | filename / path / reused(bool) |
 
 > 新增前缀需同步登记 [insight-debugging.md](../../insight-debugging.md)。
@@ -174,7 +162,8 @@ S3 上传是**我们自己的上传服务**（[file-upload.md](file-upload.md)�
 | `@` 引用所有文档类型的前端联想交互 | Spec C |
 | 二次生成（读源 + 上轮产物 → edit） | 独立 spec |
 | 本地解析能力 + 测量/护栏策略 | 能力线，逐个 spec（最后） |
-| 自由提示词也触发 MCP | 独立 spec —— lazy 下需改插件侧按需上传（动 ADR-014，见 §4.1.1）；本期 MCP 只经预置触达 |
+| S3 上传时机改造（按需上传）| [SPEC-INS-015](insight-mcp-lazy-upload.md) —— 模型调 MCP 工具时由插件按需上传；本 spec 地基期保持今天 eager |
+| 图片附件改走 S3 URL（而非 base64）| [图片附件 spec](../ui/insight-image-attachment.md) |
 | Workspace 面板 UI（列出 sources/outputs） | [SPEC-INS-004](../ui/insight-workspace.md)，设计师并行 |
 | 跨设备 / 云端同步 | 不做（单机本地盘跨 session 已够；同步成本大收益弱）|
 
@@ -184,9 +173,8 @@ S3 上传是**我们自己的上传服务**（[file-upload.md](file-upload.md)�
 
 | # | 操作 | 期望 |
 |---|---|---|
-| 1 | 选项目目录，选一个 .docx 源文件 | 立刻 `<projectDir>/insight/sources/<name>.docx`（原样拷贝、格式不变）；`[octo:worktree] source-copy ok`；**此时不传 S3**（lazy）|
-| 2 | 不点预置、发自由消息 | Network 无 S3 POST（lazy 未触发）|
-| 3 | 点预置提示词发送 | 发送前 await S3 上传（`[octo:worktree] s3-upload ok`）；模型收到含 `handle:url` 的 block；MCP 工具调用与今天一致（`[octo:inject] args rewritten`）|
+| 1 | 选项目目录，选一个 .docx 源文件 | 立刻 `<projectDir>/insight/sources/<name>.docx`（原样拷贝、格式不变）；`[octo:worktree] source-copy ok`。S3 上传时机不在本 spec 验证（保持今天 eager；时机改造见 [SPEC-INS-015](insight-mcp-lazy-upload.md)）|
+| 2 | 走预置 → 触发 MCP | 与今天一致（eager 上传 + `[octo:inject] args rewritten`）；本 spec 未改此链路 |
 | 4 | 同名不同内容再导入 | 加后缀 `<name> (2).docx`，不覆盖 |
 | 5 | 触发 MCP 任务 → 完成 → 点开产物卡 | 产物落 `<projectDir>/insight/outputs/<file>`（扁平，**不再**在 `.octo/downloads`、无 id 子目录）；`[octo:worktree] result-materialize` |
 | 6 | markdown 卡编辑 → 保存 → 关卡重开 | 回显改动（幂等工作副本仍生效，落点变 `insight/outputs`）|

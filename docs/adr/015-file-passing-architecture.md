@@ -1,0 +1,78 @@
+# ADR-015: insight 文件传参架构 — 按「文件类 × 用途」分流
+
+## 状态
+
+已采纳（2026-06-29）
+
+> 上游已实现：部分 ✓ —— opencode 原生 `FilePart`（文本内联 / 二进制 base64，见 [prompt.ts:1103-1264](../../packages/opencode/src/session/prompt.ts#L1103)）；✗ —— "有存储后端走 S3 URL 而非 base64"、✗ —— "MCP 文件按需上传"、✗ —— "office 路径引用 + extract tool"。本 ADR 在不改 opencode 核心的前提下确立分流策略。
+
+---
+
+## 背景
+
+insight 让用户附带文件（docx/xlsx/pdf/图片/纯文本…），文件要么**给模型读**、要么**给工具用**。此前实现把所有文件一律「选文件即 S3 上传 → `[已上传文件]` handle 块」（见 [ADR-014](014-url-injection-via-plugin.md)、[file-upload.md](../specs/infra/file-upload.md)），这套只为 MCP/UXR 工具服务，却被当成唯一通道，导致：
+
+- 发给本地模型的自由消息也触发 S3 上传（无意义、且上传服务不可用时阻断发送）；
+- 把文件「喂模型」和「喂工具」两种本质不同的需求混为一谈。
+
+调研 opencode 实际行为后（关键证据）：opencode 在**组 prompt 时就急切解析 `FilePart`**——
+- `text/plain` 文件：服务端自动调 Read 工具读出内容、内联成 text（任何模型可读）；
+- 二进制文件（office/图片）：**直接读字节转 `data:<mime>;base64,...`**（`prompt.ts:1257`），交 AI SDK；非多模态模型再被 `stripMedia` 换成 `[Attached …]` 占位符。
+
+**推论**：原生 `FilePart` 是「把内容塞进模型上下文」的载体（模式 A/B），**不是**「给工具的引用」（模式 C）。三者必须分开设计。
+
+---
+
+## 业界基线（把文件喂给模型只有三种）
+
+| 模式 | 做法 | 适用 |
+|---|---|---|
+| A 文本内联 | 读出文本拼成 text part | 任何模型 |
+| B 多媒体 | base64 / 公网 URL / Files API `file_id` → 厂商 vision/document API | 仅多模态模型 |
+| C 工具引用 | 文件放到工具够得着处，只给模型一个引用让它转交工具，模型不读内容 | RAG / MCP / agentic |
+
+厂商均支持图片走 **URL**（服务器去拉）或 base64；**有存储后端的产品基本走 URL**，base64 是 opencode 这类无存储本地工具的默认。
+
+---
+
+## 决策
+
+### 1. 按「文件类 × 用途」分流（核心）
+
+| 文件类 / 用途 | 机制 | 是否上传 S3 | 时点 |
+|---|---|---|---|
+| 纯文本 / md / 代码 → 模型读 | 原生 `FilePart(file://sources/…, text/plain)` → 自动内联文本 | 否 | — |
+| office（docx/xlsx/pdf）→ 模型读 | **本地路径引用（text）+ `extract_document` tool**（[Spec B]），模型按系统提示词在遇到支持格式时调该 tool；tool 未就绪时模型 fallback 写脚本读 | 否（本地） | — |
+| 图片 → 多模态模型看 | `FilePart(url = S3 url)`（**不 base64**） | 是 | 发送时（图片是模型上下文，回合内必须就位） |
+| 任意文件 → MCP/UXR 工具分析 | `handle` 块（[ADR-014]）→ 插件**按需上传**：模型调工具时才传 S3、path→url 换进 args | 是 | **工具调用时** |
+
+### 2. 有存储后端 → 图片走 S3 URL，不走 base64
+
+我们有 S3 上传服务，图片转 base64 会让请求体暴涨、且每轮重发。改为上传 → `FilePart{url: S3 url}`，与 MCP 文件共用同一 S3。
+**前提**：模型 provider 能访问该 S3 URL（内网模型↔内网 S3 通即可）。若将来接公网云模型够不到内网 S3，那条 case 才退回 base64 / Files API——届时按 provider 能力分支，不改本分流骨架。
+
+### 3. `FilePart` 与 `handle` 占位互相独立、各司其职
+
+- `FilePart` = 模式 A/B（喂模型内容）。
+- `handle` 块 = 模式 C（喂 MCP 工具的引用，防弱模型改坏 URL，见 [ADR-014]）。
+- **不可用 `FilePart` 承载 MCP 的 S3 引用**：那会让 opencode 把文件 base64 灌进 prompt，而模型手里依然没有能传给工具的 URL。
+
+---
+
+## 后果
+
+- **正面**：自由消息发本地模型不再无谓上传 / 阻断；文本文件零成本可读；图片省 base64 膨胀；MCP 上传下沉到真正需要的时刻。
+- **代价 / 依赖**：
+  - office「模型读」硬依赖 [Spec B] 的 `extract_document`（opencode 会先 base64，模型摸不到路径，故不能走 FilePart）；纯文本无此依赖。
+  - MCP 按需上传需改 `octo-upload-inject` 插件（见 [ADR-014] 更新 + [MCP 按需上传 spec](../specs/infra/insight-mcp-lazy-upload.md)）。
+  - 图片 S3 上传依赖 provider↔S3 可达。
+
+---
+
+## 关联
+
+- [ADR-014](014-url-injection-via-plugin.md)（注入语义演进：handle→path→按需上传）
+- [ADR-006](006-upload-architecture.md)（上传架构）、[ADR-009](009-no-office-preview.md)
+- [SPEC-INS-014](../specs/infra/insight-worktree-layout.md)（本地工作目录地基 = sources/outputs）
+- [MCP 文件按需上传 spec](../specs/infra/insight-mcp-lazy-upload.md)、[图片附件处理 spec](../specs/ui/insight-image-attachment.md)
+- Spec B：office→文本抽取（另一对话规划中）

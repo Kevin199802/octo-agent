@@ -2,9 +2,16 @@
 
 ## 状态
 
-已采纳（2026-06-09）
+已采纳（2026-06-09）· **演进中（2026-06-29，见下方「更新」）**
 
 > 上游已实现：✗（opencode 无此能力；本 ADR 在 opencode 插件层自建，不改核心）
+
+> **更新（2026-06-29）— 注入语义演进为「按需上传」**
+> 原设计：选文件即 S3 上传 → `[已上传文件]` 块里 `handle → 真实 url`，插件在工具执行前把 handle 换成 url。
+> 问题：上传绑在「选文件 / 发送」，自由消息发本地模型也会上传（无意义，见 [ADR-015](015-file-passing-architecture.md)）。
+> 新方向：块里改成 `handle → 本地 sources 路径`；插件在 `tool.execute.before` 命中 MCP 工具、且 args 引用了该 handle 时，**才**读本地文件上传 S3、把 path→url 换进 args。即「**模型真调 MCP → 才触发 S3**」，自由消息零上传。
+> handle 间接层（防弱模型改坏 url）保留不变；变的只是「何时上传 + handle 映射的目标」。
+> 落地设计见 [MCP 文件按需上传 spec](../specs/infra/insight-mcp-lazy-upload.md)。下文为原始（送审时）设计，按需上传落地后本节为准。
 
 ---
 
