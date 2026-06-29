@@ -33,7 +33,7 @@
 | A | `[M]` | **本地工作目录布局**（worktree 文档本地化）[SPEC-INS-014](docs/specs/infra/insight-worktree-layout.md) — `insight/sources`(拷贝落地) + `insight/outputs`(扁平)、产物落点 `.octo/downloads`→`insight/outputs` 迁移。**范围已收敛为客户端地基**：S3 上传时机改造移出（见 A1）、§4.1.1 作废原 lazy 设计 | 无（建于 SPEC-INS-012 projectDir 之上）| **客户端地基已实现**（UXAI `feat/insight-worktree-layout`，待提 PR / 验证）|
 | A0 | `[—]` | **ADR-015 文件传参架构**[adr/015](docs/adr/015-file-passing-architecture.md) — 按「文件类×用途」分流（文本=FilePart内联 / office=路径+extract / 图片=S3 URL / MCP=handle+按需上传）；决策「有存储走 S3 URL 不走 base64」 | — | 草案已立 |
 | A1 | `[M]` | **MCP 文件按需上传**[SPEC-INS-015](docs/specs/infra/insight-mcp-lazy-upload.md) — S3 上传下沉进 octo-upload-inject 插件，模型真调 MCP 工具时才传（handle→path→按需 upload→url）；动 ADR-014 | A | 草案已立（需 server 侧上传 endpoint 基建） |
-| A2 | `[S~M]` | **图片附件处理**[spec](docs/specs/ui/insight-image-attachment.md) — 粘贴/选图走 S3 URL 的 FilePart（替代 base64）；依赖 provider↔S3 可达 | A0 | 草案已立 |
+| A2 | `[S~M]` | **图片附件 → vision**[spec](docs/specs/ui/insight-image-attachment.md) — insight 图片**已走 S3**(经 handle 块,非 base64);真正 gap = 让多模态模型**看到图**(路由到 vision FilePart);需产品确认图片用途 + provider↔S3 可达 | A0 | 草案已立（待产品确认用途） |
 | B | `[S~M]` | **`extract_document` tool** — office(docx/pdf/xlsx)→文本，顺带返回字数/token 估算（测量机制）。**office「模型读」硬依赖它**（见 ADR-015） | A | 待起草（另一对话规划中） |
 | C | `[S]` | **`@` 引用所有文档类型** — 文件名联想 + 按需读取（纯文本可先于 B、office 等 B 点亮）| A（office 靠 B）| 待起草 |
 | D | `[M]` | **二次生成** — 读本地源 + 上轮产物（MCP 或本地）→ edit；独立于能力线 | A（office 源靠 B）| 待起草 |
