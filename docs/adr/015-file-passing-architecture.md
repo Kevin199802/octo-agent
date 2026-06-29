@@ -4,7 +4,7 @@
 
 已采纳（2026-06-29）
 
-> 上游已实现：部分 ✓ —— opencode 原生 `FilePart`（文本内联 / 二进制 base64，见 [prompt.ts:1103-1264](../../packages/opencode/src/session/prompt.ts#L1103)）；✗ —— "有存储后端走 S3 URL 而非 base64"、✗ —— "MCP 文件按需上传"、✗ —— "office 路径引用 + extract tool"。本 ADR 在不改 opencode 核心的前提下确立分流策略。
+> 上游已实现：部分 ✓ —— opencode 原生 `FilePart`（文本内联 / 二进制 base64，见 [prompt.ts:1103-1264](../../packages/opencode/src/session/prompt.ts#L1103)）；部分 ✓ —— insight 图片/文件已走 S3 上传（经 handle 块，非 base64）；✗ —— 图片作为 vision `FilePart` 让模型看到、✗ —— "MCP 文件按需上传"、✗ —— "office 路径引用 + extract tool"。本 ADR 在不改 opencode 核心的前提下确立分流策略。
 
 ---
 
@@ -48,8 +48,11 @@ insight 让用户附带文件（docx/xlsx/pdf/图片/纯文本…），文件要
 
 ### 2. 有存储后端 → 图片走 S3 URL，不走 base64
 
-我们有 S3 上传服务，图片转 base64 会让请求体暴涨、且每轮重发。改为上传 → `FilePart{url: S3 url}`，与 MCP 文件共用同一 S3。
+我们有 S3 上传服务，图片转 base64 会让请求体暴涨（几 MB 文件 base64 ≈ 数百万字符 / 上百万 token，任何上下文窗口都装不下）、且每轮重发。故图片用 `FilePart{url: S3 url}`，与 MCP 文件共用同一 S3。base64 只对小图勉强可接受，文档类**绝不** base64 给模型。
 **前提**：模型 provider 能访问该 S3 URL（内网模型↔内网 S3 通即可）。若将来接公网云模型够不到内网 S3，那条 case 才退回 base64 / Files API——届时按 provider 能力分支，不改本分流骨架。
+
+> **现状核实（2026-06-29）**：insight 图片**早已走 S3**（不是 base64）——`addAttachments → doUpload(S3)`，base64 只存在于上游 chat（[prompt-input/attachments.ts](../../packages/app/octoapp/components/prompt-input/attachments.ts)），insight 不复用它。
+> 但 insight 当前把图片塞进 `[已上传文件]` handle 块（模式 C，工具输入），**模型看不到图**。真正待做的是「让多模态模型看到图」= 路由到 vision `FilePart`，见 [图片附件 spec](../specs/ui/insight-image-attachment.md)。
 
 ### 3. `FilePart` 与 `handle` 占位互相独立、各司其职
 
