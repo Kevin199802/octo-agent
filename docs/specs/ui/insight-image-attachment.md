@@ -44,7 +44,7 @@ insight **不走**上游 chat 的 base64 路径（那是 [components/prompt-inpu
 | 点 | 方案 |
 |---|---|
 | 载体 | 原生 `FilePart{url: S3 url}`（**不 base64**，复用已上传的 url） |
-| 与 handle 块关系 | 图片**改走 FilePart**(vision),**不再**塞进 handle 块(handle 块留给给 MCP 工具用的文件);二者按文件类型分流 |
+| 与 handle 块关系 | **已定(2026-06-29)**:图片当前**只给模型看(vision)**,故**改走 FilePart、从 handle 块剔除**;handle 块只留给 MCP 工具用的文件。将来若有「图片给 MCP 工具」的场景再加回(那时一份文件可能两条都发) |
 | 上传时点 | 仍是今天 eager(图片是模型上下文,发送时必须就位);未来与 [INS-015 按需上传](../infra/insight-mcp-lazy-upload.md) 协调时,图片走「发送时上传」、MCP 文件走「工具调用时上传」 |
 
 ---
@@ -53,7 +53,7 @@ insight **不走**上游 chat 的 base64 路径（那是 [components/prompt-inpu
 
 1. **provider↔S3 可达**:多模态模型的 provider 服务器要能 GET 到 S3 url。内网模型↔内网 S3 通则可行;够不到时退回 base64 / Files API（[ADR-015 决策 2](../adr/015-file-passing-architecture.md)）。
 2. **模型多模态能力**:非多模态模型收图无意义(最终 strip)。可按 model 能力决定「图片走 FilePart vs 不发」,避免无谓上传——待定本期是否做。
-3. **图片到底要不要进 handle 块**:若产品确认图片是「给模型看」而非「给 MCP 工具」,则从 handle 块剔除、只走 FilePart;若两者都要,需各发一份。需产品确认 insight 图片的真实用途。
+3. ~~图片到底要不要进 handle 块~~ **已定**:图片只给模型看 → 只走 vision FilePart、从 handle 块剔除(见 §2)。
 
 ---
 

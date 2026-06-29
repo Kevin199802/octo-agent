@@ -48,7 +48,7 @@
 | 点 | 方案 | 备注 |
 |---|---|---|
 | handle 映射目标 | `handle → 本地绝对路径`(原为 url) | 块名可由 `[已上传文件]` 改 `[本地文件]`,与 parseUploadBlock 同步 |
-| 上传发起方 | **server 端插件**(octo-upload-inject,opencode sidecar 进程) | 插件能读本机文件、能 POST;**需 server 侧拿到上传 endpoint**(今天 endpoint 是前端 env `VITE_OCTO_UPLOAD_ENDPOINT`,server 侧要另配,见 §4) |
+| 上传发起方 | **server 端插件**(octo-upload-inject,opencode sidecar 进程) | 插件能读本机文件、能 POST;endpoint 已有(见 §4),只需以 `OCTO_UPLOAD_ENDPOINT` 注入 sidecar |
 | 幂等 | 插件内缓存 `本地路径→url`(本进程/本会话) | 同文件多轮多次调用只传一次 |
 | 失败 | 上传失败 → 工具调用失败,错误回灌模型(让其重试/换路) | 与今天「取不到文件 404」相比更早暴露 |
 | handle 派生 | 仍按文件 url/路径派生稳定 token(见 lib/upload.ts uploadHandle) | 改成按本地路径派生(路径稳定) |
@@ -56,11 +56,14 @@
 
 ---
 
-## 4. 待澄清(实现前确认)
+## 4. endpoint 现状(非阻塞,澄清用)
 
-1. **server 侧上传 endpoint 配置**:插件要在 sidecar 进程发 S3 上传,需把 `VITE_OCTO_UPLOAD_ENDPOINT` 等价物注入 server 环境(或 opencode config)。这是 eager→on-demand 的主要新基建。
-2. **上传服务是否接受 server 端调用**(鉴权 / 网络位置):今天是前端浏览器发,改 server 发要确认内网上传服务对 sidecar 可达。
-3. **handle 块何时注入**:文件拷进 sources 后,发送时即注入 `[本地文件]` 块(无论是否预置)——块只是「可用文件清单 + handle」,不触发任何上传;真触发在插件。
+- 上传服务**后端早已提供**(beta + prod),地址配在**内网** `.env`(外网仓库无),见 [file-upload.md §端点](file-upload.md)。前端走 `VITE_OCTO_UPLOAD_ENDPOINT`(Vite build-time,只进渲染器 bundle)。
+- 唯一新增:`VITE_*` 前缀**只有渲染进程读得到**;插件在 opencode **sidecar 进程**(另一个 bun 进程)发上传,读的是 `process.env.OCTO_*`。故把**同一个地址**再以 `OCTO_UPLOAD_ENDPOINT` 注入 sidecar 即可——**完全照 `OCTO_UXR_MCP_URL` 的现成模式**([builtin-mcp.ts](../../../packages/opencode/src/config/builtin-mcp.ts))。同机内网,可达性与今天前端上传一致,无新网络问题。
+
+## 4.1 待澄清(实现前确认)
+
+- **handle 块何时注入**:文件拷进 sources 后,发送时即注入 `[本地文件]` 块(无论是否预置)——块只是「可用文件清单 + handle」,不触发任何上传;真触发在插件。
 
 ---
 
