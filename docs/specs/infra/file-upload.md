@@ -2,6 +2,8 @@
 
 > agent 项目自有的上传能力，各 agent 页面（insight、未来的 make 等）均可使用。  
 > 决策背景见 [ADR-006](../../adr/006-upload-architecture.md)。
+>
+> **本 spec 只定义上传服务本身**（endpoint / multipart / 响应封装 / 校验 / 文件名清洗）。**insight 何时上传、注入什么、模型怎么引用**已改为按 [SPEC-INS-015 文件传参机制](insight-file-passing.md) 分流（`[附件]` 清单 + 按需上传，不再是 `[已上传文件]` handle 块）——下方「概述」链路图为 ADR-014 时期的旧流程，**以 SPEC-INS-015 为准**。
 
 ---
 

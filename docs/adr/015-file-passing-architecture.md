@@ -2,9 +2,11 @@
 
 ## 状态
 
-已采纳（2026-06-29）
+已采纳（2026-06-29）· 已落地（SPEC-INS-015，UXAI PR #251）
 
-> 上游已实现：部分 ✓ —— opencode 原生 `FilePart`（文本内联 / 二进制 base64，见 [prompt.ts:1103-1264](../../packages/opencode/src/session/prompt.ts#L1103)）；部分 ✓ —— insight 图片/文件已走 S3 上传（经 handle 块，非 base64）；✗ —— 图片作为 vision `FilePart` 让模型看到、✗ —— "MCP 文件按需上传"、✗ —— "office 路径引用 + extract tool"。本 ADR 在不改 opencode 核心的前提下确立分流策略。
+> **本 ADR 只记「为什么这样分流」的决策与理由。具体规则 / 载体 / 时机 / 实现以 [SPEC-INS-015 文件传参机制](../specs/infra/insight-file-passing.md) 为唯一真相源**（避免两处漂移）。下方分流骨架保留作决策依据。
+>
+> 上游基线：opencode 原生 `FilePart`（`text/plain` 内联 / 二进制 base64，见 [prompt.ts:1103-1264](../../packages/opencode/src/session/prompt.ts#L1103)）。四分支落地情况见 spec。
 
 ---
 
@@ -51,8 +53,7 @@ insight 让用户附带文件（docx/xlsx/pdf/图片/纯文本…），文件要
 我们有 S3 上传服务，图片转 base64 会让请求体暴涨（几 MB 文件 base64 ≈ 数百万字符 / 上百万 token，任何上下文窗口都装不下）、且每轮重发。故图片用 `FilePart{url: S3 url}`，与 MCP 文件共用同一 S3。base64 只对小图勉强可接受，文档类**绝不** base64 给模型。
 **前提**：模型 provider 能访问该 S3 URL（内网模型↔内网 S3 通即可）。若将来接公网云模型够不到内网 S3，那条 case 才退回 base64 / Files API——届时按 provider 能力分支，不改本分流骨架。
 
-> **现状核实（2026-06-29）**：insight 图片**早已走 S3**（不是 base64）——`addAttachments → doUpload(S3)`，base64 只存在于上游 chat（[prompt-input/attachments.ts](../../packages/app/octoapp/components/prompt-input/attachments.ts)），insight 不复用它。
-> 但 insight 当前把图片塞进 `[已上传文件]` handle 块（模式 C，工具输入），**模型看不到图**。真正待做的是「让多模态模型看到图」= 路由到 vision `FilePart`，见 [图片附件 spec](../specs/ui/insight-image-attachment.md)。
+> **落地（SPEC-INS-015）**：图片走 S3 URL（不 base64）已从「塞进 handle 块、模型看不到图」纠正为**vision `FilePart{url}`**——change 即传 S3、发送时作为图像随消息发给多模态模型。base64 仅存在于上游 chat（[prompt-input/attachments.ts](../../packages/app/octoapp/components/prompt-input/attachments.ts)），insight 不复用。细则见 [SPEC-INS-015 §4](../specs/infra/insight-file-passing.md)。
 
 ### 3. `FilePart` 与 `handle` 占位互相独立、各司其职
 
@@ -67,7 +68,7 @@ insight 让用户附带文件（docx/xlsx/pdf/图片/纯文本…），文件要
 - **正面**：自由消息发本地模型不再无谓上传 / 阻断；文本文件零成本可读；图片省 base64 膨胀；MCP 上传下沉到真正需要的时刻。
 - **代价 / 依赖**：
   - office「模型读」硬依赖 [Spec B] 的 `extract_document`（opencode 会先 base64，模型摸不到路径，故不能走 FilePart）；纯文本无此依赖。
-  - MCP 按需上传需改 `octo-upload-inject` 插件（见 [ADR-014] 更新 + [MCP 按需上传 spec](../specs/infra/insight-mcp-lazy-upload.md)）。
+  - MCP 按需上传需改 `octo-upload-inject` 插件（见 [ADR-014] 更新 + [MCP 按需上传 spec](../specs/infra/insight-file-passing.md)）。
   - 图片 S3 上传依赖 provider↔S3 可达。
 
 ---
@@ -77,5 +78,5 @@ insight 让用户附带文件（docx/xlsx/pdf/图片/纯文本…），文件要
 - [ADR-014](014-url-injection-via-plugin.md)（注入语义演进：handle→path→按需上传）
 - [ADR-006](006-upload-architecture.md)（上传架构）、[ADR-009](009-no-office-preview.md)
 - [SPEC-INS-014](../specs/infra/insight-worktree-layout.md)（本地工作目录地基 = sources/outputs）
-- [MCP 文件按需上传 spec](../specs/infra/insight-mcp-lazy-upload.md)、[图片附件处理 spec](../specs/ui/insight-image-attachment.md)
+- [MCP 文件按需上传 spec](../specs/infra/insight-file-passing.md)、[图片附件处理 spec](../specs/ui/insight-image-attachment.md)
 - Spec B：office→文本抽取（另一对话规划中）

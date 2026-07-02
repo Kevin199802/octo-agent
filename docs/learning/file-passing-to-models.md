@@ -85,9 +85,9 @@ insight **不复用**上游 chat 的附件逻辑,自己一套。当前实际跑�
 - **文本/md → 模型读**:原生 `FilePart(file://sources)` 自动内联。
 - **office → 模型读**:本地路径引用(text)+ `extract_document` tool(Spec B),模型按需调;没工具时 fallback 写脚本读。**不能走 FilePart(会被 base64)。**
 - **图片 → 模型看**:`FilePart{url:S3}`(不 base64)。
-- **任意文件 → MCP 工具**:handle 块 + 插件**按需上传**(模型真调工具时才传 S3,[SPEC-INS-015](../specs/infra/insight-mcp-lazy-upload.md))。
+- **任意文件 → MCP 工具**:`[附件]` 清单(文件名→本地路径)+ 插件**按需上传**(模型真调工具时才传 S3,[SPEC-INS-015](../specs/infra/insight-file-passing.md))。模型填文件名/路径、**从不碰 URL**;插件在工具执行前换成精确 url(不再用占位 handle,弱模型抄坏 URL 的根因已消失)。
 
-**`FilePart`(喂模型内容)与 `handle`(喂工具引用)是两套、不可混用**:用 FilePart 承载 MCP 的 S3 引用会让 opencode 把文件 base64 灌进 prompt,而模型手里还是没有能传给工具的 url。
+**`FilePart`(喂模型内容)与「工具引用」(喂 MCP)是两套、不可混用**:用 FilePart 承载 MCP 的 S3 引用会让 opencode 把文件 base64 灌进 prompt,而模型手里还是没有能传给工具的 url。
 
 ---
 

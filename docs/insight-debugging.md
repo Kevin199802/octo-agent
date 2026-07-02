@@ -32,7 +32,7 @@
 | `[octo:queue]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | busy 期间排队 / flush / 取消 |
 | `[octo:assistant]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 一轮结束后完整 dump assistant message 原始内容 |
 | `[octo:task]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) · [utils/task-refresh.ts](../packages/app/octoapp/pages/insight/utils/task-refresh.ts) | 长任务卡片:切会话清状态、刷新/终止/打开产物、聚合 diff |
-| `[octo:upload]` | [lib/upload.ts](../packages/app/octoapp/pages/insight/lib/upload.ts) · [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 附件上传 5 段链路 + 客户端校验 + 重试 |
+| `[octo:upload]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | **SPEC-INS-015 后**:客户端校验 + 非图片导入 worktree(`doImport`)+ **图片 change 即传 S3**(`image-upload`)+ 重试。非图片 S3 上传已下沉 server 端插件(`[octo:inject] lazy-upload`)。 |
 | `[octo:preset]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 预置提示词点击 |
 | `[octo:task-detect]` | [utils/task-detect.ts](../packages/app/octoapp/pages/insight/utils/task-detect.ts) | 从 part 读 task_id |
 | `[octo:detect]` / `[octo:card]` | [components/insight-turn.tsx](../packages/app/octoapp/pages/insight/components/insight-turn.tsx) | text → 卡片检测、resource_link 卡片 |
@@ -50,7 +50,8 @@
 
 | 前缀 | 来源文件 | 关注什么 |
 |---|---|---|
-| `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前把 handle 换成精确 S3 URL([ADR-014](docs/adr/014-url-injection-via-plugin.md)) |
+| `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前读 `[附件]` 清单的本地路径、**按需上传 S3**、把模型填的文件名/路径换成精确 URL([SPEC-INS-015 文件传参](specs/infra/insight-file-passing.md) ④)。地址由 `OCTO_UPLOAD_ENDPOINT` 控制 |
+| `[octo:extract]` | [packages/opencode/src/tool/extract_document.ts](../packages/opencode/src/tool/extract_document.ts) | **server 端工具**:office→文本抽取(SPEC-INS-015 ②),gate 到 octo_insight。**当前为 stub**(存在性检查 + 返回"抽取待 Spec B"占位),body 属 Spec B |
 | `[octo:kb]` | [packages/opencode/src/tool/knowledge_search.ts](../packages/opencode/src/tool/knowledge_search.ts) | **server 端工具**:chat 内网知识库检索(getKnowledgeVector)。spec 见 [specs/agents/chat-knowledge-search.md](docs/specs/agents/chat-knowledge-search.md) |
 | `[octo:mcp]` | [config/config.ts](../packages/opencode/src/config/config.ts) · [mcp/index.ts](../packages/opencode/src/mcp/index.ts) | **server 端**:内建 MCP(uxr-tool)生效配置 + 连接过程参数。地址由 `OCTO_UXR_MCP_URL` 控制(见 [config/builtin-mcp.ts](../packages/opencode/src/config/builtin-mcp.ts) + [specs/agents/mcp-contract.md §MCP server 地址配置](docs/specs/agents/mcp-contract.md)) |
 
@@ -67,14 +68,16 @@ opencode 子进程的日志**不进 DevTools**,落盘到固定目录(`Global.Pat
 
 ```bash
 DIR=~/.local/share/opencode/log
-grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
+grep -E "\[octo:(mcp|kb|inject|extract)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 ```
 
 > 实现:日志路径见 `packages/core/src/util/log.ts` 的 `file()` / `Global.Path.log`(`packages/core/src/global.ts`,`app="opencode"`)。dev 模式文件名固定 `dev.log`。
 
 > 约定:`⚠️` 出现在 `console.warn`,`✗`/红色出现在 `console.error`。正常链路只有 `console.log`。
 >
-> `[octo:inject]` 关键字段:`args rewritten` 的 `before`(模型填的,含 handle)/ `after`(注入后,应是精确 URL)/ `changed`(是否真替换了,false=模型填的 handle 都不在已知表里)/ `knownHandles`(整个 session 已解析到的文件数)。**无该日志** = 工具 args 里没有 handle 形态串(`hasHandle` 早退,非文件工具都这样,正常)。`args 含 handle 但 session 无上传区块` = 模型瞎编了 handle 或区块格式被破坏。
+> `[octo:inject]` 关键字段:`lazy-upload ok`(按需上传成功:`localPath`/`url`/`ms`/`cacheSize`,无此条而工具又用了文件 → 没触发上传)；`args rewritten` 的 `before`(模型填的,应是文件名或本地路径)/ `after`(注入后,应是精确 S3 URL)/ `changed`(是否真替换了,false=模型填的串既不是清单里的文件名也不是路径)/ `knownRefs`(整个 session 已知引用键数=文件名+路径,约文件数×2)/ `uploaded`(本次按需上传或命中缓存的引用数)。**无该日志** = 工具 args 里没有"以文档扩展名结尾"的串(`hasFileRef` 早退,非文件工具都这样,正常),或该工具是 `extract_document`(显式跳过)。`args 含文件名形态串但 session 无 [附件] 区块` = 清单没注入或格式被破坏。`OCTO_UPLOAD_ENDPOINT 未配置` = sidecar 没拿到上传地址(查 electron.vite define + `.env` 的 `VITE_OCTO_UPLOAD_ENDPOINT`)。上传失败会抛错让工具调用失败、错误回灌模型(SPEC-INS-015)。
+>
+> **注意上传在 sidecar(Node 进程)、不在渲染 DevTools**:渲染器 Network 看不到这个上传请求,只能查落盘日志(dev 模式为固定 `dev.log`)。桌面 sidecar 是 Node 运行时(Electron utilityProcess.fork),插件与 extract_document 用 `node:fs`、不能用 `Bun.*`(会 `Bun is not defined`)。
 >
 > `[octo:kb]` 四条(出在 server 进程,不在客户端 DevTools):
 > - `config`:**排查 env/域名首选**。`envBaseUrl`(server 读到的 `OCTO_KB_BASE_URL`,由 `.env.<channel>` 经 electron.vite define + createSidecarEnv 注入)/ `usingMockDefault`(true=没读到 base、回落 localhost:8787 mock,内网出现这个=没在对的 .env 里设 `OCTO_KB_BASE_URL`)/ `resolvedBase` / `url`(**实际请求的完整地址,拿它和 Insomnia 能跑通的 URL 逐字对比**)。
@@ -254,32 +257,25 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 #### `[octo:task] openResult: card not found` / `no result yet` ⚠️
 - **时机**:点「打开结果」但卡片不存在 / 还没产物。([index.tsx:872](../packages/app/octoapp/pages/insight/index.tsx#L872))→ 产物按钮点了打不开时看这两条。
 
-### 1.6 `[octo:upload]` — 附件上传
+### 1.6 `[octo:upload]` — 附件导入(SPEC-INS-015 后:不再 eager 上传 S3)
 
-链路编号 `1/5 → 5/5`,正常一路 log,任一段失败转 warn/error 并 throw。`meta = {filename, size, mime}` 贯穿全程。
+**SPEC-INS-015 后**:选**非图片**文件只做客户端校验 + 把源文件**导入 worktree**(`doImport` → `copyFileToWorktree`,拷进 `insight/sources` 拿本地路径),发送时注入 `[附件]` 清单;**图片仍 change 即传 S3**(`image-upload`)。非图片 S3 上传已下沉 server 端 `octo-upload-inject` 插件(模型调 MCP 时按需上传,`[octo:inject] lazy-upload`)。原 `1/5 → 5/5` eager 上传链路已删除,`uploadFile` 现只服务图片。
 
 | 日志 | 级别 | 时机 / 含义 | 关键字段 |
 |---|---|---|---|
-| `[octo:upload] client-validate rejected` | warn | 选文件后客户端校验未过(空文件 / 超 100MB / 扩展名不在 txt,md,docx,xlsx,pdf)。**不存 File、不可重试,只能删除重选**。([index.tsx:721](../packages/app/octoapp/pages/insight/index.tsx#L721)) | `code`、`message` |
-| `[octo:upload] 1/5 start` | log | `uploadFile` 入口。([upload.ts:92](../packages/app/octoapp/pages/insight/lib/upload.ts#L92)) | meta |
-| `[octo:upload] validate failed (client-side)` | warn | `uploadFile` 内再校验未过。([upload.ts:96](../packages/app/octoapp/pages/insight/lib/upload.ts#L96)) | `code` |
-| `[octo:upload] endpoint not configured` | error | **`VITE_OCTO_UPLOAD_ENDPOINT` 没配**。`hint` 提示改 `packages/app/.env.local` 后重启 dev。([upload.ts:107](../packages/app/octoapp/pages/insight/lib/upload.ts#L107)) | `hint` |
-| `[octo:upload] 2/5 request` | log | 即将 POST。([upload.ts:113](../packages/app/octoapp/pages/insight/lib/upload.ts#L113)) | `endpoint`、meta |
-| `[octo:upload] network failed` | error | fetch 抛异常(连不上 / 跨域 / DNS)。([upload.ts:123](../packages/app/octoapp/pages/insight/lib/upload.ts#L123)) | `error` |
-| `[octo:upload] 3/5 response` | log | 收到响应,打 `httpStatus` / `httpOk` / `body`(非 JSON 时为 `{rawText:前500字}`)。([upload.ts:137](../packages/app/octoapp/pages/insight/lib/upload.ts#L137)) | `httpStatus`、`httpOk`、`body` |
-| `[octo:upload] http failed` | error | body 不符约定且 HTTP 非 2xx,按状态码兜底(413/415/429/5xx)。([upload.ts:148](../packages/app/octoapp/pages/insight/lib/upload.ts#L148)) | `httpStatus`、`mappedCode` |
-| `[octo:upload] bad response format` | error | HTTP 2xx 但 body 缺 `success`/`errorCode` 字段(不符内网封装约定)。([upload.ts:155](../packages/app/octoapp/pages/insight/lib/upload.ts#L155)) | `body`、`rawText` |
-| `[octo:upload] 4/5 business error` | error | `success:false`,按 `errorCode` 映射(305/413/415/429/5xx)。([upload.ts:161](../packages/app/octoapp/pages/insight/lib/upload.ts#L161)) | `errorCode`、`errorMessage`、`mappedCode` |
-| `[octo:upload] empty content` | error | `success:true` 但 `content` 为空。([upload.ts:171](../packages/app/octoapp/pages/insight/lib/upload.ts#L171)) | `body` |
-| `[octo:upload] 5/5 success` | log | 成功,拿到 `url` / `fileId`。([upload.ts:175](../packages/app/octoapp/pages/insight/lib/upload.ts#L175)) | `url`、`fileId` |
-| `[octo:upload] retry` | log | 点 chip 重试,重新 `doUpload`(eager 重传)。([index.tsx](../packages/app/octoapp/pages/insight/index.tsx)) | `filename` |
+| `[octo:upload] client-validate rejected` | warn | 选文件后客户端校验未过(空文件 / 超 100MB / 扩展名不在白名单)。**不存 File、不可重试,只能删除重选**。([index.tsx](../packages/app/octoapp/pages/insight/index.tsx)) | `id`、`code`、`message` |
+| `[octo:upload] imported without local path (degraded…)` | warn | 非图片导入成功但拿不到本地路径(无 projectDir / 非桌面 / 剪贴板内存 blob)→ done 但**无 path**,不进 `[附件]` 清单、②④ 用不了(降级,不报错)。([index.tsx](../packages/app/octoapp/pages/insight/index.tsx)) | `id`、`filename` |
+| `[octo:upload] import to worktree failed` | error | 非图片 `copyFileToWorktree` 抛错(真失败)→ chip 标红可重试。([index.tsx](../packages/app/octoapp/pages/insight/index.tsx)) | `id`、`filename`、`err` |
+| `[octo:upload] image-upload failed` | error | **图片** change 即传 S3 失败 → chip 标红可重试。([index.tsx](../packages/app/octoapp/pages/insight/index.tsx)) | `id`、`filename`、`err` |
+| `[octo:upload] retry import / retry image-upload` | log | 点 chip 重试:非图片重新导入 worktree,图片重传 S3。([index.tsx](../packages/app/octoapp/pages/insight/index.tsx)) | `id`、`filename` |
 | `[octo:upload] retry skipped: no original File` | warn | 客户端校验失败的 chip 没有原 File,无法重试(正常该按钮已隐藏,走到此为兜底)。([index.tsx](../packages/app/octoapp/pages/insight/index.tsx)) | `id` |
-| `[InsightPage] upload failed` | error | `doUpload` catch 兜底(上面任一 throw 落到这,chip 标红可重试)。([index.tsx](../packages/app/octoapp/pages/insight/index.tsx)) | `filename`、`err` |
+
+> 真正的 S3 上传链路看 server 端 `[octo:inject] lazy-upload`(§0.2),不在 DevTools。前端只到「文件本地就绪」为止。
 
 ### 1.6.1 `[octo:worktree]` — 本地工作目录布局(SPEC-INS-014,主进程·terminal)
 
 源文件拷贝进 `insight/sources`、MCP 产物落 `insight/outputs`。**均在主进程**(看 terminal,非 DevTools)。
-> S3 上传仍是今天的 eager(走 `[octo:upload]`);上传时机改造(改前缀/下沉插件)在 [SPEC-INS-015 按需上传](specs/infra/insight-mcp-lazy-upload.md),落地后再补 `s3-upload` 类日志。
+> SPEC-INS-015 后:非图片 S3 上传不再 eager,改由 server 端 `octo-upload-inject` 插件在模型调 MCP 时按需上传(`[octo:inject] lazy-upload`)。本地 `source-copy ok` 拿到的 dest 路径即 `[附件]` 清单里映射的本地路径。
 
 | 日志 | 级别 | 时机 / 含义 | 关键字段 |
 |---|---|---|---|
@@ -346,22 +342,22 @@ grep -E "\[octo:(mcp|kb|inject)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 
 > 注意:「能发送」本身不是 bug(server 可按 agent 默认兜底);只有当 `modelResolved:false` **且** server 无默认导致 `no-feedback` 时才是问题。两者要连起来看。
 
-### 2.4 附件上传失败
+### 2.4 附件导入 / 按需上传失败(SPEC-INS-015)
+
+链路两段、两套日志(分清在哪段失败):**①导入** 选文件时(前端 `[octo:upload]`,DevTools)→ **②按需上传** 模型调 MCP 时(server 端 `[octo:inject]`,落盘日志)。
 
 | | |
 |---|---|
-| **看哪几条** | 顺着 `[octo:upload]` 编号链路找**第一条 warn/error** |
-| **定位表** | |
-| `client-validate rejected` / `validate failed (client-side)` | 文件本身不合规(空 / >100MB / 扩展名不在 txt,md,docx,xlsx,pdf)。看 `code`。**前者不可重试**,需删除重选 |
-| `endpoint not configured` | `VITE_OCTO_UPLOAD_ENDPOINT` 没配 → 改 `packages/app/.env.local` 后**重启 dev**(`hint` 里有原文) |
-| `network failed` | fetch 抛错:连不上上传服务 / 跨域 / DNS。看 `error`,确认服务存活与地址可达 |
-| `http failed` (`httpStatus`) | HTTP 非 2xx 且 body 不符约定:413 太大 / 415 格式 / 429 限流 / 5xx 服务端 |
-| `bad response format` | HTTP 2xx 但响应缺 `success`/`errorCode` 字段 → 服务端没按内网封装协议返回。看 `rawText` |
-| `4/5 business error` (`errorCode`) | 服务端 `success:false`:305 文件无效 / 413 / 415 / 429 / 5xx。看 `errorMessage` |
-| `empty content` | `success:true` 但 `content` 为空 → 服务端逻辑问题 |
-| **下一步** | 1) 先看 `3/5 response` 的 `httpStatus`/`body` 锁定是「没到服务」(network)还是「服务拒了」(business/http);2) `[InsightPage] upload failed` 是最终兜底,带用户看到的 message;3) 失败 chip 若可重试会有 `[octo:upload] retry`,客户端校验失败的不可重试 |
+| **①导入失败(前端)** | |
+| `client-validate rejected` | 文件本身不合规(空 / >100MB / 扩展名不在白名单)。看 `code`。**不可重试**,需删除重选 |
+| `import to worktree failed` | `copyFileToWorktree` 抛错(磁盘 / 权限)→ chip 标红可重试(`retry import`) |
+| `imported without local path (degraded…)` | 无 projectDir / 非桌面 / 内存 blob → done 但无 path,**该文件不进注入块、MCP 拿不到**(降级,非报错)。生产环境本不该出现(projectDir 恒在) |
+| **②按需上传失败(server,看落盘日志)** | |
+| `[octo:inject] OCTO_UPLOAD_ENDPOINT 未配置` | sidecar 没拿到上传地址 → 查 `.env` 的 `VITE_OCTO_UPLOAD_ENDPOINT` + electron.vite define(`OCTO_UPLOAD_ENDPOINT`)。工具调用会失败、错误回灌模型 |
+| `[octo:inject] lazy-upload` 缺失 / 抛错 | 模型用了文件但没上传日志 = 填的文件名/路径没命中 `[附件]` 清单(看 `args rewritten` 的 `changed:false`);有日志但抛错 = 上传服务连不上 / 拒了 / 端点未配(错误文案回灌模型,工具失败) |
+| **下一步** | 1) 文件「附上去了但分析说读不到」→ 先确认前端有无 `imported without local path`(降级)或 chip 是否标红;2) 否则去 server 落盘日志看 `[octo:inject]`(§0.2 grep 方法)定位上传段 |
 
-> 注:上传失败**不影响文字发送**——只有 `status:"done"` 的附件才会进 `uploadBlock`([index.tsx:507](../packages/app/octoapp/pages/insight/index.tsx#L507));但 `hasUploadingAttachments()` 为真(还在传)时 `handleSubmit` 会拦发送,表现为「点发送没反应」,与 §2.2-A 区分。
+> 注:导入失败**不影响文字发送**——只有 `status:"done"` 且**有 path** 的附件才会进 `uploadBlock`;但 `hasUploadingAttachments()` 为真(还在导入)时 `handleSubmit` 会拦发送,表现为「点发送没反应」,与 §2.2-A 区分。
 
 ---
 
