@@ -62,15 +62,26 @@
 
 | 工具 | 入参 | 说明 |
 |---|---|---|
-| `key_findings` | `download_links: List[str]` | 访谈稿 URL 列表 |
-| `mindmap` | `download_links: List[str]` | 访谈稿 URL 列表 |
-| `run_guide_analysis` | `download_links: List[str]`、`outline_file_path: str` | 访谈稿 URL 列表 + **单个**大纲文件 URL |
-| `run_usability_analysis` | `download_links: List[str]`、`outline_file_path: str` | 访谈稿 URL 列表 + **单个**任务书文件 URL |
-| `search_reports` | `query: str` | 自然语言检索词，无文件参数 |
+| `key_findings` | `download_links: List[str]`、`user_prompt: str`（可选） | 访谈稿 URL 列表 + 用户原始提示词文本 |
+| `mindmap` | `download_links: List[str]`、`user_prompt: str`（可选） | 访谈稿 URL 列表 + 用户原始提示词文本 |
+| `run_guide_analysis` | `download_links: List[str]`、`outline_file_path: str`、`user_prompt: str`（可选） | 访谈稿 URL 列表 + **单个**大纲文件 URL + 用户原始提示词文本 |
+| `run_usability_analysis` | `download_links: List[str]`、`outline_file_path: str`、`user_prompt: str`（可选） | 访谈稿 URL 列表 + **单个**任务书文件 URL + 用户原始提示词文本 |
+| `search_reports` | `query: str` | 自然语言检索词，无文件参数；本身即用户提示词文本，不重复加 `user_prompt` |
 
 **文件 URL 的传递方式**：模型**不直接生成 URL**（弱模型会改坏转码字符）——上述文件参数由模型填 handle（`upload_<hex>`），server 端 `octo-upload-inject` 插件在工具执行前把 handle 换成精确 S3 URL。机制与决策见 [ADR-014](../../adr/014-url-injection-via-plugin.md)。`download_links` 是列表、`outline_file_path` 是单值，故 `run_guide_analysis` / `run_usability_analysis` 属"多角色"工具（角色映射由模型按文件名判断；插件只做 handle→url 替换，不关心字段名）。
 
 > 历史备注：早期 ADR（005/006/012）出现的 `doc_urls` / `analyze_interview(doc_urls=...)` 是拆分前的旧入参名，**现行字段名以本表为准**（`download_links`）。
+
+#### `user_prompt` 参数（2026-07-03 新增，chip 强制触发透传）
+
+客户端正在做"chip 强制触发"交互（详细 UI/交互 spec 另立，本文档只约束 MCP 入参层）：用户选中 chip 后发送消息，**必然**触发对应业务工具调用，不经过 LLM 自主判断"要不要调用"；未选中 chip 则**必然不**触发。这条路径下 LLM 不再是"决定是否调用+如何转述业务语境"的主体，客户端需要把用户当轮发送的提示词原文**原样**透传给 MCP server，交由 server 侧解析业务意图，故新增 `user_prompt: str` 字段，加在 4 个长任务产物型工具入参上。
+
+- **字段值**：用户触发该轮调用时输入的提示词原文，**不做改写/摘要**，原样传递
+- **可选（optional）**：为未来"纯 chip、不带文字也能触发"的场景留口子；服务端需处理该字段缺失/空字符串的情况
+- **与 2026-06-09 已固化的 `download_links` / `outline_file_path` 是否互斥**：不互斥，`user_prompt` 是新增字段，其余字段不变
+- **已与内网 UXR MCP 开发团队对齐**（2026-07-03）
+
+> **与 2026-06-11 移除的"业务上下文字符串"的区别（避免误判为回滚同一个坑）**：2026-06-11 移除的字段是给 **LLM 自主判断调用时**用来转述业务语境的参数，实际效果是让 LLM 在工具调用前误向用户追问业务上下文（见该 commit 说明）。`user_prompt` 用在**完全不同的调用路径**——chip 强制触发时客户端直接决定调用与参数，LLM 不参与"要不要问用户"的判断，因此不会重现同一失效模式。两者字段语义相似但触发链路不同，望 UXR 团队与后续读者留意区分。
 
 **业务工具通用出参（长任务提交即返回）：**
 
@@ -414,11 +425,11 @@
 
 ### 通用入参骨架
 
-每个业务工具的**精确入参 schema** 见上方 [§工具入参](#工具入参) 表（2026-06-09 已固化）。UXR 团队在 MCP tool 的 `inputSchema` + `description` 字段里实现对应字段，通过 `GET /mcp` 能力发现下发。
+每个业务工具的**精确入参 schema** 见上方 [§工具入参](#工具入参) 表（2026-06-09 已固化，2026-07-03 追加 `user_prompt`）。UXR 团队在 MCP tool 的 `inputSchema` + `description` 字段里实现对应字段，通过 `GET /mcp` 能力发现下发。
 
 只约束以下共性：
 
-- **业务工具**（除 search_reports）：入参为**已上传文件 URL**（模型填 handle，插件替换为精确 URL，见 [ADR-014](../../adr/014-url-injection-via-plugin.md)）；**不含业务上下文字符串**（已于 2026-06-11 从所有工具入参中移除）
+- **业务工具**（除 search_reports）：入参为**已上传文件 URL**（模型填 handle，插件替换为精确 URL，见 [ADR-014](../../adr/014-url-injection-via-plugin.md)）+ **可选** `user_prompt: str`（chip 强制触发时透传用户当轮提示词原文，见上方 [§`user_prompt` 参数](#user_prompt-参数2026-07-03-新增chip-强制触发透传)；**不是** 2026-06-11 移除的"业务上下文字符串"，触发链路不同，详见该小节说明）
   - 文件 URL 来源：[file-upload.md](../infra/file-upload.md)，由 InsightPage 上传后注入 session context
   - 具体形态因工具而异：单文件列表 / 列表 + 单文件角色拆分 —— 具体字段名见上方 [§工具入参](#工具入参)
 - **search_reports**：自然语言 query 字符串
@@ -522,6 +533,7 @@
 - [ ] `stop_task` 对进行中任务能成功终止，对已终态任务返回当前 status 不抛 isError
 - [ ] 业务工具幂等性：相同入参短期重复提交返回同一 task_id
 - [ ] 文件上传 HTTP API 可用，返回可用于 MCP 入参的 URL
+- [ ] 4 个长任务产物型工具的 `inputSchema` 含可选 `user_prompt: str`；缺失 / 空字符串时工具仍能正常执行（不因缺该字段报错）
 
 **Octo 客户端侧**
 - [ ] DevTools Console 出现 `[mcp] connected`
@@ -533,6 +545,7 @@
 - [ ] 用户说"查询任务 xxx" → LLM 调 `get_task_result`，completed 时 OutputCard（按 resource_link 渲染）出现
 - [ ] 用户说"取消任务 xxx" → LLM 调 `stop_task`，对话中确认终止
 - [ ] 关闭 app 重开同一 session，对话历史里的 task_id 仍可通过"查询刚才那个"继续查
+- [ ] chip 强制触发场景下，MCP 调用的 `user_prompt` 字段值与用户当轮输入原文一致（不做改写/截断）；chip 触发流程本身的交互验证见另立的 chip 交互 spec，此处只验证 `user_prompt` 透传
 
 ---
 
