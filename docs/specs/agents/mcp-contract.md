@@ -62,13 +62,13 @@
 
 | 工具 | 入参 | 说明 |
 |---|---|---|
-| `key_findings` | `download_links: List[str]`、`user_prompt: str`（可选） | 访谈稿 URL 列表 + 用户原始提示词文本 |
-| `mindmap` | `download_links: List[str]`、`user_prompt: str`（可选） | 访谈稿 URL 列表 + 用户原始提示词文本 |
-| `run_guide_analysis` | `download_links: List[str]`、`outline_file_path: str`、`user_prompt: str`（可选） | 访谈稿 URL 列表 + **单个**大纲文件 URL + 用户原始提示词文本 |
-| `run_usability_analysis` | `download_links: List[str]`、`outline_file_path: str`、`user_prompt: str`（可选） | 访谈稿 URL 列表 + **单个**任务书文件 URL + 用户原始提示词文本 |
+| `key_findings` | `download_links: List[str]`、`download_file_names: List[str]`（可选，提案中）、`user_prompt: str`（可选） | 访谈稿 URL 列表 + 对应原始文件名列表 + 用户原始提示词文本 |
+| `mindmap` | `download_links: List[str]`、`download_file_names: List[str]`（可选，提案中）、`user_prompt: str`（可选） | 访谈稿 URL 列表 + 对应原始文件名列表 + 用户原始提示词文本 |
+| `run_guide_analysis` | `download_links: List[str]`、`download_file_names: List[str]`（可选，提案中）、`outline_file_path: str`、`outline_file_name: str`（可选，提案中）、`user_prompt: str`（可选） | 访谈稿 URL 列表及原始文件名 + **单个**大纲文件 URL 及原始文件名 + 用户原始提示词文本 |
+| `run_usability_analysis` | `download_links: List[str]`、`download_file_names: List[str]`（可选，提案中）、`outline_file_path: str`、`outline_file_name: str`（可选，提案中）、`user_prompt: str`（可选） | 访谈稿 URL 列表及原始文件名 + **单个**任务书文件 URL 及原始文件名 + 用户原始提示词文本 |
 | `search_reports` | `query: str` | 自然语言检索词，无文件参数；本身即用户提示词文本，不重复加 `user_prompt` |
 
-**文件 URL 的传递方式**：模型**不直接生成 URL**（弱模型会改坏转码字符）——上述文件参数由模型填 handle（`upload_<hex>`），server 端 `octo-upload-inject` 插件在工具执行前把 handle 换成精确 S3 URL。机制与决策见 [ADR-014](../../adr/014-url-injection-via-plugin.md)。`download_links` 是列表、`outline_file_path` 是单值，故 `run_guide_analysis` / `run_usability_analysis` 属"多角色"工具（角色映射由模型按文件名判断；插件只做 handle→url 替换，不关心字段名）。
+**文件 URL 的传递方式**（2026-06 更新，handle 机制已废弃）：模型**不直接生成 URL**（弱模型会改坏转码字符）——上述文件参数由模型填**文件名**（会话 `[附件]` 清单里的），server 端 `octo-upload-inject` 插件在工具执行前按需上传、把文件名换成精确 S3 URL（[SPEC-INS-015](../infra/insight-file-passing.md)；早期为 handle `upload_<hex>` 机制，见 [ADR-014](../../adr/014-url-injection-via-plugin.md) 演进记录）。chip 强制触发上线后进一步由客户端声明强制对齐文件参数（[SPEC-INS-017 §2.1](../infra/insight-mcp-explicit-entry.md)），模型抄错也会被矫正。`download_links` 是列表、`outline_file_path` 是单值，故 `run_guide_analysis` / `run_usability_analysis` 属"多角色"工具（角色映射由模型按文件名判断；插件不关心字段名）。
 
 > 历史备注：早期 ADR（005/006/012）出现的 `doc_urls` / `analyze_interview(doc_urls=...)` 是拆分前的旧入参名，**现行字段名以本表为准**（`download_links`）。
 
@@ -82,6 +82,16 @@
 - **已与内网 UXR MCP 开发团队对齐**（2026-07-03）
 
 > **与 2026-06-11 移除的"业务上下文字符串"的区别（避免误判为回滚同一个坑）**：2026-06-11 移除的字段是给 **LLM 自主判断调用时**用来转述业务语境的参数，实际效果是让 LLM 在工具调用前误向用户追问业务上下文（见该 commit 说明）。`user_prompt` 用在**完全不同的调用路径**——chip 强制触发时客户端直接决定调用与参数，LLM 不参与"要不要问用户"的判断，因此不会重现同一失效模式。两者字段语义相似但触发链路不同，望 UXR 团队与后续读者留意区分。
+
+#### `download_file_names` / `outline_file_name` 参数（2026-07-03 修订提案，待与 UXR 对齐）
+
+**动机**：上传服务合同 v2（[file-upload.md 顶部提案](../infra/file-upload.md)）后，下载 URL 形如 `https://<service>/files/<uuid>.<ext>`，**不再含原始文件名**——MCP 分析侧仍需要原名做产物内的来源标注（多文档汇总须保留各文件来源）与展示，故显式随参数传入。
+
+- **`download_file_names: List[str]`**：与 `download_links` **一一对应**（同下标 = 同一文件）的原始文件名列表；4 个长任务产物型工具均加
+- **`outline_file_name: str`**：`outline_file_path` 对应的原始文件名；仅 `run_guide_analysis` / `run_usability_analysis`
+- **可选（optional）**：缺失时服务端可从下载响应的 `Content-Disposition` 头兜底取原名（v2 下载接口必带该头）；两条路都拿不到再退化为 URL 末段
+
+**确定性保证（UXR 侧无需担心弱模型填错）**：这两个字段**不由模型生成**。客户端插件（`octo-upload-inject`）在工具执行前把文件名替换成 URL 时，**同步确定性注入**对应原名——`download_links` 与 `download_file_names` 两个数组同源生成，下标对齐由客户端代码保证，与模型能力无关（chip 强制触发下模型即使写错/漏写也会被客户端声明覆盖矫正，见 [SPEC-INS-017 §2.1](../infra/insight-mcp-explicit-entry.md)）。服务端只需在 `inputSchema` 声明字段并消费。
 
 **业务工具通用出参（长任务提交即返回）：**
 
@@ -429,12 +439,12 @@
 
 只约束以下共性：
 
-- **业务工具**（除 search_reports）：入参为**已上传文件 URL**（模型填 handle，插件替换为精确 URL，见 [ADR-014](../../adr/014-url-injection-via-plugin.md)）+ **可选** `user_prompt: str`（chip 强制触发时透传用户当轮提示词原文，见上方 [§`user_prompt` 参数](#user_prompt-参数2026-07-03-新增chip-强制触发透传)；**不是** 2026-06-11 移除的"业务上下文字符串"，触发链路不同，详见该小节说明）
+- **业务工具**（除 search_reports）：入参为**已上传文件 URL**（模型填文件名，插件按需上传并替换为精确 URL，见 [SPEC-INS-015](../infra/insight-file-passing.md)；handle 机制已废弃）+ **可选**原始文件名字段（`download_file_names` / `outline_file_name`，插件确定性注入，见上方提案小节）+ **可选** `user_prompt: str`（chip 强制触发时透传用户当轮提示词原文，见上方 [§`user_prompt` 参数](#user_prompt-参数2026-07-03-新增chip-强制触发透传)；**不是** 2026-06-11 移除的"业务上下文字符串"，触发链路不同，详见该小节说明）
   - 文件 URL 来源：[file-upload.md](../infra/file-upload.md)，由 InsightPage 上传后注入 session context
   - 具体形态因工具而异：单文件列表 / 列表 + 单文件角色拆分 —— 具体字段名见上方 [§工具入参](#工具入参)
 - **search_reports**：自然语言 query 字符串
 
-> 字段名以 MCP tool 的 `inputSchema` 自描述为准；上方 §工具入参 表是 2026-06-09 与 UXR 对齐的快照，固化一份方便 prompt 指导模型往哪个参数填 handle。`octo-upload-inject` 插件**不依赖字段名**（只认 handle、递归替换），故字段名变更只需同步 prompt 指导，不影响插件。
+> 字段名以 MCP tool 的 `inputSchema` 自描述为准；上方 §工具入参 表是与 UXR 对齐的快照（2026-06-09 固化，2026-07-03 追加 `user_prompt` 与文件名字段提案），固化一份方便 prompt 指导模型往哪个参数填文件名。`octo-upload-inject` 插件对 URL 替换**不依赖字段名**（只认清单里的文件名、递归替换），故字段名变更只需同步 prompt 指导；文件名注入字段（`download_file_names` / `outline_file_name`）是例外——插件按名写入，改名需同步插件。
 
 ### 通用出参骨架
 
@@ -534,6 +544,7 @@
 - [ ] 业务工具幂等性：相同入参短期重复提交返回同一 task_id
 - [ ] 文件上传 HTTP API 可用，返回可用于 MCP 入参的 URL
 - [ ] 4 个长任务产物型工具的 `inputSchema` 含可选 `user_prompt: str`；缺失 / 空字符串时工具仍能正常执行（不因缺该字段报错）
+- [ ] （文件名字段提案对齐后）4 个长任务工具 `inputSchema` 含可选 `download_file_names`，两个多角色工具另含 `outline_file_name`；产物内来源标注使用这些原名而非 URL 末段；字段缺失时从 `Content-Disposition` 兜底
 
 **Octo 客户端侧**
 - [ ] DevTools Console 出现 `[mcp] connected`

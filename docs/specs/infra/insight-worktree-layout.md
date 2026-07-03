@@ -78,6 +78,8 @@
 ### 3.3 撞名处理（sources 与 outputs 统一）
 两个目录同一套规则：撞名（目标已存在）就**加后缀** `name (2).docx`（操作系统下载器习惯），不覆盖。
 
+> 2026-07-03 曾把 sources 改为 `name_2.docx`（防空格/括号随 basename 进 S3 URL 致 MCP 下载失败），同日随上传合同 v2 提案（[file-upload.md](file-upload.md) 顶部：文件名退出 URL）回退，统一 ` (n)`。v2 落地前撞名文件走 MCP 会因 URL 特殊字符失败，与其他特殊字符文件名同属已知窗口，服务端改造收口。
+
 > 不做内容 hash 去重：handle（`upload_<hex>`）是 **URL 派生**（每次上传的 S3 路径 uuid 不同 → handle 也不同），不是内容 hash，拿它判重对不上；另算内容 hash 不值当。重复导入同一文件最多多一份副本，可接受。
 
 ---
@@ -175,7 +177,7 @@
 |---|---|---|
 | 1 | 选项目目录，选一个 .docx 源文件 | 立刻 `<projectDir>/insight/sources/<name>.docx`（原样拷贝、格式不变）；`[octo:worktree] source-copy ok`。S3 上传时机不在本 spec 验证（保持今天 eager；时机改造见 [SPEC-INS-015](insight-file-passing.md)）|
 | 2 | 走预置 → 触发 MCP | 与今天一致（eager 上传 + `[octo:inject] args rewritten`）；本 spec 未改此链路 |
-| 4 | 同名不同内容再导入 | 加后缀 `<name> (2).docx`，不覆盖 |
+| 4 | 同名不同内容再导入 | 加后缀 `<name> (2).docx`，不覆盖；输入框 chip 与 `[附件]` 清单显示**带后缀的落地名**（2026-07-03 起展示名/清单名与磁盘对齐） |
 | 5 | 触发 MCP 任务 → 完成 → 点开产物卡 | 产物落 `<projectDir>/insight/outputs/<file>`（扁平，**不再**在 `.octo/downloads`、无 id 子目录）；`[octo:worktree] result-materialize` |
 | 6 | markdown 卡编辑 → 保存 → 关卡重开 | 回显改动（幂等工作副本仍生效，落点变 `insight/outputs`）|
 | 7 | 关 app 重开同一目录、新建会话 | `insight/sources` `insight/outputs` 里上一会话的文件仍在（跨会话共享）|

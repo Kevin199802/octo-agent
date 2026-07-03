@@ -7,9 +7,56 @@
 
 ---
 
+## ⚠️ 2026-07-03 合同修订提案 v2：文件名退出下载 URL（待与后台对齐，对齐后本节转正并改写下方相关章节）
+
+### 动机
+
+2026-07-03 测试暴露一类线上故障的**公共根因：原始文件名被拼进下载 URL**。内网上传服务把文件名（未编码）拼进返回 URL，MCP 端按 URL 取文件——文件名里的空格 / 括号 / 全角标点等任何白名单外字符都会让下载失败。客户端为此做过两代清洗（前端 `sanitizeFileName` 删除式清洗 → 插件 `sanitizeS3Name` 替换式清洗），全部是防御性补丁：只要文件名还在 URL 里，字符集问题就治不完（撞名后缀、历史脏文件名、清洗规则漂移都会复发）。
+
+**为什么不选"percent-encoding 文件名进 URL"**：`%` 本身就可能在内网 S3 的禁字符集里；编码要求上传服务、S3、MCP 下载端三方对编解码行为完全一致，而已观测到 MCP 端解码不一致的故障。前端发送前编码更是错层——multipart filename 会被服务端当字面量存储，产生二次编码。编码是补丁不是修复。
+
+### 合同变更点（服务端）
+
+业界对标：Discord / GitHub / Notion 附件 URL 均为 **id 主导**；S3 官方最佳实践即「key 用受控字符集、原名存元数据」。
+
+1. **S3 key 末段改为 `<uuid>.<ext>`**：`files/<agent>/<yyyy-mm-dd>/<uuid>.<ext>`（原始文件名**不再进 key**）。`<ext>` 来自扩展名白名单校验，天然 ASCII 安全 → 服务端 filename sanitize 职责整个取消。
+   > 前三层（`files/<agent>/<yyyy-mm-dd>/`）**不变**。变的只有末两层：原 `<uuid>/<sanitized_filename>` 里 uuid 独立成层的唯一理由是「让 URL 末段是干净的原文件名」（见 §S3 路径策略层级表）——文件名退出 key 后该理由消失，留着就是每目录一个文件的空层，故与文件名层合一为 `<uuid>.<ext>`。后台若嫌改动大想保留四层结构（`<uuid>/<uuid>.<ext>`）也可，功能等价，沟通时定。
+2. **原始文件名只进 DB**：§数据持久层的表已有 `filename` 字段，**零新增**——这张表就是「key ↔ 原名」映射。
+3. **新增下载接口** `GET /files/<uuid>.<ext>`（走上传服务自有域名，不再暴露 S3 host）：查表 → 流式转发 S3 对象（QPS/体量小，代理即可；未来可换 302 预签名 URL 卸载数据面，视 IT 桶服务是否支持预签名）→ 响应头：
+   - `Content-Disposition: attachment; filename*=UTF-8''<percent-encoded 原始文件名>`（RFC 5987，浏览器/下载方还原真实文件名）
+   - `Content-Type`：DB 存的 mime
+4. **上传响应 `content.url` 改为上述下载地址**；`fileId` / `fileName` 字段语义不变。**客户端合同零改动**（客户端只消费 `url`）。
+5. **MCP 工具侧零改动**（仍是「拿 url 发 GET」）。需与 UXR 确认两点：(a) MCP 分析服务到上传服务域名**网络可达**（现在可达的是 S3 host）；(b) 文件类型识别依据——URL 路径末段保留 `.ext` 后缀，若其还依赖文件名，`Content-Disposition` 里有原名。
+
+### 落地后客户端可回退项（杜绝后患清单）
+
+| 改动 | 处置 |
+|---|---|
+| 插件 `sanitizeS3Name`（multipart 文件名清洗，2026-07-03 fix） | ✅ **已清除**（2026-07-03，决定不等 v2 落地）——v2 上线前，含白名单外字符的文件名在 MCP 下载链路仍会失败（已知窗口，服务端改造收口） |
+| 前端 `sanitizeFileName`（删除式清洗，曾服务全部上传、后只剩图片） | ✅ **已清除**（同上） |
+| sources 撞名后缀 `_n`（2026-07-03 fix，INS-014 §3.3） | ✅ **已回退**为 ` (n)`（2026-07-03 同日，与 OS 习惯一致）——v2 后文件名不进 URL，特殊后缀无存在理由；v2 前撞名文件走 MCP 失败属已知窗口 |
+| 附件展示名/清单名对齐磁盘落地名（三名合一） | **保留**——修的是「模型引用与插件键表不匹配」，与 URL 无关 |
+| 插件三键**精确**匹配 | **保留**——同上；未替换的裸文件名无论 URL 方案如何都必失败。（曾附加去空白归一化兜底，2026-07-03 当日复审回退：启发式修补有静默误配风险，确定性方案见 SPEC-INS-017 §2.1） |
+| desktop `sanitizeWorktreeName`（落盘名清洗） | **保留**——本地文件系统安全 + `[附件]` 清单行格式安全（文件名含 `: ` 会破坏 parse），与 S3 无关 |
+
+---
+
 ## 概述
 
-文件上传**不经过 MCP**，由各 agent 页面直接调用 agent 项目自有的上传服务（multipart/form-data binary，服务端代理 → 内网 S3）。上传完成后，URL 由页面注入 LLM 的 session context，LLM 拿到 URL 后调用 MCP 分析工具。
+文件上传**不经过 MCP**，由 agent 项目自有的上传服务承接（multipart/form-data binary，服务端代理 → 内网 S3）。
+
+**现行链路（SPEC-INS-015 起）**——上传调用方分两处：
+
+```
+图片(前端 eager):选图即页面 POST 上传 → 拿 url → vision FilePart{url} 随消息发给多模态模型
+
+非图片(server 端按需):选文件只拷本地 sources/ → 发送时注入 [附件] 清单(文件名+本地路径)
+  → 模型调 MCP 工具、文件参数填文件名
+  → octo-upload-inject 插件在工具执行前才 POST 上传 → 把文件名换成返回的精确 URL
+```
+
+<details>
+<summary>⚠️ 已废弃的旧链路（ADR-014 时期，handle 机制，留档备查）</summary>
 
 ```
 用户选文件 → 页面 POST /api/files (multipart, binary)
@@ -19,6 +66,8 @@
   → LLM 调业务工具，文件参数填 handle（download_links / outline_file_path）
   → octo-upload-inject 插件在工具执行前把 handle 换成精确 URL（见 ADR-014）
 ```
+
+</details>
 
 **与 UXR 的关系**：UXR 团队仅负责 MCP 分析工具（[mcp-contract.md](../agents/mcp-contract.md)），与本上传服务**互不相关**。UXR 内部也有自己的 S3 上传（用于分析结果落盘），那是 UXR 自治范围，不在本 spec 覆盖范围内。详见 [ADR-006 §职责边界](../../adr/006-upload-architecture.md#职责边界)。
 
@@ -94,6 +143,8 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 
 ### 注入格式
 
+> ⚠️ **本节已整体废弃（2026-06，SPEC-INS-015）**：`[已上传文件]` handle 块不再存在。现行注入为 `[附件]` 清单（文件名 + 本地路径，**不含 URL/handle**，非图片文件发送时不上传），见 [insight-file-passing.md](insight-file-passing.md)。以下原文留档备查。
+
 各 agent 页面上传完成后，URL 段落以**独立的 synthetic text part** 随消息发送（不再拼进用户可见文本），每行带一个稳定 handle `[upload_<hex>]`（token 由文件 URL 派生、**全局唯一**，见下），格式（保持一致，LLM 可识别）：
 
 ```
@@ -160,6 +211,8 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 
 ### S3 路径策略
 
+> ⚠️ **v2 修订提案（见顶部）**：末两层合一为 `<uuid>.<ext>`，原始文件名退出 key。以下为**现状**（v2 对齐前服务端的实际行为）。
+
 ```
 <bucket>/files/<agent>/<yyyy-mm-dd>/<uuid>/<sanitized_filename>
 ```
@@ -189,6 +242,8 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 - 不引入 tenant——内网单租户，加了是空架子
 
 ### filename sanitize
+
+> ⚠️ **v2 修订提案（见顶部）后本节整体取消**（文件名不进 key，无需清洗）。以下为现状要求——**2026-07-03 测试表明服务端未按本节实现**（原始文件名未清洗直接拼 URL，空格/括号致 MCP 下载失败），客户端防御性清洗也已于同日移除（见顶部处置清单），v2 落地前此为已知缺口。
 
 服务端对原 filename 做清洗后再写入路径：
 
@@ -243,7 +298,26 @@ Body:
 | `errorCode` | int | 业务错误码；成功为 200 |
 | `errorMessage` | string \| null | 错误信息；成功为 null |
 
-**成功响应**（字段名按内网约定走驼峰）：
+**成功响应**（字段名按内网约定走驼峰）。
+
+**v2 提案形态**（对齐后生效，`url` 换为自有域名下载地址、不含原始文件名；封装与字段集不变）：
+
+```json
+{
+  "content": {
+    "url": "https://<upload-service>/files/9b94d620a1b2.txt",
+    "fileId": "files/insight/2026-07-03/9b94d620a1b2.txt",
+    "fileName": "访谈稿-张三 (2).txt",
+    "size": 1004138,
+    "mime": "text/plain"
+  },
+  "success": true,
+  "errorCode": 200,
+  "errorMessage": null
+}
+```
+
+**现状形态**（v2 对齐前，`url` 为 S3 直链、末段是原始文件名）：
 
 ```json
 {
@@ -327,6 +401,8 @@ Body:
 ---
 
 ## 联调与验证
+
+> ⚠️ 本节验证步骤中涉及 `[已上传文件]` / handle / eager 上传的条目为 SPEC-INS-015 之前的旧流程（现行：图片 eager 上传、非图片 `[附件]` 清单 + 插件按需上传）。上传服务本身的合规校验（响应封装 / 错误码 / 大小）仍有效。
 
 ### 服务端未就绪时（临时调试）
 
@@ -439,6 +515,7 @@ Access-Control-Allow-Headers: Content-Type
 
 ## 待补充
 
+- [ ] **2026-07-03 合同修订提案 v2（见顶部）与后台对齐**：uuid key + 下载走自有域名 + Content-Disposition；对齐后改写 §S3 路径策略 / §filename sanitize / §接口合同，并按「可回退项清单」还原客户端防御性改动
 - [ ] `VITE_OCTO_UPLOAD_ENDPOINT` 实际地址（待内网开发给定后写入 `packages/app/.env.local`）
 - [ ] 内网 S3 是否要求工号字段（access control 粒度）—— 若必填则在 form 里加 `user` 字段
 - [x] ~~服务端响应体字段名最终确认~~ 已确认走驼峰：`url` / `fileId` / `fileName` / `size` / `mime`
