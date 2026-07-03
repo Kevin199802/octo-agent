@@ -57,14 +57,18 @@
 
 ### 0.3 server 端日志怎么读取
 
-opencode 子进程的日志**不进 DevTools**,落盘到固定目录(`Global.Path.log`,即 `<xdgData>/opencode/log/`),每次启动新建一个**时间戳命名**的 `.log`(`2026-06-22T020714.log`),保留最近几个、旧的自动清理。
+opencode 子进程的日志**不进 DevTools**,落盘到 `Global.Path.log`(`<xdgData>/opencode/log/`),每次启动新建一个**时间戳命名**的 `.log`(`2026-06-22T020714.log`),保留最近几个、旧的自动清理。**最新修改时间那个 = 当前 session**。
 
-| 平台 | 日志目录 |
+**落点分两种,别找错**(这是"run dev 和成品包日志不在一起"的根因):
+
+| 怎么跑的 | sidecar 日志目录 |
 |---|---|
-| macOS / Linux | `~/.local/share/opencode/log/`(设了 `XDG_DATA_HOME` 则为 `$XDG_DATA_HOME/opencode/log/`) |
-| Windows | `%LOCALAPPDATA%\opencode\log\` |
+| **run dev / 裸 `opencode` CLI** | macOS/Linux `~/.local/share/opencode/log/` · Windows `%LOCALAPPDATA%\opencode\log\` |
+| **桌面成品包**(beta/prod) | `<userData>/xdg-data/opencode/log/`(内置 sidecar 的 `XDG_DATA_HOME` 被 [sidecar.ts](../packages/desktop/src/main/sidecar.ts) 关进 userData;run dev 连的是外部 opencode,userData 里没有 `xdg-data/`) |
 
-**最新修改时间那个 `.log` = 当前 session**。用编辑器打开 Ctrl+F 搜前缀即可;命令行(macOS/Linux)看最新一个里的 server 端日志:
+> `<userData>` = `<appData>/<appId>`。appId 与"那一堆相似文件夹"的辨认、①主进程 `main.log`、②renderer 转发 `insight-debug.log`(macOS 在 `~/Library/Logs/<显示名>/`,不在 userData)等**全部本地日志的定位**,见 **[find-local-logs.md](./find-local-logs.md)**。
+
+命令行(macOS/Linux · run dev)捞最新一个里的 server 端日志:
 
 ```bash
 DIR=~/.local/share/opencode/log

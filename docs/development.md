@@ -131,6 +131,7 @@ opencode 源没改时第一次跑过即可(后续 dev 仍重复)。
 | 改前端立即生效 | 直接改 `packages/app/octoapp/**`,Vite HMR |
 | 改 main 进程立即生效 | 改 `packages/desktop/src/main/**`,electron-vite 自动重启 |
 | 强制刷新 renderer | DevTools `Cmd + R` |
+| **找本地落盘日志在磁盘哪儿** | 见 [find-local-logs.md](find-local-logs.md)(main.log / insight-debug.log / sidecar,dev vs 成品包 / 各平台 / 怎么认 appId) |
 
 > insight 自带运行时调试工具(`window.octoDebug` / `[octo:*]` 日志 / 错误信标),用法与日志字典见 [insight-debugging.md](insight-debugging.md)。
 
@@ -140,7 +141,7 @@ opencode 源没改时第一次跑过即可(后续 dev 仍重复)。
 
 1. **先看错误信标(首选,日常 90%)**:出错后敲 `octoDebug.lastError()` → 自动捕获的「HTTP 失败 + 响应体 / 未捕获异常 / 整页崩」精炼成一小段纯文本,自动复制到剪贴板。**整页崩**(白屏、console 够不着)时,页面 fallback 直接给「复制错误」按钮。信标同步落 `localStorage`、**跨刷新/重启/崩溃**,所以哪怕用户已经刷新也还在。
 2. **要更全的 SSE 上下文再补**:`octoDebug.snapshot()`(缺省=最近一次发送→现在),顶部自带 `why()` 初判。怀疑某症状就带 `profile`(`no-feedback`/`stuck`/`errors`/`blank`/`upload`)。
-3. **怀疑问题在埋点之外**:回查全量落盘 `insight-debug.log`(渲染崩溃前 / 偶现的也在),按时间或 `messageID` 搜。
+3. **怀疑问题在埋点之外**:回查全量落盘 `insight-debug.log`(渲染崩溃前 / 偶现的也在,macOS 在 `~/Library/Logs/<显示名>/`;文件定位见 [find-local-logs.md](find-local-logs.md)),按时间或 `messageID` 搜。
 4. **递给外网**:把上面任一步复制出的纯文本(剪贴板可外发)贴给 Claude → 对照 [insight-debugging.md](insight-debugging.md) 的日志字典 + 症状表定位。
 
 > 工作流 SOT 在 [insight-debug-toolkit.md §3](specs/ui/insight-debug-toolkit.md)(取数流程)+ §9(错误信标);命令字典、`why()` 规则、症状对照表在 [insight-debugging.md](insight-debugging.md)。本节只给入口,不重复细节。
@@ -263,6 +264,7 @@ dev 页用 mock,**不能替代内网真实数据验证**。以下必须到内网
 - [架构总览](architecture.md)
 - [opencode 后端原理(深度)](learning/opencode-internals.md)
 - [insight 运行时调试](insight-debugging.md)
+- [如何快速找到本地日志](find-local-logs.md)
 - [协作 PR 协议](collab-pr-protocol.md)
 - [ADR-001 Electron vs Tauri](adr/001-electron-vs-tauri.md)
 - [ROADMAP](../ROADMAP.md)
