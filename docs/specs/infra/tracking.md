@@ -62,7 +62,7 @@ POST /record/logger/interaction
   from?: string                              // 来源路径，调用时传入，默认 ""
   screenWidth: number                        // window.screen.width，自动采集
   screenHeight: number                       // window.screen.height，自动采集
-  extend?: string                            // 扩展 JSON 字符串，调用时传入
+  extend?: string                            // 扩展 JSON 字符串；SDK 自动并入 version（见下）
 }
 ```
 
@@ -74,8 +74,21 @@ POST /record/logger/interaction
   subType?: "click" | "input" | "scroll" | "hover"     // 调用时传入，默认 "click"
   name: string                                          // 事件名，必填，调用时传入
   path: string                                          // window.location.href，自动采集
-  extend?: string                                       // 扩展 JSON 字符串，调用时传入
+  extend?: string                                       // 扩展 JSON 字符串；SDK 自动并入 version（见下）
 }
+```
+
+### 应用版本号（version）
+
+契约无独立 app 版本字段（`browserVersion` 是浏览器版本），故应用版本并入 `datas[].extend`：
+
+- 来源：`localStorage.appInfo.version`，容错读取，**不存在则不注入**
+- 所有类型打点（page / interaction）一致携带
+- SDK 自动合并：调用方 extend 为 JSON 时并入 `version` 键；非 JSON 时保底放入 `{ value, version }`，不丢原数据
+
+```jsonc
+// 调用方 extend='{"from":"preset"}' + version=1.14.41
+{ "from": "preset", "version": "1.14.41" }
 ```
 
 ---
