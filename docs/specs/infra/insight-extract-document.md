@@ -1,6 +1,6 @@
 # SPEC-INS-016 — `extract_document` 工具(office → 文本,本地解析能力线 Spec B)
 
-> 状态:已实现(UXAI `feat/extract-document`,待提 PR / 内网验证)· 优先级 P1 · 规模 [S~M] · 领域 infra/insight/tool
+> 状态:已实现(UXAI PR #272 `feat/extract-document`,内网验证中)· 优先级 P1 · 规模 [S~M] · 领域 infra/insight/tool
 >
 > 上游已实现:✗(opencode 无 office 抽取工具;Read 对二进制文件只报"binary file")
 >
