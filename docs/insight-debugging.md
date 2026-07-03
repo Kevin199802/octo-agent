@@ -51,7 +51,7 @@
 | 前缀 | 来源文件 | 关注什么 |
 |---|---|---|
 | `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前读 `[附件]` 清单的本地路径、**按需上传 S3**、把模型填的文件名/路径换成精确 URL([SPEC-INS-015 文件传参](specs/infra/insight-file-passing.md) ④)。地址由 `OCTO_UPLOAD_ENDPOINT` 控制 |
-| `[octo:extract]` | [packages/opencode/src/tool/extract_document.ts](../packages/opencode/src/tool/extract_document.ts) | **server 端工具**:office→文本抽取(SPEC-INS-015 ②),gate 到 octo_insight。**当前为 stub**(存在性检查 + 返回"抽取待 Spec B"占位),body 属 Spec B |
+| `[octo:extract]` | [packages/opencode/src/tool/extract_document.ts](../packages/opencode/src/tool/extract_document.ts) | **server 端工具**:office→文本抽取(docx=mammoth / pdf=unpdf / xlsx=exceljs / pptx=jszip 直抽,[SPEC-INS-016](specs/infra/insight-extract-document.md)),gate 到 octo_insight。`ok`:path/format/chars/tokenEstimate/ms/pages·sheets·slides;`failed`:path/reason(`not-found`·`unsupported`·`parse-error`)/format/err |
 | `[octo:kb]` | [packages/opencode/src/tool/knowledge_search.ts](../packages/opencode/src/tool/knowledge_search.ts) | **server 端工具**:chat 内网知识库检索(getKnowledgeVector)。spec 见 [specs/agents/chat-knowledge-search.md](docs/specs/agents/chat-knowledge-search.md) |
 | `[octo:mcp]` | [config/config.ts](../packages/opencode/src/config/config.ts) · [mcp/index.ts](../packages/opencode/src/mcp/index.ts) | **server 端**:内建 MCP(uxr-tool)生效配置 + 连接过程参数。地址由 `OCTO_UXR_MCP_URL` 控制(见 [config/builtin-mcp.ts](../packages/opencode/src/config/builtin-mcp.ts) + [specs/agents/mcp-contract.md §MCP server 地址配置](docs/specs/agents/mcp-contract.md)) |
 

@@ -79,4 +79,4 @@ insight 让用户附带文件（docx/xlsx/pdf/图片/纯文本…），文件要
 - [ADR-006](006-upload-architecture.md)（上传架构）、[ADR-009](009-no-office-preview.md)
 - [SPEC-INS-014](../specs/infra/insight-worktree-layout.md)（本地工作目录地基 = sources/outputs）
 - [MCP 文件按需上传 spec](../specs/infra/insight-file-passing.md)、[图片附件处理 spec](../specs/ui/insight-image-attachment.md)
-- Spec B：office→文本抽取（另一对话规划中）
+- [SPEC-INS-016](../specs/infra/insight-extract-document.md)（Spec B：office→文本抽取，`extract_document` 工具本体）

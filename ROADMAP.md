@@ -34,7 +34,7 @@
 | A0 | `[—]` | **ADR-015 文件传参架构**[adr/015](docs/adr/015-file-passing-architecture.md) — 按「文件类×用途」分流（文本=FilePart内联 / office=路径+extract / 图片=S3 URL / MCP=handle+按需上传）；决策「有存储走 S3 URL 不走 base64」 | — | 草案已立 |
 | A1 | `[M]` | **文件传参机制（Agent 正常化）**[SPEC-INS-015](docs/specs/infra/insight-file-passing.md) — 按 ADR-015 四分支落地：txt/md→FilePart 内联、office→extract_document、图片→vision、任意→MCP 按需上传；插件改文件名/路径匹配、模型不碰 URL。**含 A2**（图片 vision 一并做了） | A | **已实现，内网验证中**（UXAI PR #251 `feat/insight-file-passing`：①③④ 已验；② office 走 extract_document **stub**、正文抽取待 B）|
 | A2 | `[S~M]` | **图片附件 → vision** — 已并入 A1 落地：change 即传 S3 + 缩略图 + 发送走 `FilePart{url}` vision。[spec](docs/specs/ui/insight-image-attachment.md) 收敛为「粘贴/剪贴板交互补充」 | A1 | **已实现（随 A1）** |
-| B | `[S~M]` | **`extract_document` tool** — office(docx/pdf/xlsx)→文本，顺带返回字数/token 估算（测量机制）。**office「模型读」硬依赖它**（见 ADR-015） | A | 待起草（另一对话规划中） |
+| B | `[S~M]` | **`extract_document` tool**[SPEC-INS-016](docs/specs/infra/insight-extract-document.md) — office(docx/pdf/xlsx/pptx)→文本（mammoth / unpdf / exceljs / jszip 直抽），顺带返回字数/token 估算（测量机制）。**office「模型读」硬依赖它**（见 ADR-015） | A | **已实现**（UXAI `feat/extract-document`，待提 PR / 内网验证） |
 | C | `[S]` | **`@` 引用所有文档类型** — 文件名联想 + 按需读取（纯文本可先于 B、office 等 B 点亮）| A（office 靠 B）| 待起草 |
 | D | `[M]` | **二次生成** — 读本地源 + 上轮产物（MCP 或本地）→ edit；独立于能力线 | A（office 源靠 B）| 待起草 |
 | E | `[L]` | **本地解析能力**（逐个：观点解析 / 思维导图 / …）+ **护栏策略**（测量超阈值提醒、不中断）| A、B | 待规划（最后，慢慢验证）|

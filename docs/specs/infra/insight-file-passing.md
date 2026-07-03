@@ -25,7 +25,7 @@
 | # | 文件类 | 用途 | 载体 | 传 S3 | 上传时机 |
 |---|---|---|---|---|---|
 | ① | txt / md / 代码 | 模型**读** | `FilePart(file://…/sources/<file>, text/plain)`；opencode 组 prompt 时自动调 Read 把正文内联 | 否 | — |
-| ② | docx / xlsx / pdf | 模型**读** | 附件清单给本地路径（§2）+ 模型调 `extract_document(path)` 读出文本 | 否 | — |
+| ② | docx / xlsx / pdf / pptx | 模型**读** | 附件清单给本地路径（§2）+ 模型调 `extract_document(path)` 读出文本 | 否 | — |
 | ③ | 图片 | 模型**看** | `FilePart{ type:file, mime:image/*, url:S3 }` 走 vision | **是** | **change 即传**（选/拖/粘当下） |
 | ④ | 任意 | 喂 **MCP 工具** | 模型在工具参数里填**文件名** → 插件按需上传换 url（§3） | 是 | **调 MCP 工具那一刻** |
 
@@ -33,7 +33,7 @@
 
 - **载体各自独立、可叠加**：一个 docx 可同时被 ②（extract_document 读）和 ④（MCP 分析）使用，两条互不排斥。
 - **图片只走 ③**：不进附件清单、不进 ④。图片对"本地读正文 / 喂 MCP"无意义，模型只能"看"——给它本地路径或 handle 它理解不了，必须是它能 vision 的 url。
-- ②的 `extract_document` 工具**本体属 [Spec B] 另行实现**；本 spec **按它已存在接线**（agent 工具表登记 + 提示词路由 office 走它），先把整套机制跑通进内网验证，验证无误合入后再补工具实现。
+- ②的 `extract_document` 工具**本体见 [SPEC-INS-016](insight-extract-document.md)**（已实现：docx=mammoth / pdf=unpdf / xlsx=exceljs）；本 spec 只负责接线（agent 工具表登记 + 提示词路由 office 走它）。
 
 ---
 
@@ -116,7 +116,7 @@
 | # | 操作 | 期望 |
 |---|---|---|
 | 1 | 选 txt/md + 发自由消息（不调 MCP） | 无任何 S3 上传；模型能读到正文（① 内联）并作答 |
-| 2 | 选 docx + 让模型读（不调 MCP） | 无 S3 上传；模型正确调 `extract_document(path)`。**当前 body 是 graceful stub**（返回"抽取待 Spec B，请改用 MCP"），正文抽取待 Spec B |
+| 2 | 选 docx + 让模型读（不调 MCP） | 无 S3 上传；模型正确调 `extract_document(path)` 拿到正文（工具本体见 [SPEC-INS-016](insight-extract-document.md)） |
 | 3 | 选 docx + 走预置 → 调 MCP | 工具执行前才上传（`dev.log` 见 `[octo:inject] lazy-upload ok`）；MCP 拿 url 正常出结果 |
 | 4 | 同会话多次调同一文件 | 只上传一次（插件缓存命中） |
 | 5 | 粘贴 / 选图片 | change 即传 S3；缩略图本地秒显；发送后多模态模型能"看"到图 |
@@ -126,6 +126,6 @@
 
 ## 9. 不做 / 依赖
 
-- `extract_document`（office → 文本）本体 = [Spec B]，独立实现。**本 spec 已接线**（tool 注册 + gate 到 octo_insight + 提示词路由），当前 body 为 graceful stub（存在性检查 + 返回"抽取待 Spec B"占位），Spec B 落地只替换 body。
+- `extract_document`（office → 文本）本体 = [SPEC-INS-016](insight-extract-document.md)，独立实现（已落地）。本 spec 只负责接线（tool 注册 + gate 到 octo_insight + 提示词路由）。
 - `@` 引用、二次生成、本地解析护栏 = 各自 spec。
 - 图片接公网模型的 base64 回退 = provider 够不到 S3 时再做。
