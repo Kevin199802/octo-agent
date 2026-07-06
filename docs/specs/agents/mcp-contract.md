@@ -31,11 +31,13 @@
 | 环境 | 配置 | 实际生效地址 |
 |---|---|---|
 | 本地 / beta（默认） | `.env*` 不填 `OCTO_UXR_MCP_URL` | `http://7.192.161.60:8005/mcp`（代码内默认值） |
-| 生产 | `.env.prod` 填 `OCTO_UXR_MCP_URL=http://7.185.124.42:8005/mcp` | `http://7.185.124.42:8005/mcp` |
+| 生产 | `.env.prod` 填 `OCTO_UXR_MCP_URL=http://<内网域名>:8005/mcp` | 内网域名转发地址（**非裸 IP**） |
 
+> **2026-07 起生产改走域名转发**：内网基础设施把裸 IP 转发进内网域名，`.env.prod` 里的 `OCTO_UXR_MCP_URL` 值相应改成域名形式；**实际域名只存于内网 `.env.prod`，不进本仓库**（部署细节，且裸 IP 会漂移——本文档此前把 `.42` 错记成当前值、后改成 `.41`，就是硬编码具体地址到文档里的返工成本，域名转发后这类漂移由内网基础设施吸收，不需要再来回改文档）。
+>
 > **配进 `.env.prod` 即可，无需 `export`**：打包后是双击启动的 GUI app，没有 shell export 时机；`.env.prod` 经 define 在**构建期**固化，是生产正路。（`export` 仅在 main 进程 `process.env` 中能透传给 sidecar，用于本地临时覆盖。）
 >
-> **代理注意**：`7.x` / 同类内网非标准私有 IP 不被 `isPrivateUrl` 识别，会误走系统代理触发 504。`uxr-tool` 已显式 `proxy: false` 强制绕过代理；若生产 IP 同属此类内网段，沿用即可，无需额外配置。
+> **代理注意**：`uxr-tool` 已显式 `proxy: false` 强制绕过代理，**不区分地址是 IP 还是域名**，域名转发落地后无需为此额外配置。历史背景：`7.x` 等内网非标准私有 IP 不被 `isPrivateUrl` 识别、会误走系统代理触发 504，这是当初加 `proxy: false` 的原因（本地 / beta 默认值仍是裸 IP，同样吃这条硬编码的红利）。
 
 ---
 
@@ -85,11 +87,13 @@
 
 #### `download_file_names` / `outline_file_name` 参数（2026-07-03 修订提案，待与 UXR 对齐）
 
-**动机**：上传服务合同 v2（[file-upload.md 顶部提案](../infra/file-upload.md)）后，下载 URL 形如 `https://<service>/files/<uuid>.<ext>`，**不再含原始文件名**——MCP 分析侧仍需要原名做产物内的来源标注（多文档汇总须保留各文件来源）与展示，故显式随参数传入。
+**动机**：上传服务合同 v2（[file-upload.md 顶部提案](../infra/file-upload.md)）后，下载 URL 形如 `https://<service>/octoAiServer/files/<uuid>.<ext>`，**不再含原始文件名**——MCP 分析侧仍需要原名做产物内的来源标注（多文档汇总须保留各文件来源）与展示，故显式随参数传入。
 
 - **`download_file_names: List[str]`**：与 `download_links` **一一对应**（同下标 = 同一文件）的原始文件名列表；4 个长任务产物型工具均加
 - **`outline_file_name: str`**：`outline_file_path` 对应的原始文件名；仅 `run_guide_analysis` / `run_usability_analysis`
-- **可选（optional）**：缺失时服务端可从下载响应的 `Content-Disposition` 头兜底取原名（v2 下载接口必带该头）；两条路都拿不到再退化为 URL 末段
+- **可选（optional）**：缺失时服务端可从下载响应的 `Content-Disposition` 头兜底取原名（v2 下载接口必带该头，见 [file-upload.md §MIME / Content-Type 策略](../infra/file-upload.md#mime--content-type-策略)）；两条路都拿不到再退化为 URL 末段
+
+> **为什么不干脆只留 `Content-Disposition` 兜底、不加这两个参数**（2026-07-06 补充说明,避免被当成冗余设计砍掉）：`Content-Disposition` 里的 `filename*` 不是"自动"生效的——只有浏览器原生下载 / `curl -OJ` / `wget --content-disposition` 这类**内置了该行为的客户端**才会替你解析并用它命名文件。UXR 的下载动作是自己的后端代码发 HTTP GET（不是浏览器、不是这几个 CLI 工具），要拿到原名必须**自己写代码解析响应头**——从 `response.headers` 里取出 `Content-Disposition` 字符串,再按 RFC 6266 的 `filename*=UTF-8''<percent-encoded>` 语法解码,这是一步需要 UXR 主动实现且可能踩坑的逻辑（本文档 [file-upload.md](../infra/file-upload.md) 顶部提案的动机说明里，"MCP 端解码不一致"就是曾经真实出现过的故障类型)。`download_file_names` 作为 MCP 工具入参**直接把字符串交到手上**,不需要 UXR 写任何 header 解析代码、不存在编解码不一致的风险,是主路;`Content-Disposition` 解析留作两条路都断（字段缺失、模型没填对应角色）时的兜底，不建议 UXR 把它当主路径依赖。
 
 **确定性保证（UXR 侧无需担心弱模型填错）**：这两个字段**不由模型生成**。客户端插件（`octo-upload-inject`）在工具执行前把文件名替换成 URL 时，**同步确定性注入**对应原名——`download_links` 与 `download_file_names` 两个数组同源生成，下标对齐由客户端代码保证，与模型能力无关（chip 强制触发下模型即使写错/漏写也会被客户端声明覆盖矫正，见 [SPEC-INS-017 §2.1](../infra/insight-mcp-explicit-entry.md)）。服务端只需在 `inputSchema` 声明字段并消费。
 

@@ -21,12 +21,30 @@
 
 1. **S3 key 末段改为 `<uuid>.<ext>`**：`files/<agent>/<yyyy-mm-dd>/<uuid>.<ext>`（原始文件名**不再进 key**）。`<ext>` 来自扩展名白名单校验，天然 ASCII 安全 → 服务端 filename sanitize 职责整个取消。
    > 前三层（`files/<agent>/<yyyy-mm-dd>/`）**不变**。变的只有末两层：原 `<uuid>/<sanitized_filename>` 里 uuid 独立成层的唯一理由是「让 URL 末段是干净的原文件名」（见 §S3 路径策略层级表）——文件名退出 key 后该理由消失，留着就是每目录一个文件的空层，故与文件名层合一为 `<uuid>.<ext>`。后台若嫌改动大想保留四层结构（`<uuid>/<uuid>.<ext>`）也可，功能等价，沟通时定。
+   >
+   > **`<ext>` 不可省略**（2026-07-06 后台曾提议省略后缀名，评估后否决）：(a) 省略后缀名不省流量、不省安全性——白名单已经卡死扩展名集合，`.ext` 只是把校验通过的结果如实写进 key，没有额外信息泄露；(b) URL 路径末段的 `.ext` 是**不依赖任何响应头就能拿到的类型信号**，MCP 下载器 / 内网代理 / 用户直接把 URL 粘进浏览器地址栏等场景都可能只看 URL 不看头，去掉后这些路径全部退化为"纯靠 `Content-Type` 头"，头一旦被中间层（代理、CDN、老旧网关）吞掉或改写就彻底没法判断类型；(c) `Content-Type` 现在的来源是**内网 S3 服务在 `PUT` 时按 key 的扩展名自动推导**（见下方 [§MIME / Content-Type 策略](#mime--content-type-策略)）——key 里没有 `<ext>`，S3 服务连推导依据都没有，`Content-Type` 反而会退化错，这不是"省了一步"，是直接破坏了现在这条更简单的 MIME 方案；唯一的"收益"是让 URL 变丑且更脆——没有对应的成本收益，故保留 `<ext>`。
 2. **原始文件名只进 DB**：§数据持久层的表已有 `filename` 字段，**零新增**——这张表就是「key ↔ 原名」映射。
-3. **新增下载接口** `GET /files/<uuid>.<ext>`（走上传服务自有域名，不再暴露 S3 host）：查表 → 流式转发 S3 对象（QPS/体量小，代理即可；未来可换 302 预签名 URL 卸载数据面，视 IT 桶服务是否支持预签名）→ 响应头：
-   - `Content-Disposition: attachment; filename*=UTF-8''<percent-encoded 原始文件名>`（RFC 5987，浏览器/下载方还原真实文件名）
-   - `Content-Type`：DB 存的 mime
+3. **新增下载接口** `GET /octoAiServer/files/<uuid>.<ext>`（走上传服务自有域名，不再暴露 S3 host；`/octoAiServer` 是内网实际路由前缀）：查表 → 流式转发 S3 对象（QPS/体量小，代理即可；未来可换 302 预签名 URL 卸载数据面，视 IT 桶服务是否支持预签名）→ 响应头：
+   - `Content-Type`：**PUT 时由内网 S3 服务自带的方法按扩展名推导并写入对象元数据，下载接口读取该值透传**（后台 2026-07-06 确认的实现方式，细节与验证要求见下方 [§MIME / Content-Type 策略](#mime--content-type-策略)）
+   - `Content-Disposition`：**统一 `inline`**（含 `filename*=UTF-8''<percent-encoded 原始文件名>`，RFC 6266，保留"另存为"时的原始文件名提示）——理由见下方 [§MIME / Content-Type 策略](#mime--content-type-策略)
 4. **上传响应 `content.url` 改为上述下载地址**；`fileId` / `fileName` 字段语义不变。**客户端合同零改动**（客户端只消费 `url`）。
 5. **MCP 工具侧零改动**（仍是「拿 url 发 GET」）。需与 UXR 确认两点：(a) MCP 分析服务到上传服务域名**网络可达**（现在可达的是 S3 host）；(b) 文件类型识别依据——URL 路径末段保留 `.ext` 后缀，若其还依赖文件名，`Content-Disposition` 里有原名。
+
+### MIME / Content-Type 策略
+
+> **本服务不是 MCP 专用通道**：§概述已写明「agent 项目自有的上传能力，各 agent 页面均可使用」。实际消费方按文件类型分叉——图片：① 发出后消息卡片**改用 S3 url 渲染**（[insight-file-passing.md §1③](insight-file-passing.md)：「发出的消息卡片改用 S3 url 渲染」，`<img src>` 直连本服务，浏览器直接渲染；② 多模态模型 provider 拿 URL 做 vision GET（服务端到服务端）。非图片文档（txt/md/docx/xlsx/pdf）：MCP 分析服务按需 GET（服务端到服务端，[SPEC-INS-015](insight-file-passing.md)），当前无浏览器内联预览 UI。
+
+**Content-Type：可以直接复用内网 S3 服务的设置**（2026-07-06 与后台核实，结论更正）。此前担心"PUT 时如果没显式传 `Content-Type`，对象会落 `application/octet-stream`"——现已确认后台走的是**内网 S3 服务自带的方法**在 `PUT` 时按扩展名推导并显式写入，不是裸传不设 header，所以下载接口直接读/透传该值是安全的，**不需要**我们自己维护一张扩展名→MIME 映射表、也不需要在 DB 里双写一份 mime 做兜底源。这比先前"应用层显式算 + DB 存一份"的方案更简单，本质是把 MIME 推导这件事交给一个更通用、经过验证的组件（内网 S3 服务自身），而不是我们另起一份大概率覆盖面更窄的自定义表。
+
+> **仍需联调核实一项**：部分老旧 mime 库对较新的 OOXML 类型（`docx`/`xlsx`）识别不准，可能落回 `application/octet-stream` 或通用 `application/zip`（docx/xlsx 本质是 zip 容器）。请在联调时**实际下载一次 docx / xlsx 样例文件，检查响应头**，确认拿到的是标准 OOXML mime（`application/vnd.openxmlformats-officedocument.wordprocessingml.document` / `...spreadsheetml.sheet`）而非上述兜底值——如果对不上，MCP/浏览器不受影响（都靠扩展名判断），但后续如果有环节按 `Content-Type` 做校验会踩坑，提前发现成本最低。
+
+**Content-Disposition：统一 `inline`（后台方案，采纳）**。原因站得住：浏览器对能原生渲染的类型（图片、`text/*`、`application/pdf`）才会真正 inline 展示；对渲染不了的类型（`docx`/`xlsx` 这类 OOXML 二进制），**无论 `Content-Disposition` 是 `inline` 还是 `attachment`，浏览器都会走"另存为"弹窗**——这是浏览器自身对不认识的二进制类型的兜底行为，不是由 `Content-Disposition` 决定的（`attachment` 才是"强制下载，即使类型本身可渲染"的唯一独占语义，例如图片配 `attachment` 会打断 `<img>` 渲染；`inline` 配不可渲染类型只是"退回默认行为"，不会有反效果）。所以对当前 10 个扩展名，统一 `inline` 和"图片 inline、文档 attachment"分流两种方案**观察结果一致**，前者更简单、和 AWS S3 静态站点默认行为（不强制 `Content-Disposition`，交给浏览器判断）路数一致，没有理由为了同样的效果多维护一条分支规则。
+
+> **唯一实际差异点：PDF**。浏览器普遍内置 PDF 阅读器，`inline` 会让用户点开链接时在标签页里直接看 PDF，`attachment` 则强制下载。当前产品没有暴露"直接打开源文件 URL"的入口，这条差异现在不可观察；即便未来加了这类入口，inline 直接预览通常也是更好的体验（能不能看比强制下载更符合直觉），不算风险点。
+>
+> **别漏的一环——`filename*` 参数**：`Content-Disposition: attachment` 一开始是这份提案里唯一携带"原始文件名"的地方（v2 后 URL 本身不再含文件名）。改 `inline` 不等于放弃这个能力——`inline` 同样可以带 `filename*=UTF-8''<percent-encoded 原始文件名>`（RFC 6266），浏览器在用户主动"另存为"时会用它做默认文件名。**需要跟后台确认这个参数保留了**，否则用户点"保存"时默认文件名会退化成 URL 末段的 `<uuid>.<ext>`，丢失可读性——这个丢的不是功能，是纯 UX 体验，但修复成本几乎为零（响应头多带一个参数），值得现在就定下来。
+
+**护栏（写给未来扩容用，当前不生效）**：`inline` 对纯数据格式（图片/文本/Office 二进制/PDF）是安全的——这些格式不会在浏览器里执行代码。**如果未来往 `ALLOWED_EXT` 白名单加入 `html` / `svg` / `xml` / `mhtml` 这类浏览器会解析并可能执行脚本的格式**，`inline` 就不能再统一沿用了：同源 `inline` 展示用户可控内容属于经典的存储型 XSS 入口（文件上传服务允许把上传的 HTML/SVG 当同源页面直接渲染，攻击者上传后诱导受害者打开链接即可执行任意脚本）。真到那一步，这几个格式必须强制 `attachment`（或换成不带 cookie 的独立下载域名隔离），不能和其余格式一起套统一规则。当前白名单的 10 个扩展名都是静态数据格式，不触发这条护栏，仅作为后续加类型时的检查项留档。
 
 ### 落地后客户端可回退项（杜绝后患清单）
 
@@ -105,7 +123,10 @@ cp .env.example .env.local
 // packages/app/src/pages/insight/lib/upload.ts
 const UPLOAD_ENDPOINT = "..." // TODO 内网开发给定后填入
 const MAX_UPLOAD_SIZE = 100 * 1024 * 1024  // Insight: 100MB
-const ALLOWED_EXT = ["txt", "md", "docx", "xlsx", "pdf"]
+// 非图片(MCP 消费)：txt/md/docx/xlsx/pdf；图片(vision + 气泡缩略图消费)：png/jpg/jpeg/gif/webp
+// 两类走同一个上传端点/同一份服务端白名单，只是客户端按扩展名分支决定后续注入路径（见概述），
+// 图片分支扩展名清单以 insight-image-attachment.md 为准，本文件不重复维护，此处合并展示
+const ALLOWED_EXT = ["txt", "md", "docx", "xlsx", "pdf", "png", "jpg", "jpeg", "gif", "webp"]
 
 export type UploadResult = {
   url: string
@@ -175,12 +196,12 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 | 常量 | 默认值 | 说明 |
 |---|---|---|
 | `MAX_UPLOAD_SIZE` | 100MB | Insight 当前场景。其他 agent 接入时可在各自 lib 内调整 |
-| `ALLOWED_EXT` | txt/md/docx/xlsx/pdf | 由 MCP 工具 `analyze_interview` 决定可处理格式 |
+| `ALLOWED_EXT` | txt/md/docx/xlsx/pdf（MCP 消费）+ png/jpg/jpeg/gif/webp（vision + 气泡缩略图消费，PR#235，见 [insight-image-attachment.md](../ui/insight-image-attachment.md)） | 非图片格式由 MCP 工具 `analyze_interview` 决定可处理格式；图片格式由多模态模型 vision 输入的常见支持范围决定 |
 | `MAX_ATTACHMENTS` | 10 | 单轮对话最多附件数（页面级常量，见 `insight/index.tsx`）。超出弹 toast「请保持上传文件不超过10个或分多轮对话处理」，单次批量超额截取前 N 个 |
 
 **客户端 chip 交互**：附件 chip 渲染在**输入胶囊内部顶部**（不在胶囊外），单行横向滚动（类 Claude/Gemini），不随内容撑开胶囊；单 chip 文件名溢出省略，chip 数量溢出横向滚动；下方 textarea 自有纵向滚动区。
 
-**文件选择器 accept**：`<input accept>` 由 `ALLOWED_EXT` 派生（`.txt,.md,.docx,.xlsx,.pdf`），让原生弹窗预过滤、减少误选。但 accept 仅是 UX 提示**不做强制**——拖拽完全绕过它，用户也可在弹窗切「所有文件」，故校验仍以 `validateFile`（扩展名 + 大小 0/上限）为唯一事实源。
+**文件选择器 accept**：`<input accept>` 由 `ALLOWED_EXT` 派生（`.txt,.md,.docx,.xlsx,.pdf,.png,.jpg,.jpeg,.gif,.webp`），让原生弹窗预过滤、减少误选。但 accept 仅是 UX 提示**不做强制**——拖拽完全绕过它，用户也可在弹窗切「所有文件」，故校验仍以 `validateFile`（扩展名 + 大小 0/上限）为唯一事实源。
 
 **失败 chip 反馈**：error chip 用样式化 Tooltip（非原生 title）hover 显示失败原因；仅"通过校验、真正发起过上传"的失败 chip（`retriable=true`）显示 ↻ 重传，客户端校验失败的 chip 不显示重传、提示「请删除后重新选择文件」。
 
@@ -273,9 +294,9 @@ agent 项目层不需要"清理某个 session 的文件"这种业务接口，靠
 
 ### 扩展名 / MIME 白名单
 
-服务端校验，与客户端 `ALLOWED_EXT` 保持一致：`txt, md, docx, xlsx, pdf`。
+服务端校验，与客户端 `ALLOWED_EXT` 保持一致：`txt, md, docx, xlsx, pdf, png, jpg, jpeg, gif, webp`（后 5 个是图片，走同一个上传端点/同一份服务端白名单，客户端按扩展名分流到不同的后续注入路径，见 §概述）。
 
-不在白名单返回 415。MIME 头与扩展名不一致时以扩展名为准（防止伪造 MIME）。
+不在白名单返回 415。**MIME 不采信客户端传值**（浏览器猜的、不可靠）——扩展名校验通过后，PUT 到内网 S3 时由其自带方法按扩展名推导 `Content-Type`，详见 [§MIME / Content-Type 策略](#mime--content-type-策略)。
 
 ### 接口合同
 
@@ -305,7 +326,7 @@ Body:
 ```json
 {
   "content": {
-    "url": "https://<upload-service>/files/9b94d620a1b2.txt",
+    "url": "https://<upload-service>/octoAiServer/files/9b94d620a1b2.txt",
     "fileId": "files/insight/2026-07-03/9b94d620a1b2.txt",
     "fileName": "访谈稿-张三 (2).txt",
     "size": 1004138,
@@ -498,6 +519,8 @@ bun run dev
 - [ ] DB 表写入：每次成功上传应在表里出现一行新记录（`upload_status=success`）
 - [ ] 大文件（接近 500MB）能成功上传且 stream 不爆服务端内存
 - [ ] lifecycle rule 已配置（`files/` prefix，365 天 expire）
+- [ ] `docx` / `xlsx` 各下载一次实测响应头，`Content-Type` 是标准 OOXML mime（不是 `application/octet-stream` / `application/zip`）——见 [§MIME / Content-Type 策略](#mime--content-type-策略)
+- [ ] `Content-Disposition: inline` 响应头带了 `filename*=UTF-8''<原始文件名>` 参数（不是裸 `inline` 不带文件名）
 
 #### 6. CORS / 部署注意
 
@@ -515,7 +538,7 @@ Access-Control-Allow-Headers: Content-Type
 
 ## 待补充
 
-- [ ] **2026-07-03 合同修订提案 v2（见顶部）与后台对齐**：uuid key + 下载走自有域名 + Content-Disposition；对齐后改写 §S3 路径策略 / §filename sanitize / §接口合同，并按「可回退项清单」还原客户端防御性改动
+- [ ] **2026-07-03 合同修订提案 v2（见顶部）与后台对齐**：uuid key + 下载走自有域名 + Content-Disposition；对齐后改写 §S3 路径策略 / §filename sanitize / §接口合同，并按「可回退项清单」还原客户端防御性改动。**2026-07-06 更新**：后台已在按 v2 方向实现，下载路径实际前缀确认为 `/octoAiServer/files/<uuid>.<ext>`（已同步进文档，`.ext` 是否可省略也已定论——见 §S3 路径策略 item 1），MIME/Content-Type 落地规则见 §MIME / Content-Type 策略；仍待：后台正式上线后逐条走一遍下方「联调与验证」清单
 - [ ] `VITE_OCTO_UPLOAD_ENDPOINT` 实际地址（待内网开发给定后写入 `packages/app/.env.local`）
 - [ ] 内网 S3 是否要求工号字段（access control 粒度）—— 若必填则在 form 里加 `user` 字段
 - [x] ~~服务端响应体字段名最终确认~~ 已确认走驼峰：`url` / `fileId` / `fileName` / `size` / `mime`
