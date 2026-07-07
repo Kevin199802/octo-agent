@@ -44,6 +44,8 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 > 与 [build-channel-injection.md](build-channel-injection.md) 坑 4/5 同机制:那篇是 `OCTO_CHANNEL` 被污染,本篇是业务地址变量被污染
 24. [resource-accessor-refetch-flashes-global-suspense.md](resource-accessor-refetch-flashes-global-suspense.md) — 排查复盘:Insight"每次发送/生成完整页闪一下初始加载动画"。真凶是会话列表 `createResource` 的 accessor 被在 render(`hasMore`)里读 → `session.updated` 事件触发 refetch → Solid"refetch 重新挂起 Suspense"把最外层全屏 `<Splash>` fallback 顶出来,子树却不卸载(故无重挂、数据不变)/ A/B/C/D 四假设按代价排除的方法论 /「整页像重置但代码无重挂」= 优先查祖先 Suspense / 根治:render 只读镜像信号·`.loading`·`.error`,绝不读 resource accessor
 25. [git-pull-merge-vs-rebase.md](git-pull-merge-vs-rebase.md) — `git pull` 三种策略:为何 `--merge` 不存在(`--no-rebase` 才是正确写法)/ merge(菱形历史)vs rebase(线性历史)vs fast-forward-only(只允许前进)机制对比 / 冲突解法 / 何时用哪个 / 全局配置默认策略
+26. [terminal-proxy-and-corporate-gateway.md](terminal-proxy-and-corporate-gateway.md) — 浏览器/终端两套代理体系为何互不相通 / 产物代理链路(`setGlobalProxyFromEnv`·mac `$SHELL -il` 抓环境·win 继承用户级变量·NO_PROXY 内网豁免·系统证书加载)/ netentsec 网关实测行为(中间人重签·按 UA 拦裸 curl 伪造 503·按域名 TLS 层掐断·浏览器裁决法)/ 各平台 curl 坑(schannel 吊销检查·mac 不读钥匙串·`-s` 吞报错)/ 按信号强弱的排查方法论(超时→407→503 各指向什么)
+> 配套操作手册见 [../intranet-proxy-setup.md](../intranet-proxy-setup.md)(纯步骤,给小白粘命令)
 
 > 后续可能补:
 >
