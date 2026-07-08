@@ -195,6 +195,11 @@ sqlite3 ~/.local/share/opencode/opencode-local.db "SELECT id, title FROM session
 
 ## 7. HTTP 路由概览
 
+> ⚠️ **这节只是路由列表,不是路由框架的全貌**——本仓实际同时有两套后端实现(传统 Hono 路由 + 新的
+> 类型化 Effect HttpApi),`dev`/`beta`/`local` 渠道默认只有后者在跑,前者对这些渠道是死代码。
+> 新增接口该写在哪、两套怎么选、404 排查方法论,见
+> [hono-vs-effect-httpapi-routing.md](hono-vs-effect-httpapi-routing.md)。
+
 完整路由在 [packages/opencode/src/server/instance/](../../packages/opencode/src/server/instance/) 各文件,Hono + hono-openapi 注册。常用路由:
 
 | 路由 | 方法 | 用途 |

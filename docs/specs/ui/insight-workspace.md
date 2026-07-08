@@ -1,8 +1,10 @@
 # SPEC-INS-004 — 右侧 Workspace 工作区面板
 
-> 状态：草案 · 优先级 P2 · 规模 [M] · 领域 ui/insight
+> 状态：草案（部分被取代，见下） · 优先级 P2 · 规模 [M] · 领域 ui/insight
 >
 > 上游已实现：✓ SessionSidePanel（文件树+上下文 Tab，但限 session 页面）；✗ insight/ 独立工作区面板
+
+> **2026-07-08：本文档的"文件管理 UI"部分被 [SPEC-INS-014 §10](../infra/insight-worktree-layout.md#10-文件管理-ui-v2-新增取代-spec-ins-004-原草案) 取代**——实际实现不是本文档设想的 260px 常驻侧栏 + 四 section（工作文件/上下文/记忆/上传文件），而是站内 Make 模块已验证的 `viewMode: "tabs"|"files"` 页面级切换模式（"文件管理"pill 整块替换 tab 内容区）。以 SPEC-INS-014 §10 为准。本文档"上下文"/"记忆" section（工作文件/上传文件之外的部分）暂未实现，若后续要做仍可参考本文档，但落地形式需重新对齐。
 
 ---
 
