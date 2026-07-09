@@ -1,6 +1,6 @@
 # SPEC-INS-014 — Insight 本地工作目录布局（worktree 文档本地化）
 
-> 状态：草案（v2，会话隔离修订） · 优先级 P1 · 规模 [M] · 领域 infra/insight
+> 状态：草案（v3，UI 打磨对齐 Design；v2 会话隔离） · 优先级 P1 · 规模 [M] · 领域 infra/insight
 >
 > 上游已实现：✓ projectDir 目录绑定（[SPEC-INS-012](../ui/insight-directory-scoping.md)）、✓ v1 已上线 `dev`（PR #238，`insight/sources`+`insight/outputs` 扁平布局）；✗ 按会话隔离、✗ `sources`→`uploads` 改名、✗ 文件管理 UI
 >
@@ -9,6 +9,8 @@
 ---
 
 > ## 修订记录
+>
+> **2026-07-09：v3（§10.1 文件管理 UI 对齐 Design 模块）**——把 §10 的两段平铺列表升级为表格视图（多选/表头排序/按类型或修改时间分组/类型筛选/真上传+拖拽落区）；kind 分类改走**客户端派生、未动服务端**（订正 sonnet 原草案的"服务端分类"）；错误处理从 `createResource` 双 resource 改为手动 `refresh()` + `try/catch` 收口；连带修 viewMode 引入后"点对话产物卡片打开 tab 却不聚焦（停在文件管理）"的 §10 回归。详见 §10.1 + §8 #10。
 >
 > **2026-07-08：v1（projectDir 扁平共享）→ v2（按会话隔离）**——v1 已上线 `dev`，把 `insight/sources`+`insight/outputs` 做成**按 projectDir 键控、跨 session 共享**（v1 §2 原文："为什么不按 id 分桶"：故意不分桶，为了免费拿到跨会话共享，把"按会话分桶"列为"以后如果觉得乱再做"的备选项）。
 >
@@ -207,7 +209,7 @@
 | 图片附件改走 S3 URL（而非 base64）| [图片附件 spec](../ui/insight-image-attachment.md) |
 | **跨会话聚合视图**（"整个项目下所有会话的文件"）（v2 新增排除项） | 未来独立 spec；本次目录结构不阻碍，`sessionId` 已是必填维度 |
 | **会话删除后清理磁盘目录**（v2 新增排除项） | 不做，磁盘文件是用户资产，删会话不等于用户想删文件 |
-| 文件管理面板的删除/重命名/归档/批量操作/拖拽上传（v2 新增排除项） | 本次只做只读列表 + 打开为 tab + 本地打开/显示文件夹；后续按需扩 |
+| 文件管理面板的删除/重命名/归档/批量操作（v2 排除项；v3 已补真上传+拖拽+多选选中态，见 §10.1） | 删除/重命名/归档/批量下载仍未做，后续按需扩 |
 | 跨设备 / 云端同步 | 不做（单机本地盘已够；同步成本大收益弱）|
 
 ---
@@ -229,7 +231,7 @@
 | 7 | 关 app 重开同一目录、同一会话 | `insight/<sessionId>/uploads` `outputs` 里该会话的文件仍在 | 外网 |
 | 8 | 新建第二个会话 | 文件管理 UI 只看到这个新会话自己的文件，看不到第一个会话的（**不再**跨会话共享，v1→v2 的核心行为变化）| 外网 |
 | 9 | 不选目录 / 浏览器 __dev | 跳过本地拷贝；MCP 主流程不受影响（降级不报错）| 外网 |
-| 10 | 文件管理面板拉取失败（如 `/insight/files` 404 或其他网络错误）| 只在文件管理面板内显示"加载文件列表失败 + 重试"，**不整页崩溃**（`InsightFileManager` 对 uploads/outputs 两个 resource 分别挡 `.error`，不直接调用可能已 error 的 resource accessor）| 外网 |
+| 10 | 文件管理面板拉取失败（如 `/insight/files` 404 或其他网络错误）| 只在文件管理面板内显示"加载文件列表失败 + 重试"，**不整页崩溃**（`FileManagerInner` 用 `try/catch` 收口 uploads/outputs 两段 `Promise.all` fetch，失败置 `store.error` → 面板内渲染重试按钮，不 `throw` 到 ErrorBoundary。注:v3 已从 v2 的 `createResource` 双 resource 改为手动 `refresh()` + store 收口,以对齐 Design 的取数形态）| 外网 |
 
 ---
 
@@ -251,30 +253,42 @@ SPEC-INS-014（本 spec，地基）
 
 [SPEC-INS-004](../ui/insight-workspace.md) 原草案设想的是一个 260px 常驻侧栏、四个 section（工作文件/上下文/记忆/上传文件）。本次实际选择了**站内 Make 模块已验证的模式**：`viewMode: "tabs" | "files"` 页面级切换（不是常驻侧栏，也不是 `tabStore` 里的一个不可关闭假 tab）——`ResultViewer` 顶部 TabBar 里一个"文件管理"pill，点击整块替换 tab 内容区；`viewMode` 默认 `"files"`，配合"面板常驻可见"（不再要求 `tabs.length > 0` 才显示）实现"进入会话就能看到文件"。
 
-与 Make 的关键差异：Insight 的 worktree 是**扁平**的（无子文件夹），文件管理面板不需要 Make 那套文件夹导航（breadcrumb/navigateToFolder），直接是"已上传 / 已生成"两段平铺列表。
+**打开产物 tab 时必须切回 `"tabs"` 视图**（v3 订正/补充）：`viewMode` 默认 `"files"`，若"打开+激活 tab"只 `openTab` 不切 `viewMode`，tab 虽加入却停在文件管理不显示（用户点对话产物卡片后看不到内容）。故凡"打开+激活 tab"的入口统一走 `focusResultTabs()`（`setResultViewMode("tabs")` + 展开面板）；关掉最后一个 tab 时落回 `"files"`。见 §10.1 末"连带修的一个 §10 回归"。
+
+与 Make 的关键差异：Insight 的 worktree 是**扁平**的（无子文件夹），文件管理面板不需要 Make 那套文件夹导航（breadcrumb/navigateToFolder）。v2 直接是"已上传 / 已生成"两段平铺列表；**v3（§10.1）已升级为表格视图**（多选/表头排序/分组/类型筛选），两段作为可折叠顶层分区保留。
 
 **服务端接口（重要：不是普通 Hono 路由）**：`GET /insight/files?sessionId&category=uploads|outputs`，列 `insight/<sessionId>/<category>/`；不做 `/content`（复用现有 `source:"path"` tab 机制读文件）、不做 kind/mime 分类（复用客户端已有的 `extToOutputType()`/`fileTypeIconUrl()`）。
 
 > **实现踩坑记录**：本仓开发/预览渠道默认启用 `OPENCODE_EXPERIMENTAL_HTTPAPI`（`packages/opencode/src/core/flag/flag.ts`），启用后请求走的是**另一套基于 Effect 的类型化 HttpApi 系统**（`server/routes/instance/httpapi/groups/*.ts` 定义 endpoint schema + `handlers/*.ts` 实现），普通 Hono 路由文件（`server/routes/instance/*.ts`，如 `artifact.ts`）在这个后端模式下**完全不会被调用**——首版实现照抄 `artifact.ts` 的写法新写了一个 Hono 文件，排查了很久才发现整条代码路径是死的。正确做法：接口应加进已有的类型化 `insight` 分组（`httpapi/groups/insight.ts` 定义 `InsightFileListQuery`/`InsightFileListResult`/`listFiles` endpoint + `httpapi/handlers/insight.ts` 实现 `listFiles` handler，用 `InstanceState.context` 拿 `instance.directory`，不是普通 Hono 里的 `Instance.directory` 静态导入）。这个机制的详细说明见 learning 笔记 [hono-vs-effect-httpapi-routing.md](../../learning/hono-vs-effect-httpapi-routing.md)。
 
-本期范围：只读列表 + 点击以 tab 打开 + 本地打开/显示文件夹；不做删除/重命名/归档/批量操作/拖拽上传（见 §7）。
+v2 本期范围：只读列表 + 点击以 tab 打开 + 本地打开/显示文件夹；不做删除/重命名/归档/批量操作/拖拽上传（见 §7）。**v3（§10.1）已补：真上传（文件选择器 + 拖拽落区，复用附件那条 copy→move 链路）+ 多选选中态**；删除/重命名/归档/批量下载仍未做。
 
 > SPEC-INS-004 需要在文档顶部加交叉引用，标记"文件管理 UI 部分被本 spec §10 取代，实现细节以此为准"。
 
-### §10.1 下一轮：UI 打磨对齐 Design 模块（v3，待实施）
+### §10.1 UI 打磨对齐 Design 模块（v3，已实施）
 
-当前实现（`pages/insight/components/file-manager/index.tsx`）只有"已上传/已生成"两段平铺列表，样式明显简陋于站内 **Design 模块**已上线的"文件管理"（`pages/make/components/design-files/`，用户内网实测"还原度高"）。下一轮对齐，参照 Design 模块结构、复用 Insight 已有能力，**不抄它的存储层**（Design 存 `.octo/artifacts/make/`，Insight 按 §2 走显性 `insight/<sessionId>/`，这条本 spec 已定，不重新讨论）：
+> 2026-07-09 落地。参照站内 **Design 模块**已上线的"文件管理"（`pages/make/components/design-files/` + `make/utils/artifact-file-store.ts`，用户内网实测"还原度高"），把 §10 的两段平铺列表升级为表格视图，**不抄它的存储层**（Design 存 `.octo/artifacts/make/`，Insight 按 §2 走显性 `insight/<sessionId>/`）。Insight 自包含，未 import 任何 make 目录下的组件。
 
-| 缺口 | Design 模块参照实现 | Insight 落地建议 |
+下表为已落地的对照结果（"Insight 实际做法"列即本次实现；与 sonnet 原草案不一致处已就地订正）：
+
+| 缺口 | Design 模块参照实现 | Insight 实际做法（已落地） |
 |---|---|---|
-| 顶部工具栏：刷新 / 分组切换(类型⇄修改时间) / 类型筛选 / 上传 | `make/components/design-files/design-files-toolbar.tsx` | 照结构重写一份，图标用 `@opencode-ai/ui/icon` 或 Insight 自己的 `icons/`（不导入 make 的 `design-files-icons.tsx`，保 insight 自包含） |
-| 分组：按修改时间分桶（今天/昨天/最近7天/最近30天/更早，各带 count，可折叠）+ 按类型分组两种模式 | `make/utils/artifact-file-store.ts` 的 `groupMode`/`modifiedGroups`/`kindGroups`/`createFileListComputed` | 结构可直接照抄（这套计算逻辑与后端存储形态无关），换成读 Insight 自己的 `InsightFileEntry[]` |
-| 排序：点表头（名称/类型/修改时间）切换升降序 | `artifact-file-store.ts` 的 `sortKey`/`sortDir` + 表头点击 | 同上抄结构 |
-| 类型筛选：popover + 各类型 count | `artifact-file-store.ts` 的 `kindFilter`/`availableKinds`/`kindCounts` | 需要先给 `InsightFileEntry` 加 `kind` 字段（服务端 `listFiles` handler 里按扩展名分类，可复用现有 `extToOutputType()`/新写一份简化版，不需要 Design 那套完整 `KIND_BY_EXT`——insight worktree 里文件类型更少） |
-| 多选：checkbox 列 + 全选 | `artifact-file-store.ts` 的 `selected`/`allPageSelected`/`somePageSelected` | 照抄；本轮**只做选中态**，批量操作（下载/删除）是否要做另议，先不承诺 |
-| 真上传：点"上传"接文件选择器 + 拖拽 | `design-files-toolbar.tsx` 的上传入口 + Design 自己的 `/artifact/upload` | Insight 这边应该复用**已有的** `copySourceToWorktree`/`copyFileToWorktree`（index.tsx 里给输入框附件用的那条链路），不要新造一条上传通道——文件管理面板的"上传"本质是让用户脱离对话框也能往 `insight/<sessionId>/uploads/` 塞文件，落地机制该是同一套 |
-| 视图空态 / loading 态细节 | `design-files-panel.tsx` 的 loading/error/empty 三态 | Insight 已有 error 态（本 spec §10 已做，防崩溃），loading/empty 态可以再打磨得更接近 |
+| 顶部工具栏：刷新 / 分组切换(类型⇄修改时间) / 类型筛选 / 上传 | `make/components/design-files/design-files-toolbar.tsx` | 新写 `file-manager/toolbar.tsx`；图标用 `@opencode-ai/ui/icon`（`upload`/`sliders`/`chevron-down`/`ellipsis`/`arrow-up`/`arrow-down`）+ Insight 自己新增的 `IconRefresh`（ui Icon 无 refresh）。**未** import make 的 `design-files-icons.tsx` |
+| 分组：按修改时间分桶（今天/昨天/最近7天/最近30天/更早，各带 count，可折叠）+ 按类型分组两种模式 | `make/utils/artifact-file-store.ts` 的 `groupMode`/`modifiedGroups`/`kindGroups`/`createFileListComputed` | 新写 `utils/insight-file-store.ts`，照抄这套计算逻辑（与后端存储形态无关），换成读 `InsightFile[]`；砍掉 worktree 用不到的文件夹导航（`currentPath`/`navigateToFolder`/`upload-files` 前缀）。视图状态（sort/filter/group/折叠）按 sessionId 持久化到 localStorage |
+| 排序：点表头（名称/类型/修改时间）切换升降序 | `artifact-file-store.ts` 的 `sortKey`/`sortDir` + 表头点击 | 同上，在 `insight-file-store.ts` 里照抄 |
+| 类型筛选：popover + 各类型 count | `artifact-file-store.ts` 的 `kindFilter`/`availableKinds`/`kindCounts` | **kind 在客户端派生，未动服务端**（订正 sonnet 原草案的"服务端 listFiles handler 里分类"——`listFiles` 已把 `name` 回给客户端,分类是纯展示逻辑,信息够;且 `extToOutputType()` 在 app 包、opencode 服务端 import 不到,照字面做等于服务端重写分类器 + 改一次类型化 HttpApi schema,按 [hono-vs-effect-httpapi 笔记](../../learning/hono-vs-effect-httpapi-routing.md) 能不碰服务端就不碰）。实现见 `insight-file-api.ts` 的 `fileKind()`/`kindLabel()`/`kindSortPriority()`,口径与 `fileTypeIconUrl()` 同源,枚举比 Design 的 12 类精简 |
+| 多选：checkbox 列 + 全选 | `artifact-file-store.ts` 的 `selected`/`allPageSelected`/`somePageSelected` | 照抄为 `selected`/`allSelected`/`someSelected`；**只做选中态**，批量操作（下载/删除）未做 |
+| 真上传：点"上传"接文件选择器 + 拖拽 | `design-files-toolbar.tsx` 的上传入口 + Design 自己的 `/artifact/upload` | **未新造上传通道**：`local-file-ops.ts` 新增 `copyFilesToSessionUploads()`,复用输入框附件那条既有链路——`copyFileToWorktree`（拷进预会话区 `insight/uploads/`）→ `movePendingUploadToSession`（rename 进 `insight/<sessionId>/uploads/`）。文件管理面板一定在真实会话里,故拷完直接归属本会话。支持文件选择器 + 拖拽落区 |
+| 视图空态 / loading 态细节 | `design-files-panel.tsx` 的 loading/error/empty 三态 | 三态齐备：初次加载 Spinner、空态（插画 + 上传按钮，按钮色值/尺寸对齐 Design 的 `#0a59F7`/108×32）、错误态（面板内"加载失败 + 重试"）。错误处理见 §8 #10 订正 |
 
-**明确不建议做的**：Design 的文件夹导航（`navigateToFolder`/breadcrumb）——insight worktree 扁平，没有子文件夹，不需要；`upload-files/` 前缀剥离逻辑同理不需要。
+**没做（与 Design 有意不同）**：Design 的文件夹导航（`navigateToFolder`/breadcrumb）——insight worktree 扁平，没有子文件夹；`upload-files/` 前缀剥离逻辑同理不需要。批量下载/删除也未做（只做多选选中态）。
 
-**给下一轮实施者的提示**：先读本 spec 全文（尤其 §2 存储布局、§10 服务端接口形态、§10 的"实现踩坑记录"——新加/改服务端接口要确认走的是类型化 HttpApi 而不是死掉的 Hono 路由），再读 [hono-vs-effect-httpapi-routing.md](../../learning/hono-vs-effect-httpapi-routing.md)，再对照 Design 模块的三个参照文件；有 UI 截图（Design 模块实现 + 当前 Insight 实现）可以直接对照着改样式。
+**落地文件清单**：
+- `utils/insight-file-api.ts` — 加 `InsightFileKind` + `fileKind()`/`kindLabel()`/`kindSortPriority()`/`toInsightFile()`（客户端分类）
+- `utils/insight-file-store.ts` — 新增，视图状态 store（Design `artifact-file-store.ts` 的精简端口）
+- `components/file-manager/toolbar.tsx` — 新增，顶部工具栏
+- `components/file-manager/index.tsx` — 改写为表格视图（按 sessionId `keyed` 重建以隔离会话状态）
+- `utils/local-file-ops.ts` — 加 `copyFilesToSessionUploads()`
+- `icons/index.tsx` — 加 `IconRefresh`
+
+**连带修的一个 §10 回归**（viewMode 引入后暴露）：点对话里的产物卡片会 `openTab` 但不切 viewMode，`viewMode` 停在 `"files"`（文件管理）时 tab 虽已加入却不显示（用户停在文件管理空态、看不到内容）。修法：index.tsx 抽 `focusResultTabs()`（= `setResultViewMode("tabs")` + 展开面板），凡"打开+激活 tab"的入口（`handleOpenResult` / `handleTaskOpenResult` / pendingOpen effect / auto-open effect / `openFileFromManager`）统一走它。见 §10 viewMode 机制补充。
