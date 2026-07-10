@@ -33,7 +33,7 @@
 | `[octo:assistant]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 一轮结束后完整 dump assistant message 原始内容 |
 | `[octo:task]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) · [utils/task-refresh.ts](../packages/app/octoapp/pages/insight/utils/task-refresh.ts) | 长任务卡片:切会话清状态、刷新/终止/打开产物、聚合 diff |
 | `[octo:upload]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | **SPEC-INS-015 后**:客户端校验 + 非图片导入 worktree(`doImport`)+ **图片 change 即传 S3**(`image-upload`)+ 重试。非图片 S3 上传已下沉 server 端插件(`[octo:inject] lazy-upload`)。 |
-| `[octo:preset]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 预置提示词点击 |
+| `[octo:chip]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | **SPEC-INS-017「研究工具」chip**(纯常驻的范围限制,只手动 × 取消):选功能(`chip-select`)/取消(`chip-clear`)/发送含 tools gate(`chip-send`)/turn 完成对账工具调用结果(`chip-result`;`not-called` 不必然是失败——是否调用归模型判断)。取代原 `[octo:preset]`(预置胶囊行已随 017 下线,功能并入 chip 菜单) |
 | `[octo:task-detect]` | [utils/task-detect.ts](../packages/app/octoapp/pages/insight/utils/task-detect.ts) | 从 part 读 task_id |
 | `[octo:detect]` / `[octo:card]` | [components/insight-turn.tsx](../packages/app/octoapp/pages/insight/components/insight-turn.tsx) | text → 卡片检测、resource_link 卡片 |
 | `[octo:resource-link]` / `[octo:resource]` | [utils/resource-link.ts](../packages/app/octoapp/pages/insight/utils/resource-link.ts) | resource_link 识别 / fetch |
@@ -50,7 +50,7 @@
 
 | 前缀 | 来源文件 | 关注什么 |
 |---|---|---|
-| `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前读 `[附件]` 清单的本地路径、**按需上传 S3**、把模型填的文件名/路径换成精确 URL([SPEC-INS-015 文件传参](specs/infra/insight-file-passing.md) ④)。地址由 `OCTO_UPLOAD_ENDPOINT` 控制 |
+| `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前读 `[附件]` 清单的本地路径、**按需上传 S3**、把模型填的文件名/路径换成精确 URL([SPEC-INS-015 文件传参](specs/infra/insight-file-passing.md) ④);**chip turn 另走声明强制对齐**(`chip-declaration enforced`,[SPEC-INS-017 §2.1](specs/infra/insight-mcp-explicit-entry.md))。地址由 `OCTO_UPLOAD_ENDPOINT` 控制 |
 | `[octo:extract]` | [packages/opencode/src/tool/extract_document.ts](../packages/opencode/src/tool/extract_document.ts) | **server 端工具**:office→文本抽取(docx=mammoth / pdf=unpdf / xlsx=exceljs / pptx=jszip 直抽,[SPEC-INS-016](specs/infra/insight-extract-document.md)),gate 到 octo_insight。`ok`:path/format/chars/tokenEstimate/ms/pages·sheets·slides;`failed`:path/reason(`not-found`·`unsupported`·`parse-error`)/format/err |
 | `[octo:kb]` | [packages/opencode/src/tool/knowledge_search.ts](../packages/opencode/src/tool/knowledge_search.ts) | **server 端工具**:chat 内网知识库检索(getKnowledgeVector)。spec 见 [specs/agents/chat-knowledge-search.md](docs/specs/agents/chat-knowledge-search.md) |
 | `[octo:mcp]` | [config/config.ts](../packages/opencode/src/config/config.ts) · [mcp/index.ts](../packages/opencode/src/mcp/index.ts) | **server 端**:内建 MCP(uxr-tool)生效配置 + 连接过程参数。地址由 `OCTO_UXR_MCP_URL` 控制(见 [config/builtin-mcp.ts](../packages/opencode/src/config/builtin-mcp.ts) + [specs/agents/mcp-contract.md §MCP server 地址配置](docs/specs/agents/mcp-contract.md)) |
@@ -81,7 +81,9 @@ grep -E "\[octo:(mcp|kb|inject|extract)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 >
 > `[octo:inject]` 关键字段:`lazy-upload ok`(按需上传成功:`localPath`/`url`/`ms`/`cacheSize`,无此条而工具又用了文件 → 没触发上传;multipart 文件名 = 原样 basename,客户端不清洗——字符集安全交上传服务合同 v2,见 file-upload.md 顶部提案;v2 前特殊字符名下载失败属已知窗口)；`args rewritten` 的 `before`(模型填的,应是文件名或本地路径)/ `after`(注入后,应是精确 S3 URL)/ `changed`(是否真替换了,false=模型填的串不在引用键表)/ `knownRefs`(整个 session 已知引用键数=文件名+完整路径+磁盘 basename,约文件数×3,2026-07-03 起)/ `uploaded`(本次按需上传或命中缓存的引用数)。匹配为**三键精确命中**——不做去空白等启发式归一化(2026-07-03 加过、同日复审回退:有静默误配风险且"模型改写引用"是无界类);模型抄错文件名 → `changed:false` / 部分未替换 → 工具失败错误回灌,根治见 SPEC-INS-017 §2.1(chip 声明钉死参数)。**无该日志** = 工具 args 里没有"以文档扩展名结尾"的串(`hasFileRef` 早退,非文件工具都这样,正常),或该工具是 `extract_document`(显式跳过)。`args 含文件名形态串但 session 无 [附件] 区块` = 清单没注入或格式被破坏。`OCTO_UPLOAD_ENDPOINT 未配置` = sidecar 没拿到上传地址(查 electron.vite define + `.env` 的 `VITE_OCTO_UPLOAD_ENDPOINT`)。上传失败会抛错让工具调用失败、错误回灌模型(SPEC-INS-015)。
 >
-> **注意上传在 sidecar(Node 进程)、不在渲染 DevTools**:渲染器 Network 看不到这个上传请求,只能查落盘日志(dev 模式为固定 `dev.log`)。桌面 sidecar 是 Node 运行时(Electron utilityProcess.fork),插件与 extract_document 用 `node:fs`、不能用 `Bun.*`(会 `Bun is not defined`)。
+> `[octo:inject]` **chip 声明路径**(SPEC-INS-017 §2.1,2026-07-06 修订语义:字段校验 + URL 固定替换 + 注入,**不覆盖文件集**——文件选择/分桶归模型):chip turn 的 `uxr-tool_*` 调用命中当前 turn 的 `[MCP声明]` 时走该路径,不再走上面的通用替换。`chip-declaration enforced`:`files`(替换的文件数)/ `userPromptCorrected`(true = 模型改写了用户原文、被矫正回声明原文)/ `correctionHits`(进程内累计)/ `before` / `after`。**校验失败即抛错**(错误回灌模型,信息附可用文件清单):`download_links 必须是非空` = 模型没填/填空(常见于没附件硬调,模板本要求它先向用户要材料);`不在 [附件] 清单` = 模型抄错文件名(三键精确 miss);`要求 outline_file_path` = 多角色工具漏填大纲。`chip-declaration parse failed`(error)= 声明 JSON 坏,客户端 bug;`chip-declaration tool mismatch`(⚠️)= 声明的工具 ≠ 实际调用(如 chip turn 里模型违规调 get_task_result),回落通用路径。前端对账日志见 DevTools `[octo:chip]`。注意:MCP 工具(`uxr-tool_*`)自 2026-07-06 起**不做 hasFileRef 早退**(校验要接管"模型漏填文件参数"的情况),每次调用都会拉一次 session 消息。
+>
+> **注意上传在 sidecar(Node 进程)、不在渲染 DevTools**:渲染器 Network 看不到这个上传请求。**`[octo:inject]` / `[octo:extract]` 是裸 `console.log`,跟随 sidecar stdout——成品包被主进程 pipe 进 `main.log`(2026-07-08 内网实证,不在 opencode 的 log 目录!),run dev 打在外部 server 终端**;opencode log 目录里的是 `service=` 结构化日志(`[octo:mcp]` 连接、`toolsForAgent` 等)。落点定位细节见 [find-local-logs.md](./find-local-logs.md) ③。桌面 sidecar 是 Node 运行时(Electron utilityProcess.fork),插件与 extract_document 用 `node:fs`、不能用 `Bun.*`(会 `Bun is not defined`)。
 >
 > `[octo:kb]` 四条(出在 server 进程,不在客户端 DevTools):
 > - `config`:**排查 env/域名首选**。`envBaseUrl`(server 读到的 `OCTO_KB_BASE_URL`,由 `.env.<channel>` 经 electron.vite define + createSidecarEnv 注入)/ `usingMockDefault`(true=没读到 base、回落 localhost:8787 mock,内网出现这个=没在对的 .env 里设 `OCTO_KB_BASE_URL`)/ `resolvedBase` / `url`(**实际请求的完整地址,拿它和 Insomnia 能跑通的 URL 逐字对比**)。
@@ -290,7 +292,7 @@ grep -E "\[octo:(mcp|kb|inject|extract)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 
 ### 1.7 其他前缀(出场较少)
 
-- `[octo:preset] click` — 点预置提示词,填入输入框。([index.tsx:685](../packages/app/octoapp/pages/insight/index.tsx#L685))
+- `[octo:chip] chip-select / chip-clear / chip-send / chip-result` — 「研究工具」chip 全链路(SPEC-INS-017,纯常驻范围限制):选功能、取消、发送(带 `toolGate`,与 server 端 `[octo:inject] chip-declaration enforced` 对账)、turn 完成后工具调用结果(`called`/`status`;`not-called` **不必然是失败**——是否调用归模型判断,可能在向用户索取材料/确认分桶/回应其他意图;激活态无任何自动清除,只手动 ×)。([index.tsx](../packages/app/octoapp/pages/insight/index.tsx));原 `[octo:preset] click` 已随预置胶囊行下线
 - `[octo:task-detect] readTaskInfo` — 从某 part 读出 task 信息。([utils/task-detect.ts:73](../packages/app/octoapp/pages/insight/utils/task-detect.ts#L73))
 - `[octo:detect] start / reject / match / html-fence-found` — InsightTurn 从 text part 检测能否出卡片(`reject` 带 `reason`)。([components/insight-turn.tsx](../packages/app/octoapp/pages/insight/components/insight-turn.tsx))
 - `[octo:card] resource_links (no task)` — 有 resource_link 但无 task_id 时的卡片路径。([components/insight-turn.tsx:121](../packages/app/octoapp/pages/insight/components/insight-turn.tsx#L121))

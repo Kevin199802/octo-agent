@@ -72,6 +72,7 @@
 | `IllustrationInsightEmpty` | 对话空状态插图 | 120×120 推荐 | 无插图，仅文字 | `insight/index.tsx → ChatEmptyState()` |
 | `IconSend` | 发送按钮 | 14×14 | 文字"发送" | `insight/index.tsx` 输入框工具栏右侧 |
 | `IconAttach` | 附件上传按钮 | 14×14 | 文字"＋ 附件" | `insight/index.tsx` 输入框工具栏左侧 |
+| 研究工具 chip 视觉（SPEC-INS-017） | 输入框底栏「研究工具」模式胶囊（模型选择器右侧）：默认态「研究工具 ˅」/ 激活态高亮胶囊「<功能> ×」/ 上弹功能菜单 | — | 默认态已对齐模型选择器触发钮（灰底胶囊 + 13px + chevron-down 图标）；× 为字符占位；激活态为 brand 色胶囊。placeholder 文案已用设计师定稿（2026-07-08，`store/preset-prompts.ts`），无缺口 | `insight/components/mcp-chip.tsx` + `octo-tokens.css .octo-mcp-*` |
 
 ---
 
