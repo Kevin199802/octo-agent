@@ -161,7 +161,7 @@ opencode/Vercel AI SDK 把这些都归一化成统一的 `tool_use` Part(见 [op
 
 ## 4. 思考链(Reasoning / Thinking)
 
-支持思考链的模型在协议层各不相同。
+支持思考链的模型在协议层各不相同。本节是总览;各格式的深入对比、多轮回传口径、我们的消费链路见 [reasoning-output-formats.md](reasoning-output-formats.md)。
 
 ### 4.1 Anthropic — `thinking` 块
 
@@ -185,9 +185,9 @@ opencode/Vercel AI SDK 把这些都归一化成统一的 `tool_use` Part(见 [op
 }
 ```
 
-### 4.2 OpenAI o-series — `reasoning_content`
+### 4.2 OpenAI o-series — 不暴露思考正文
 
-OpenAI o1/o3 模型把思考放在响应的 `reasoning_content` 字段(单独于 `content`)。OpenAI 的 thinking **不暴露具体内容**(只给 token 计数),Reasoning 模型默认不展示思考过程。
+OpenAI 官方 API 的 reasoning 模型(o1/o3/GPT-5)**不返回思考正文**:Chat Completions 只给 `reasoning_tokens` 计数,Responses API 里思考是加密的 reasoning item(最多给摘要)。注意:兼容生态里常见的 `reasoning_content` / `reasoning` 字段都**不是** OpenAI 官方协议,前者是 DeepSeek 首创的事实标准,后者是 OpenRouter/gpt-oss 生态约定,详见 [reasoning-output-formats.md](reasoning-output-formats.md)。
 
 ### 4.3 DeepSeek-R1 / Qwen3 thinking — `reasoning_content`
 
