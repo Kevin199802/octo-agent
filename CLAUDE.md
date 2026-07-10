@@ -38,6 +38,7 @@
 ## 文档维护
 
 - **spec 完成 / 变更后,更新 [ROADMAP.md](ROADMAP.md)**
+- **内网版本改动记录在 [docs/releases/](docs/releases/)**,起草 / 增量更新 / 定版按其 README 流程执行
 - **ADR** 一旦落地不删;改决策开新 ADR,在旧 ADR 顶部链过去
 - **spec / ADR / learning 改完直接 commit,无需开 PR**(commit / push 前仍需用户确认)
 - **重复内容走引用**：spec / ADR / learning 各司其职,事实层重叠时剥离换引用,不复制粘贴
