@@ -1,4 +1,6 @@
-# SPEC-INS-010 聊天区排版产品化 — 现状取证 + 设计对接
+# SPEC-INS-020 聊天区排版产品化 — 现状取证 + 设计对接
+
+> **编号变更记录（2026-07-11）**：原误标 SPEC-INS-010（与 [insight-standalone-extraction.md](insight-standalone-extraction.md) 撞号，后者外部引用坐实为真 010），改分配 020，不影响正文。
 
 > **上游已实现**:✓ 正文 `<Markdown>`、✓ 思维链 `reasoning-part`、✓ 思考指示器 / 单行摘要。
 > 本 spec 只规划 Octo 定制（insight 作用域覆盖，**不动上游、不动全局 token**）。

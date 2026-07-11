@@ -1,4 +1,6 @@
-# SPEC-INS-009: Insight 对话面板顶部标题栏
+# SPEC-INS-019: Insight 对话面板顶部标题栏
+
+> **编号变更记录（2026-07-11）**：原误标 SPEC-INS-009（与 [insight-result-panel-reveal.md](insight-result-panel-reveal.md) 撞号，后者外部引用坐实为真 009），改分配 019，不影响正文。
 
 **上游已实现：✓**（参照 `packages/app/src/pages/session/message-timeline.tsx` 原生标题 header）
 

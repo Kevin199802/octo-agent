@@ -1,7 +1,9 @@
 # Roadmap — octo-insight 文档维护
 
-> 本仓是 insight 设计文档库,本 ROADMAP 跟踪**文档维护**任务。
+> 本仓是 insight 设计文档库,本 ROADMAP 跟踪**文档维护**任务,只面向未来待办。
 > insight 的功能 / 代码开发计划在 UXAI 仓。
+> 找某个 `SPEC-INS-NNN` 对应哪个文件,查 [docs/specs/README.md](docs/specs/README.md) 登记表,不要在本文件里全文检索。
+> 已完成的实现里程碑史料见 [README.md「参考旧实现」](README.md#参考旧实现);UXAI 侧版本改动记录见 [docs/releases/](docs/releases/)。
 
 **规模标签**:`[S]` < 半天　`[M]` 1–2 天　`[L]` 3–5 天
 
@@ -40,14 +42,3 @@
 | C | `[S]` | **`@` 引用所有文档类型** — 文件名联想 + 按需读取（纯文本可先于 B、office 等 B 点亮）| A（office 靠 B）| 待起草 |
 | D | `[M]` | **二次生成** — 读本地源 + 上轮产物（MCP 或本地）→ edit；含 **`[产物]` 清单回注**（outputs 产物路径注入 prompt,与 `[附件]` 对称）+ `edit` 工具 + 产物版本策略（不可变 + `-v2` 新文件,B2 §3 已定死）；独立于能力线 | A（office 源靠 B）、B2（read/write 已挂） | 待起草 |
 | E | `[L]` | **本地解析能力线后续** — 观点解析之外的能力逐个加（思维导图 / …）;**块级拆分合并由 B1 埋点数据决策**（chip 点击中超阈值占比,上线 2–4 周回看）,不预先立项;方法论 / 体裁 skill 依赖 [skill-system](docs/specs/agents/skill-system.md)（分层：格式归 tool、体裁归 skill、编排归代码） | B1、B2 | 待数据（v1 收敛为 B2） |
-
----
-
-## 设计演进(归档前在 octo-agent 落地的实现里程碑)
-
-> insight 从 0 到 1 的实现历程,代码在 `archive/insight-impl-2026-06`,保留作设计参考。
-
-- **架构基座**:Electron 渲染入口、OctoShell 框架层(sidebar + topbar)、SolidJS 复用上游 UI([ADR-004](docs/adr/004-solidjs-ui-reuse.md))、cascading 配置([ADR-008](docs/adr/008-cascading-config.md))
-- **insight 页面**:InsightPage 骨架(DataStore + SSE + PromptInput)、3 栏布局、AttachmentBar 附件上传、InsightTurn + OutputCard 卡片、ResultViewer Tab 结果查看器
-- **渲染器**:detectCard、Mindmap(markmap)、Html(iframe sandbox)、Table(Excel 导出)、resource_link 路由
-- **agent / 数据**:octo_insight agent 配置 + 注册、Session.agent 字段化(修侧栏归属,见 [spec](docs/specs/infra/session-agent-attribution.md))、提示词模板、任务卡片(长任务状态机,[ADR-013](docs/adr/013-long-task-progress-strategy.md))、debug-observer(`[octo:event]` + `window.octoDebug`)、S3 URL 无损传 MCP(handle + `octo-upload-inject` 插件,[ADR-014](docs/adr/014-url-injection-via-plugin.md))
