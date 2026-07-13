@@ -31,9 +31,10 @@
 | `[octo:prompt]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 发送链路全程:入参、optimistic、async 受理、无反馈探测 |
 | `[octo:queue]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | busy 期间排队 / flush / 取消 |
 | `[octo:assistant]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | 一轮结束后完整 dump assistant message 原始内容 |
-| `[octo:task]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) · [utils/task-refresh.ts](../packages/app/octoapp/pages/insight/utils/task-refresh.ts) | 长任务卡片:切会话清状态、刷新/终止/打开产物、聚合 diff |
+| `[octo:task]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) · [utils/task-refresh.ts](../packages/app/octoapp/pages/insight/utils/task-refresh.ts) | 长任务卡片:切会话清状态、刷新/终止/打开产物、聚合 diff;`child-session navigation blocked` = task 子会话导航被拦截(SPEC-INS-021 §1:子会话不作为用户级对话暴露) |
 | `[octo:upload]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | **SPEC-INS-015 后**:客户端校验 + 非图片导入 worktree(`doImport`)+ **图片 change 即传 S3**(`image-upload`)+ 重试。非图片 S3 上传已下沉 server 端插件(`[octo:inject] lazy-upload`)。 |
 | `[octo:chip]` | [index.tsx](../packages/app/octoapp/pages/insight/index.tsx) | **SPEC-INS-017「研究工具」chip**(纯常驻的范围限制,只手动 × 取消):选功能(`chip-select`)/取消(`chip-clear`)/发送含 tools gate(`chip-send`)/turn 完成对账工具调用结果(`chip-result`;`not-called` 不必然是失败——是否调用归模型判断)。取代原 `[octo:preset]`(预置胶囊行已随 017 下线,功能并入 chip 菜单) |
+| `[octo:permission]` | [components/permission-dock.tsx](../packages/app/octoapp/pages/insight/components/permission-dock.tsx) | **SPEC-INS-021 §2 权限询问 Dock**:`pending`(询问浮出:permissionID/permission/patterns——出现即该轮在等用户点选,对应旧「贴外部路径卡在正在探索」)/ `respond`(用户点了 拒绝/仅本次/总是允许) |
 | `[octo:task-detect]` | [utils/task-detect.ts](../packages/app/octoapp/pages/insight/utils/task-detect.ts) | 从 part 读 task_id |
 | `[octo:detect]` / `[octo:card]` | [components/insight-turn.tsx](../packages/app/octoapp/pages/insight/components/insight-turn.tsx) | text → 卡片检测、resource_link 卡片 |
 | `[octo:resource-link]` / `[octo:resource]` | [utils/resource-link.ts](../packages/app/octoapp/pages/insight/utils/resource-link.ts) | resource_link 识别 / fetch |
@@ -51,7 +52,7 @@
 | 前缀 | 来源文件 | 关注什么 |
 |---|---|---|
 | `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前读 `[附件]` 清单的本地路径、**按需上传 S3**、把模型填的文件名/路径换成精确 URL([SPEC-INS-015 文件传参](specs/infra/insight-file-passing.md) ④);**chip turn 另走声明强制对齐**(`chip-declaration enforced`,[SPEC-INS-017 §2.1](specs/infra/insight-mcp-explicit-entry.md))。地址由 `OCTO_UPLOAD_ENDPOINT` 控制 |
-| `[octo:extract]` | [packages/opencode/src/tool/extract_document.ts](../packages/opencode/src/tool/extract_document.ts) | **server 端工具**:office→文本抽取(docx=mammoth / pdf=unpdf / xlsx=exceljs / pptx=jszip 直抽,[SPEC-INS-016](specs/infra/insight-extract-document.md)),gate 到 octo_insight。`ok`:path/format/chars/tokenEstimate/ms/pages·sheets·slides;`failed`:path/reason(`not-found`·`unsupported`·`parse-error`)/format/err |
+| `[octo:extract]` | [packages/opencode/src/tool/extract_document.ts](../packages/opencode/src/tool/extract_document.ts) | **server 端工具**:文档→文本抽取(docx=mammoth / pdf=unpdf / xlsx=exceljs / pptx=jszip 直抽,[SPEC-INS-016](specs/infra/insight-extract-document.md);**SPEC-INS-021 §3 起支持 txt/md 直读**,过程条 title 中文「提取文档正文:xx」),gate 到 octo_insight。`ok`:path/format/chars/tokenEstimate/ms/pages·sheets·slides;`failed`:path/reason(`not-found`·`unsupported`·`parse-error`)/format/err |
 | `[octo:kb]` | [packages/opencode/src/tool/knowledge_search.ts](../packages/opencode/src/tool/knowledge_search.ts) | **server 端工具**:chat 内网知识库检索(getKnowledgeVector)。spec 见 [specs/agents/chat-knowledge-search.md](docs/specs/agents/chat-knowledge-search.md) |
 | `[octo:mcp]` | [config/config.ts](../packages/opencode/src/config/config.ts) · [mcp/index.ts](../packages/opencode/src/mcp/index.ts) | **server 端**:内建 MCP(uxr-tool)生效配置 + 连接过程参数。地址由 `OCTO_UXR_MCP_URL` 控制(见 [config/builtin-mcp.ts](../packages/opencode/src/config/builtin-mcp.ts) + [specs/agents/mcp-contract.md §MCP server 地址配置](docs/specs/agents/mcp-contract.md)) |
 

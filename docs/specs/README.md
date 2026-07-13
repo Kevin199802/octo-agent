@@ -7,7 +7,7 @@
 
 ---
 
-## 已编号（SPEC-INS-001 ~ 020）
+## 已编号（SPEC-INS-001 ~ 021）
 
 | 编号 | 标题 | 状态 | 领域 | 文件 |
 |---|---|---|---|---|
@@ -28,9 +28,10 @@
 | 015 | Insight Agent 文件传参机制（上传 / 路由） | 草案 | infra/insight/agent | [insight-file-passing.md](infra/insight-file-passing.md) |
 | 016 | `extract_document` 工具（office → 文本） | 已实现，内网验证中（UXAI PR #272） | infra/insight/tool | [insight-extract-document.md](infra/insight-extract-document.md) |
 | 017 | MCP 显式入口（输入框 chip 触发） | ✅ 已实现（外网，分支 `feat/mcp-explicit-entry`） | infra/ui/insight | [insight-mcp-explicit-entry.md](infra/insight-mcp-explicit-entry.md) |
-| 018 | 本地解析 v1（长上下文直喂，观点解析先行） | 草案（2026-07-03） | infra/insight | [insight-local-analysis-v1.md](infra/insight-local-analysis-v1.md) |
+| 018 | 本地解析 v1（长上下文直喂，观点解析先行） | 草案（2026-07-11 修订：工具面拆出至 021、锚点+校验器、能力形态定案） | infra/insight | [insight-local-analysis-v1.md](infra/insight-local-analysis-v1.md) |
 | 019 | Insight 对话面板顶部标题栏 | 上游已实现 ✓ | ui/insight | [insight-conversation-header.md](ui/insight-conversation-header.md) |
 | 020 | 聊天区排版产品化 — 现状取证 + 设计对接 | 现状取证阶段 | ui/insight | [reasoning-content-typography.md](ui/reasoning-content-typography.md) |
+| 021 | insight 工具集收敛 + 权限交互 + extract_document 入口修正 | 已实现（外网，分支 `feat/insight-toolset-convergence`；人工验证清单见 spec §8） | infra/insight | [insight-toolset-convergence.md](infra/insight-toolset-convergence.md) |
 
 > **019 / 020 编号说明（2026-07-11）**：这两份历史上分别误标成 009 / 010，与 [009](ui/insight-result-panel-reveal.md) / [010](ui/insight-standalone-extraction.md) 撞号。撞号排查发现后者才是被外部引用坐实的真号（前者零外部引用），按"孤儿号改分配新号，不动已发布号"处理，改分配为当时的下一个空闲号 019 / 020。001–018 未受影响。
 
