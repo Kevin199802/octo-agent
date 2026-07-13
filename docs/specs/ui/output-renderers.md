@@ -758,12 +758,16 @@ INode 树 → markmap-view 渲染为 SVG
 
 ### 4.5 导出（ActionBar）
 
+下载菜单（现状）：
+
 | 选项 | 实现 |
 |---|---|
-| 复制 JSON | 复制原始 JSON 字符串 |
-| 下载 .json | blob 下载原始 JSON |
-| 导出 SVG | 直接 `svgRef.outerHTML` 序列化下载 |
-| 导出 PNG | SVG → canvas → toBlob，P2 视需求实现 |
+| 原始格式 | blob 下载原始 JSON（`stripCodeFence(content)` → `<base>.json`） |
+| Octo 白板格式 | 转成 Octo 内网白板导入 JSON 后下载 `<base>-Octo白板.json`（见 §4.7） |
+
+> **下载项统一命名「原始格式」**（2026-07）：各单格式类型（mindmap/html/json/code/markdown、uri 原件的旧「另存为」）的原生下载项标签统一成「原始格式」，不再按扩展名各叫各的（旧标签如「JSON (.json)」「HTML (.html)」）。**唯一例外 `table` 卡**保留 Markdown/CSV/Excel 三项（三种是真有用的不同导出，见 §3.2），不收敛。
+>
+> 复制沿用（复制原始 JSON 字符串）。SVG/PNG 导出仍为 P2，未实现。
 
 ### 4.6 边界处理
 
@@ -773,6 +777,41 @@ INode 树 → markmap-view 渲染为 SVG
 | 外层数组但 flat 后为空 | 显示"思维导图为空"占位 |
 | 节点没有 name 字段 | 渲染为 "(空)" |
 | children 不是数组 | 视作叶子节点 |
+
+### 4.7 导出到 Octo 内网白板（2026-07）
+
+打通「能渲染成思维导图的 JSON」→「Octo 内网白板可导入的 JSON」。仅是**下载时的格式转换**，不改渲染/嗅探链路。
+
+**触发范围**：`mindmap` 卡恒给「Octo 白板格式」；`json` 卡内容嗅探为导图（`isMindmapJSON` 真，与渲染成 markmap 同一口径）时也给。两者覆盖思维导图的全部来源（路径 A `business_type:"mindmap"` / 路径 B 模型直出嗅探 / 路径 A `application/json` 或路径 C `.json` 文件恰为树形）。
+
+**目标格式（Octo 白板导入 JSON）**：节点用 `text` 字段（思维导图用 `name`），`children` 结构一致；叶子节点不带 `children` 键。示例：
+
+```json
+{
+  "text": "中心主题",
+  "children": [
+    { "text": "分支主题", "children": [{ "text": "子主题" }, { "text": "子主题" }] },
+    { "text": "分支主题", "children": [{ "text": "子主题" }] },
+    { "text": "分支主题" }
+  ]
+}
+```
+
+**转换规则**（`mindmap-adapter.uxrJsonToOctoWhiteboard`，与渲染/判定共用 `collectRoots` 同一条规则，杜绝「判中但转空」漂移）：
+- `name → text` 递归改写；`children` 递归；叶子（无子）不写 `children` 键。
+- 节点 `name` 缺失 / 空白 → `"(空)"`（与 §4.4 `renderNode` 空节点兜底对齐）。
+- **多根**（`mindmaps` / 双层数组可能多棵树）时 Octo 白板根须是单对象 → 用卡片标题合成一个中心主题包住所有根；**单根**直接输出该根，不加多余中心层。
+- 非导图 shape / 解析失败 → 返回 `null`，下载入口 toast「当前内容不是有效的思维导图结构，无法转换为 Octo 白板格式」（此项仅挂在已判定为导图的卡上，常态不触达）。
+
+**文件名**：`<base>-Octo白板.json`，与「原始格式」的 `<base>.json` 不撞名（同目录连续下载不覆盖）。
+
+**验证（外网可复现）**：
+1. 让 Agent 直出一段思维导图 JSON（或走 mindmap MCP 工具），右栏出思维导图卡、markmap 正常渲染。
+2. 点「下载 ▾」→ 菜单含「原始格式」+「Octo 白板格式」两项。
+3. 点「Octo 白板格式」→ 落地 `<name>-Octo白板.json`；打开确认根为单对象、节点字段为 `text`、叶子无 `children` 键。
+4. 单测 `mindmap-octo.test.ts` 覆盖单根 / 多根合成 / fence / 空名 / 非导图兜底。
+
+**内网验证**：把导出的 `-Octo白板.json` 导入 Octo 白板，确认层级/文案还原、无导入报错。
 
 ---
 
