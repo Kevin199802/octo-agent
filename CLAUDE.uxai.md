@@ -1,5 +1,9 @@
 # CLAUDE.md — Octo Insight 开发（UXAI 本地）
 
+## 对话语言（强制）
+
+所有对话输出一律用简体中文(解释、追问、汇报、commit / PR 说明等面向用户的文字),不因话题切换或引用英文材料改用其他语言;代码、命令、标识符、专有名词照原样,不硬译。
+
 ## 文档仓
 
 设计文档(architecture / spec / ADR / learning / handoff)的真相源在 **octo-agent 仓**:
