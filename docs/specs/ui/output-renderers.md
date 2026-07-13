@@ -763,7 +763,7 @@ INode 树 → markmap-view 渲染为 SVG
 | 选项 | 实现 |
 |---|---|
 | 原始格式 | blob 下载原始 JSON（`stripCodeFence(content)` → `<base>.json`） |
-| Octo 白板格式 | 转成 Octo 内网白板导入 JSON 后下载 `<base>-Octo白板.json`（见 §4.7） |
+| Octo 白板格式 | 转成 Octo 内网白板导入 JSON 后下载 `<base>_octo.json`（见 §4.7） |
 
 > **下载项统一命名「原始格式」**（2026-07）：各单格式类型（mindmap/html/json/code/markdown、uri 原件的旧「另存为」）的原生下载项标签统一成「原始格式」，不再按扩展名各叫各的（旧标签如「JSON (.json)」「HTML (.html)」）。**唯一例外 `table` 卡**保留 Markdown/CSV/Excel 三项（三种是真有用的不同导出，见 §3.2），不收敛。
 >
@@ -803,12 +803,12 @@ INode 树 → markmap-view 渲染为 SVG
 - **多根**（`mindmaps` / 双层数组可能多棵树）时 Octo 白板根须是单对象 → 用卡片标题合成一个中心主题包住所有根；**单根**直接输出该根，不加多余中心层。
 - 非导图 shape / 解析失败 → 返回 `null`，下载入口 toast「当前内容不是有效的思维导图结构，无法转换为 Octo 白板格式」（此项仅挂在已判定为导图的卡上，常态不触达）。
 
-**文件名**：`<base>-Octo白板.json`，与「原始格式」的 `<base>.json` 不撞名（同目录连续下载不覆盖）。
+**文件名**：`<base>_octo.json`（原文件名 + `_octo` 后缀），与「原始格式」的 `<base>.json` 不撞名（同目录连续下载不覆盖）。
 
 **验证（外网可复现）**：
 1. 让 Agent 直出一段思维导图 JSON（或走 mindmap MCP 工具），右栏出思维导图卡、markmap 正常渲染。
 2. 点「下载 ▾」→ 菜单含「原始格式」+「Octo 白板格式」两项。
-3. 点「Octo 白板格式」→ 落地 `<name>-Octo白板.json`；打开确认根为单对象、节点字段为 `text`、叶子无 `children` 键。
+3. 点「Octo 白板格式」→ 落地 `<name>_octo.json`；打开确认根为单对象、节点字段为 `text`、叶子无 `children` 键。
 4. 单测 `mindmap-octo.test.ts` 覆盖单根 / 多根合成 / fence / 空名 / 非导图兜底。
 
 **内网验证**：把导出的 `-Octo白板.json` 导入 Octo 白板，确认层级/文案还原、无导入报错。
