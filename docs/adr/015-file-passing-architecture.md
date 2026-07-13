@@ -4,6 +4,8 @@
 
 已采纳（2026-06-29）· 已落地（SPEC-INS-015，UXAI PR #251）
 
+**2026-07-03 修订**：分支 ④（任意文件 → MCP 工具）的**触发方由模型隐式改为用户显式**（输入框 chip，见 [SPEC-INS-017](../specs/infra/insight-mcp-explicit-entry.md)）；MCP 工具（含未对接的 `search_reports`）退出模型常驻工具集。理由：弱模型隐式选工具的命中率风险整类消除、MCP 仪式段落退出常驻提示词、用户对排队知情。插件按需上传机制（文件名→URL 注入）**不变**。
+
 > **本 ADR 只记「为什么这样分流」的决策与理由。具体规则 / 载体 / 时机 / 实现以 [SPEC-INS-015 文件传参机制](../specs/infra/insight-file-passing.md) 为唯一真相源**（避免两处漂移）。下方分流骨架保留作决策依据。
 >
 > 上游基线：opencode 原生 `FilePart`（`text/plain` 内联 / 二进制 base64，见 [prompt.ts:1103-1264](../../packages/opencode/src/session/prompt.ts#L1103)）。四分支落地情况见 spec。
@@ -46,7 +48,7 @@ insight 让用户附带文件（docx/xlsx/pdf/图片/纯文本…），文件要
 | 纯文本 / md / 代码 → 模型读 | 原生 `FilePart(file://sources/…, text/plain)` → 自动内联文本 | 否 | — |
 | office（docx/xlsx/pdf）→ 模型读 | **本地路径引用（text）+ `extract_document` tool**（[Spec B]），模型按系统提示词在遇到支持格式时调该 tool；tool 未就绪时模型 fallback 写脚本读 | 否（本地） | — |
 | 图片 → 多模态模型看 | `FilePart(url = S3 url)`（**不 base64**） | 是 | 发送时（图片是模型上下文，回合内必须就位） |
-| 任意文件 → MCP/UXR 工具分析 | `handle` 块（[ADR-014]）→ 插件**按需上传**：模型调工具时才传 S3、path→url 换进 args | 是 | **工具调用时** |
+| 任意文件 → MCP/UXR 工具分析 | `handle` 块（[ADR-014]）→ 插件**按需上传**：模型调工具时才传 S3、path→url 换进 args。**2026-07-03 修订**：触发方改为用户显式（chip 单 turn 注入，[SPEC-INS-017]） | 是 | **工具调用时** |
 
 ### 2. 有存储后端 → 图片走 S3 URL，不走 base64
 
@@ -80,3 +82,5 @@ insight 让用户附带文件（docx/xlsx/pdf/图片/纯文本…），文件要
 - [SPEC-INS-014](../specs/infra/insight-worktree-layout.md)（本地工作目录地基 = sources/outputs）
 - [MCP 文件按需上传 spec](../specs/infra/insight-file-passing.md)、[图片附件处理 spec](../specs/ui/insight-image-attachment.md)
 - [SPEC-INS-016](../specs/infra/insight-extract-document.md)（Spec B：office→文本抽取，`extract_document` 工具本体）
+- [SPEC-INS-017](../specs/infra/insight-mcp-explicit-entry.md)（分支 ④ 触发方修订：MCP 显式入口）
+- [SPEC-INS-018](../specs/infra/insight-local-analysis-v1.md)（本地解析 v1：长上下文直喂，本地成为默认主路）
