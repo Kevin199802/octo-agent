@@ -10,6 +10,12 @@
 
 > ## 修订记录
 >
+> **2026-07-14：v4（产物落盘机制修订——确立「文件管理 = 会话真产物库」）**——把 §10 文件管理的定义收敛为「只收真·文件产物」，据此反转 §4.2 两处既有决定：
+> - ① MCP `resource_link` 产物从「点开卡才 materialize」的**懒落地**改为**出卡即落**（eager）。文件管理列的是 `outputs` 磁盘上的真实文件（§10 服务端 `listFiles`），懒落地导致「生成了但用户没点开的产物，在文件管理里查无此文件」——这正是本次要修的现象（起因：思维导图卡产物不在文件管理）。
+> - ② `write` 产物（路径 C）**由「不强制」升为「提示词约定写 outputs」**——[octo_insight.md](../../../packages/opencode/src/agent/prompt/octo_insight.md) 新增「落文件产物」小节：生成**交付型文件产物**时写入本会话 `insight/<sessionId>/outputs/`（从 `[附件]` 路径 `uploads`→`outputs` 同级推得），仅供自身回读的中间/暂存文件不写此处。**依据**：`write` 是 insight agent 的常驻工具（[agent.ts](../../../packages/opencode/src/agent/agent.ts) `write: allow`、`bash: deny`），产物写到任意路径会导致「对话里看得到 agent 写文件、常驻的文件管理里却查无此文件」（易被当 bug）；且这正是 **Claude Cowork 的既有做法**（同款 per-session `uploads`(只读)+`outputs`(可读写/持久) 结构，其 agent「输出文件写入 outputs/」）。**前端无需改动**——文件管理已列真实 `outputs/`，写入即可见。（起草 v4 初稿时曾一度改为「不落」，理由是顾虑 scratch 污染产物库；后据 Claude Cowork 实证 + `write:allow` + 常驻文件管理的一致性诉求，改回「约定写 outputs」，scratch 由 agent 自行写别处规避。）
+> - **排除 inline 嗅探卡**（路径 B：从对话正文嗅探出的 mindmap/html 预览，见 [output-renderers §2.1](../ui/output-renderers.md)）——它是「对话内容的**附加预览**」而非文件产物（无天然文件名、无差别落盘会用对话碎片淹没产物库、且它在对话流内已可见可复制），维持不物化落盘，靠用户手动「下载/另存」沉淀（§7 新增排除项）。
+> - **为什么不做「下载即双写」**（讨论过、否掉）：曾考虑让 action-bar 下载按钮在浏览器下载的同时回写一份进 outputs。否掉——「下载/另存」是用户**手动选路径**的动作，与「产物默认落盘」是两条正交的线；双写会让 outputs 混入用户本想存到别处的副本（含转换派生格式如「Octo 白板」）。落盘只对「真产物生成」这条线负责。
+>
 > **2026-07-09：v3（§10.1 文件管理 UI 对齐 Design 模块）**——把 §10 的两段平铺列表升级为表格视图（多选/表头排序/按类型或修改时间分组/类型筛选/真上传+拖拽落区）；kind 分类改走**客户端派生、未动服务端**（订正 sonnet 原草案的"服务端分类"）；错误处理从 `createResource` 双 resource 改为手动 `refresh()` + `try/catch` 收口；连带修 viewMode 引入后"点对话产物卡片打开 tab 却不聚焦（停在文件管理）"的 §10 回归。详见 §10.1 + §8 #10。
 >
 > **2026-07-08：v1（projectDir 扁平共享）→ v2（按会话隔离）**——v1 已上线 `dev`，把 `insight/sources`+`insight/outputs` 做成**按 projectDir 键控、跨 session 共享**（v1 §2 原文："为什么不按 id 分桶"：故意不分桶，为了免费拿到跨会话共享，把"按会话分桶"列为"以后如果觉得乱再做"的备选项）。
@@ -157,13 +163,21 @@
 
 ### 4.2 产物落点（`insight/<sessionId>/outputs`）
 
+**落地时机 = 出卡即落（eager，v4 修订）**：MCP `resource_link` 产物在**对话流出卡时**就触发 materialize 落进 outputs，不等用户点开卡片。
+
+> **为什么改 eager（v4）**：文件管理「生成文件」段列的是 outputs 目录里的**真实文件**（§10 `listFiles`），而非「对话里出过的卡」。v3 及以前是**懒落地**——`downloadResourceToTemp` 只在用户点开产物卡（result-viewer 渲染 / 编辑 / 定位）时才被调用，导致「生成了、卡也在，但没点开过 → 文件管理查无此文件」。eager 让「文件管理 = 会话真产物库」的定义自洽。
+>
+> **eager vs lazy 权衡**：懒落地省一次网络+磁盘（没看的产物不下载），但代价是文件管理与「产物是否被查看」耦合，违反「产物库 = 已生成的全部产物」的心智；eager 反过来。选 eager，与「显性存储、可管理」的 spec 立场（§0）一致。**实现注意**：① 一次 `completed` 可能返回 N 个 `resource_link`，eager 落地要控制并发、单个失败不阻断其余（记 `[octo:worktree] result-materialize` 带 `reason`）；② 幂等键不变（见下「幂等性保持」），已落地/用户改过的那份不被 eager 覆盖。
+
 - `downloadResourceToTemp` 的落点为 `<baseDir>/insight/<sessionId>/outputs/<file>`（扁平，撞名加后缀），新增必填 `sessionId` 参数；`baseDir` 或 `sessionId` 缺一 → 走 OS 临时目录降级（不持久，无本地能力线）。
 - **同步更新调用点**（否则预览读 A、编辑写 B 会漂移）：
   - [local-resource.ts `ensureLocalMarkdownFile`](../../../packages/app/octoapp/pages/insight/utils/local-resource.ts) — 新增 `sessionId` 参数
   - [result-viewer/index.tsx `UriMarkdownTabBody`/`FileFallback`](../../../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx)、[action-bar.tsx](../../../packages/app/octoapp/pages/insight/components/result-viewer/action-bar.tsx)、[markdown-editor/index.tsx](../../../packages/app/octoapp/pages/insight/components/markdown-editor/index.tsx) — 各自本地 `useParams()` 取 `sessionId`（路由 `/insight/:id?`，Solid context 不受 `Portal` 影响，不需要逐层 prop 传递）
   - 桌面 IPC 内 `reuse-existing` 幂等逻辑：幂等键仍是"卡首次落地后记在 tab 上的本地路径"（不变，v1 已确立）
 - **幂等性保持**：路径多了一层 sessionId，"已落地复用用户改过的那份"行为不变。
-- **路径 C（write 产物）**：write 工具写哪就在哪，本不经此机制；若希望 agent 产物也统一进 `insight/<sessionId>/outputs`，由 agent 提示词约定写入路径（属能力线 / agent 配置，不在本 spec 强制）。
+- **路径 C（write 产物）——维持不强制落 outputs（v4 复核后保留 v2 行为）**：write 工具写哪就在哪，不经本机制。**为什么不改**（起草 v4 时曾想「约定写 outputs」，核对 agent 行为后否掉）：insight agent「输出聚焦研究洞察、不做文件修改」（[octo_insight.md](../../../packages/opencode/src/agent/prompt/octo_insight.md) §注意），其 `write` 主要用于**中间/暂存文件**（超长抽取结果落盘回读等），非用户交付物；强塞 outputs 会像 inline 一样**污染产物库**（把 scratch 当产物）。
+  - **也不做前端事后搬运**：write 既可能是「生成产物」也可能是「就地修改用户文件」或「暂存 scratch」，前端从 tool part 无法可靠区分意图，一律 copy 进 outputs 是启发式误判（违反确定性原则）。
+  - 待将来真出现「write 交付物」能力（如生成结构化报告文件供用户下载/复用）时，再由那条能力在 agent 侧约定写 `insight/<sessionId>/outputs/` + 核对白名单（v2 白名单 [ipc.ts](../../../packages/desktop/src/main/ipc.ts) 已按分段放行 `insight/<sessionId>/{uploads,outputs}`，天然可用）。本次不改提示词。
 
 > 旧 v1 扁平数据（`insight/sources`、`insight/outputs`）：**不做迁移**。桌面 IPC 的 write-file 白名单改为只放行新的会话分桶路径，旧路径不再放行——Insight 的 tab 是纯内存 signal、不跨重启持久化，不存在"存活的 tab 引用旧路径"的场景，因此不会有半迁移状态。
 
@@ -209,6 +223,8 @@
 | 图片附件改走 S3 URL（而非 base64）| [图片附件 spec](../ui/insight-image-attachment.md) |
 | **跨会话聚合视图**（"整个项目下所有会话的文件"）（v2 新增排除项） | 未来独立 spec；本次目录结构不阻碍，`sessionId` 已是必填维度 |
 | **会话删除后清理磁盘目录**（v2 新增排除项） | 不做，磁盘文件是用户资产，删会话不等于用户想删文件 |
+| **inline 嗅探卡物化落盘**（v4 新增排除项） | 不做。路径 B（对话正文嗅探出的 mindmap/html 预览，[output-renderers §2.1](../ui/output-renderers.md)）是「对话内容的附加预览」而非文件产物，维持只在对话流内可见、靠用户手动「下载/另存」沉淀，不写 outputs。这是「文件管理 = 会话真产物库」定义的直接推论，见 v4 修订记录 |
+| **下载/另存即回写 outputs（双写）**（v4 新增排除项） | 不做。action-bar 下载按钮（含转换派生格式如「Octo 白板」）维持纯手动另存到用户选定路径，不回写 outputs——落盘只对「真产物生成」负责，见 v4 修订记录 |
 | 文件管理面板的删除/重命名/归档/批量操作（v2 排除项；v3 已补真上传+拖拽+多选选中态，见 §10.1） | 删除/重命名/归档/批量下载仍未做，后续按需扩 |
 | 跨设备 / 云端同步 | 不做（单机本地盘已够；同步成本大收益弱）|
 
@@ -226,7 +242,8 @@
 | 2 | 发送第一条消息（带上一步的附件） | 文件被 rename 进 `<projectDir>/insight/<新sessionId>/uploads/<name>.docx`；`insight/uploads/` 下不再有它；`[octo:worktree] upload-move ok`；`[附件]` 清单路径是新路径 | 外网 |
 | 3 | 走预置 → 触发 MCP | 与今天一致（eager 上传 + `[octo:inject] args rewritten`）；本 spec 未改此链路 | 内网（依赖 MCP） |
 | 4 | 同名不同内容再导入（同一会话内） | 加后缀 `<name> (2).docx`，不覆盖；输入框 chip 与 `[附件]` 清单显示**带后缀的落地名** | 外网 |
-| 5 | 触发 MCP 任务 → 完成 → 点开产物卡 | 产物落 `<projectDir>/insight/<sessionId>/outputs/<file>`；`[octo:worktree] result-materialize` 带 `sessionId` | 内网（依赖 MCP 产出真实产物；本地也可用 write 工具产物代替验证落点） |
+| 5 | 触发 MCP 任务 → 完成、**卡片出现即刻（不点开）** | 产物**当场**落 `<projectDir>/insight/<sessionId>/outputs/<file>`（v4 eager，不再需要点开）；文件管理「生成文件」段立刻能看到；`[octo:worktree] result-materialize` 带 `sessionId` | 内网（依赖 MCP 产出真实产物；本地也可用 write 工具产物代替验证落点） |
+| 5b | 对话回复里含 ```mindmap / html fence（inline 嗅探出卡）| 卡片可预览，但 outputs 目录**不新增**文件、文件管理也不出现它（v4：inline 不物化落盘）；点该卡的「下载」另存到别处，outputs 仍不变 | 外网（本地构造含 fenced mindmap 的回复即可复现）|
 | 6 | markdown 卡编辑 → 保存 → 关卡重开 | 回显改动（幂等工作副本仍生效，落点在 `insight/<sessionId>/outputs`）| 外网 |
 | 7 | 关 app 重开同一目录、同一会话 | `insight/<sessionId>/uploads` `outputs` 里该会话的文件仍在 | 外网 |
 | 8 | 新建第二个会话 | 文件管理 UI 只看到这个新会话自己的文件，看不到第一个会话的（**不再**跨会话共享，v1→v2 的核心行为变化）| 外网 |
