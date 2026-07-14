@@ -16,6 +16,10 @@
 
 **铁律:永远从最新 `dev` 切分支。** 动手前先 `git fetch origin && git checkout dev && git pull --ff-only`。
 
+**PR 合并后立刻删分支**(去 GitHub 仓库 Settings → General 开 "Automatically delete head
+branches",不依赖人工记得删)。删分支不影响追溯:commit 已经在目标分支的祖先链上,PR 页面
+(标题 / 描述 / diff / 评论)在 GitHub 侧独立永久保留,不需要额外维护"分支 ↔ 改动"对照表。
+
 ---
 
 ## 1. 一个 PR 只做一件事
@@ -44,6 +48,9 @@ cherry-pick / rebase 到新 base 后,必须重新核对当初手工解决过的�
 - 标题走 conventional:`<type>(<scope>): <描述>`,`type` ∈ `docs | feat | fix | chore | refactor`;
   `scope` 填文档域,如 `spec` / `adr` / `architecture` / `handoff`
 - 正文一句话说清意图("这个 PR 改了 X、为什么这样改")。diff 比长篇转述准。
+- 不分 feat / fix:能对应到 `docs/specs/README.md` 登记表里某个已编号 spec 的,标题末尾追加
+  `(SPEC-INS-NNN)`;很多 fix 其实就是修某个 spec 覆盖的功能,同样适用。匹配不到(全局性修复 /
+  跨领域改动 / 不涉及具体 spec 的小改动)不必强行凑编号。
 
 > 本仓已随上游 CI 一起移除 `pr-standards` / 合规机器人,以上是**人工约定**,不再有自动打标签 /
 > 自动关闭。`.github/TEAM_MEMBERS`、`pull_request_template.md` 保留作参考与可能的将来启用。
