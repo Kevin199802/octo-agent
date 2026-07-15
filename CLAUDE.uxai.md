@@ -16,6 +16,8 @@
 
 未经用户确认,不 `git commit` / `git push` / 提 PR;完成后列变更等确认。
 
+push 前跑 test(pre-push hook 只跑 typecheck;insight 的用例 CI 也不跑)。
+
 ## 写 spec / 代码前
 
 - 做 UI / 功能先 grep 上游 opencode(`packages/ui`、`packages/app`)有没有,有就复用
@@ -33,15 +35,6 @@
 - **资源(`createResource`)读取要挡错误态**:Solid resource 在 `.error` 时直接调用 accessor 会 throw、冒泡到最近 `ErrorBoundary`——局部功能(如某个面板拉取列表失败)要用 `<Show when={!resource.error} fallback={...}>` 挡住,不能让局部失败冒泡成整页崩溃兜底
 - **新增/改服务端路由、IPC handler 需要重启进程才生效**:本地验证前先重启对应的 opencode server / Electron 进程,否则会看到"新路由 404"这种容易被误判成代码 bug 的现象
 - **新增服务端接口前先确认走哪套路由框架**:`packages/opencode` 里同时有两套后端——普通 Hono 路由(`server/routes/instance/*.ts`)和类型化 Effect HttpApi(`server/routes/instance/httpapi/groups/*.ts` + `handlers/*.ts`)。本仓开发/预览渠道**默认启用 `OPENCODE_EXPERIMENTAL_HTTPAPI`**,这种情况下普通 Hono 路由不会被处理请求的那套 server 用到——照抄一个"看起来是 Hono 路由"的现成模块（如 `artifact.ts`）新增接口前,先确认那个模块本身在当前后端选择下是否真的活着(它也可能是遗留代码);同名分组已存在类型化实现（如 `insight` 分组）时优先扩展它。重启多少次都救不了这个问题,不要在"是不是没重启"上反复打转,先用 `bun run --cwd packages/opencode --conditions=browser src/index.ts serve --port <n>` 直接跑源码 + curl 验证接口本身通不通。详见 learning 笔记 [hono-vs-effect-httpapi-routing.md](docs/learning/hono-vs-effect-httpapi-routing.md)。
-
-## 本地验证
-
-改完代码本地跑(CI 不跑 `./octoapp/`):
-
-```bash
-cd packages/app && bun test --preload ./happydom.ts ./octoapp/pages/insight
-bun turbo typecheck   # 仓库根
-```
 
 ## 工作流
 
