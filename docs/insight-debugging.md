@@ -282,6 +282,8 @@ grep -E "\[octo:(mcp|kb|inject|extract)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 ### 1.6.1 `[octo:worktree]` — 本地工作目录布局(SPEC-INS-014,主进程·terminal)
 
 源文件拷贝进 `insight/sources`、MCP 产物落 `insight/outputs`。**均在主进程**(看 terminal,非 DevTools)。
+> ⚠️ 落点分两种:裸 `console.log` 的行(下表 log 级)只打主进程 stdout,**不进 `main.log`**;
+> `result-materialize-failed` / `download-resource failed` 两条走 electron-log(`log.error`),**成品包里落 `main.log`**——内网远程排障优先搜这两条。
 > SPEC-INS-015 后:非图片 S3 上传不再 eager,改由 server 端 `octo-upload-inject` 插件在模型调 MCP 时按需上传(`[octo:inject] lazy-upload`)。本地 `source-copy ok` 拿到的 dest 路径即 `[附件]` 清单里映射的本地路径。
 
 | 日志 | 级别 | 时机 / 含义 | 关键字段 |
@@ -290,6 +292,8 @@ grep -E "\[octo:(mcp|kb|inject|extract)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 | `[octo:worktree] source-copy ok` | log | 源文件拷贝进 `insight/sources` 成功(选文件即触发)。 | `srcPath`、`dest` |
 | `[octo:worktree] source-copy failed` | error | 拷贝失败 —— **不阻断** MCP/发送,仅该文件本地能力线不可用。 | `srcPath`、`dest`、`reason` |
 | `[octo:worktree] result-materialize` | log | MCP 产物落地 `insight/outputs`;`reused:true` = 命中本会话内存表/已落地副本(含用户改动),不 re-fetch。 | `filename`、`path`、`reused` |
+| `[octo:worktree] result-materialize-failed` | error(**进 main.log**) | 产物下载失败(`download-resource-to-temp`,`net.fetch` 走 Chromium 栈)。`reason` 是展开的 cause 链(DNS/TLS/代理/连接被拒),同文案回传渲染端错误提示。 | `url`、`filename`、`sessionId`、`reason` 或 `status`+`statusText` |
+| `[octo:worktree] download-resource failed` | error(**进 main.log**) | 「另存为/下载原件」下载失败(`download-resource`),字段语义同上。 | `url`、`reason` 或 `status`+`statusText` |
 
 ### 1.7 其他前缀(出场较少)
 

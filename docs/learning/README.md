@@ -51,6 +51,7 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 29. [hono-vs-effect-httpapi-routing.md](hono-vs-effect-httpapi-routing.md) — 后端路由入门(接上前端路由的既有认知)+ 本仓踩坑:同时有两套后端(传统 Hono 路由 `routes/instance/*.ts` vs 类型化 Effect HttpApi `httpapi/groups+handlers`)/ `dev`·`beta`·`local` 渠道默认只有后者在跑,前者是死代码 / 为什么 `/artifact/list` 能通而照抄它写法的新接口 404 / 新接口该写在哪的判断口诀 / 404 排查方法论(先测源码直跑绕开构建变量,再看响应体指纹,最后才怀疑没重启)/ 锚点案例:SPEC-INS-014 §10 文件管理接口踩坑全过程
 30. [electron-embed-web-and-sso.md](electron-embed-web-and-sso.md) — Electron 内嵌 web 页面与 SSO:iframe / `<webview>` / WebContentsView 三方式本质区别与选型口诀(嵌布局内→iframe;webview 永不用)/ 为什么 iframe 里 SSO 结构性必死(登录页 frame-ancestors)/ 四条业界解法对比,选主进程 `webRequest` 网络层注入(资产站零改造、绕过 SameSite/三方 cookie 全部策略)/ 两个误解点名:「系统浏览器 cookie 传不回来」「`cookies.set` 绕不开策略,改头才绕得开」/ 实现四注意:单监听器静默顶替 + 本仓 CORS 改写已占坑 · ACAO `*` × 凭证注入的危险组合 · 注入按来源收窄 · 过期 302 主进程接管(锚点:Design 页平台/项目资产嵌入,ADR-016)
 31. [reasoning-output-formats.md](reasoning-output-formats.md) — 思考链输出格式的业界四类规范(`<think>` 内联 / `reasoning_content` 国内事实标准 / `reasoning` OpenRouter·gpt-oss 派 / 结构化块)/ 请求头协商为何是反模式 / 多轮回传三种口径 / AI SDK(两字段名都认)→ opencode ReasoningPart → UI 消费链路 / 2026-07 内网 MaaS 思考格式变更评估:更正规非魔改、零改动兼容、DeepSeek 多轮回传观察点
+32. [electron-main-fetch-vs-net-fetch.md](electron-main-fetch-vs-net-fetch.md) — 内网"浏览器能下载、应用内 fetch failed"根因:主进程 undici fetch 与 Chromium 栈(渲染端/`net.fetch`)代理·DNS·证书·挂起恢复四项差异 / PAC-only 可达的内网 host 对 Node 直连是死路 / `error.cause` 被 IPC 序列化吞掉与裸 console.log 不进 main.log 两个排障陷阱 / 规约:主进程 http(s) 一律 `net.fetch`、失败展开 cause 链走 `log.error`(锚点:2026-07-16 OBS 产物下载失败)
 
 > 后续可能补:
 >
