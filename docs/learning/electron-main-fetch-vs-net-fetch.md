@@ -1,6 +1,7 @@
 # Electron 主进程下载:undici `fetch` vs `net.fetch`(内网"浏览器能下、应用不能"根因)
 
 **日期**:2026-07-16 · **现场**:内网验证,MCP 产物卡预览报 `Error invoking remote method 'download-resource-to-temp': TypeError: fetch failed`,但复制链接在浏览器能正常下载。
+**状态**:已修复实证 —— 换 `net.fetch`(UXAI PR #344,2026-07-17 合入)后该机器产物下载恢复,反向坐实"Chromium 栈可达、undici 直连不可达"的根因判断。
 
 ## 现象与定位过程
 

@@ -31,7 +31,7 @@
 | # | 日志 | 内容 | macOS 位置 | Windows / Linux 位置 |
 |---|---|---|---|---|
 | ① | **主进程** `main.log` | Electron 主进程(启动/sidecar/自动更新,`[server]` 等),electron-log,5MB 滚动 | ✅ `~/Library/Logs/<appName>/main.log` | 📄 `<userData>/logs/main.log` |
-| ② | **renderer 转发** `insight-debug.log` | **渲染进程 console 全量转发**(SPEC-INS-011 阶段3)。5MB 滚动、7 天清。**成品包没 DevTools 时,renderer 日志就落在这** | ✅ `~/Library/Logs/<appName>/insight-debug.log` | 📄 `<userData>/logs/insight-debug.log` |
+| ② | **renderer 转发** `insight-debug.log` | **渲染进程 console 全量转发**(SPEC-INS-011 阶段3)。5MB 滚动、7 天清。**成品包没 DevTools 时,renderer 日志就落在这**。对象参数:新版生产构建已 JSON 序列化落盘;旧版本是 `[object Object]`(见 [insight-debugging.md](./insight-debugging.md) §「全量兜底」) | ✅ `~/Library/Logs/<appName>/insight-debug.log` | 📄 `<userData>/logs/insight-debug.log` |
 | ③ | **opencode sidecar** | server 端**结构化日志**(elog,行内有 `service=` 字段:`[octo:mcp]` 连接、`toolsForAgent` 等)。每次启动新建**时间戳** `.log`,自动清旧。⚠️ **`[octo:inject]` / `[octo:extract]` 不在这里**——它们是插件/工具里的裸 `console.log`,跟随 sidecar **stdout**:成品包被主进程 pipe 进 ①`main.log`(2026-07-08 内网实证),run dev 打在外部 server 终端 | 见下「③ 落点分两种」 | 同左 |
 | ④ | crash dump(可能有) | 崩溃转储 | 📄 `<userData>/Crashpad/` | 📄 `<userData>/Crashpad/` |
 
