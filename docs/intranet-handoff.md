@@ -76,7 +76,7 @@ MCP 工具清单、每个工具的入参 / 出参约定、description 写法,**�
 | `saveFilePicker({ title?, defaultPath? })` | 「另存为」/ 文件管理「下载」 | 弹原生保存对话框,返回路径或 `null`(取消) | `dialog.showSaveDialog` |
 | `downloadResource(url, destPath)` | 「另存为」第二步 | 远程 URL → 落本地指定路径 | `fetch` → `mkdir -p` → `writeFile` |
 | `downloadResourceToTemp(url, namespace, filename, baseDir?, sessionId?)` | 「用本地应用打开」/「在文件夹中打开」前置;uri md 卡预览 | 远程 URL → 落 `baseDir` 的会话目录(缺省落临时目录),返回本地路径 | sanitize filename 防穿越;`namespace` 传**资源 URI**(资源身份)做幂等,不传卡片 id;`sessionId` 用于 `insight/<sessionId>/outputs/` 分桶 |
-| `writeFileBuffer(path, buffer)` | 文件管理「下载」第二步 | `ArrayBuffer` → 落本地指定路径 | `mkdir -p` → `writeFile`。⚠️ 见下方"类型缺口" |
+| `writeFileBuffer(path, buffer)` | 文件管理「下载」第二步 | `ArrayBuffer` → 落本地指定路径 | `mkdir -p` → `writeFile` |
 
 **本地工作目录(worktree,SPEC-INS-014)**
 
@@ -100,8 +100,6 @@ MCP 工具清单、每个工具的入参 / 出参约定、description 写法,**�
 
 **类型缺口(与 SOT 的已知不一致,2026-07-17 核对)**
 
-- `writeFileBuffer` **是真实依赖但不在 `DesktopApi` 类型里**:文件管理「下载」经
-  `(window as any).api` 绕过类型调用它。壳必须实现,否则该功能静默失效。
 - `setTitlebar` / `onDownloadSavePath` 在 `DesktopApi` 里有声明,但 insight **当前无任何调用点**;
   本表不列,壳不实现也不影响 insight。
 
