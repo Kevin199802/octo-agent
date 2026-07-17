@@ -70,10 +70,18 @@ MCP 工具清单、每个工具的入参 / 出参约定、description 写法,**�
 | `saveFilePicker({ title?, defaultPath? })` | 「另存为」 | 弹原生保存对话框,返回路径或 `null` | `dialog.showSaveDialog` |
 | `downloadResource(url, destPath)` | 「另存为」第二步 | 远程 URL → 落本地指定路径 | `fetch` → `mkdir -p` → `writeFile` |
 | `downloadResourceToTemp(url, namespace, filename, baseDir?)` | 「用本地应用打开」/「在文件夹中打开」前置 | 远程 URL → 落临时目录(或 `baseDir`),返回本地路径 | sanitize filename 防穿越;namespace 传 tabID/sessionID 隔离 |
-| `showItemInFolder(path)` | 「在文件夹中打开」 | 在 Finder / Explorer 中定位文件 | `shell.showItemInFolder(path)`,fire-and-forget |
+| `showItemInFolder(path)` → `Promise<{ ok, reason? }>` | 文件管理「打开所在文件夹」/ 文件预览「文件夹」 | 在 Finder / Explorer 中定位文件 | 先探路径存在性(如 `lstat`)再 `shell.showItemInFolder(path)`;文件不存在返回 `{ ok: false, reason: "not-found" }`,**约定永不 throw**。详见下方 ⚠️ |
 
 > `DesktopApi` 各方法均为可选(`?:`):壳未暴露时按钮走 toast 兜底,不崩。
 > 壳侧 preload / main IPC 由 `packages/desktop/` 自行组织,本表只约定 renderer 侧依赖的接口形态。
+
+⚠️ **`showItemInFolder` 不能做成 fire-and-forget**(本表 2026-07-17 前的写法就是,已修正):
+`shell.showItemInFolder` 返回 `void`,且**路径不存在时静默 no-op** —— 用户把文件从磁盘改名 / 移走后
+点「打开所在文件夹」会毫无反应,渲染端也无从得知。壳必须自己先探路径存在性,把结果回传。
+
+- **返回结果对象、不要 reject**:渲染端存在不 `await` 的裸调用,reject 会变成 unhandled rejection
+- 壳未跟上本约定(仍返回 `void`)时,渲染端拿到 `undefined` 会判空后静默退回原行为,**不会误报**"文件不存在"——
+  即新旧壳都不崩,但只有实现了本约定的壳才能给出用户可见的提示
 
 ---
 
