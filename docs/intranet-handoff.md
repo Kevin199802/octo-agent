@@ -62,18 +62,48 @@ MCP 工具清单、每个工具的入参 / 出参约定、description 写法,**�
 
 业务代码运行时依赖 `window.api` 暴露的桌面能力,**桌面壳(`packages/desktop/`)必须暴露下列同名同签名方法**,
 否则按钮点击会走"桌面 API 不可用" toast。类型 SOT 是
-`packages/app/octoapp/pages/insight/lib/electron-api.ts` 的 `DesktopApi`,本表与之一致。
+`packages/app/octoapp/pages/insight/lib/electron-api.ts` 的 `DesktopApi`。
+
+本表列的是 **insight 真实调用到的方法**(2026-07-17 逐个核对调用点),与 `DesktopApi` 类型的已知出入
+见下方"类型缺口"——类型不等于依赖清单,两边都要看。
+
+**打开 / 定位 / 另存**
 
 | `window.api` 方法 | 触发位置 | 用途 | 实现要点 |
 |---|---|---|---|
-| `openPath(path, app?)` | FileFallback「用本地应用打开」 | 唤起系统默认应用打开本地文件 | `shell.openPath(path)`;可选 `app` 指定打开方式 |
-| `saveFilePicker({ title?, defaultPath? })` | 「另存为」 | 弹原生保存对话框,返回路径或 `null` | `dialog.showSaveDialog` |
-| `downloadResource(url, destPath)` | 「另存为」第二步 | 远程 URL → 落本地指定路径 | `fetch` → `mkdir -p` → `writeFile` |
-| `downloadResourceToTemp(url, namespace, filename, baseDir?)` | 「用本地应用打开」/「在文件夹中打开」前置 | 远程 URL → 落临时目录(或 `baseDir`),返回本地路径 | sanitize filename 防穿越;namespace 传 tabID/sessionID 隔离 |
+| `openPath(path, app?)` | FileFallback「用本地应用打开」/ ActionBar「本地打开」 | 唤起系统默认应用打开本地文件 | `shell.openPath(path)`;可选 `app` 指定打开方式。**返回错误串:空串 = 成功,非空 = 失败原因**(渲染端按此判定,不 throw) |
 | `showItemInFolder(path)` → `Promise<{ ok, reason? }>` | 文件管理「打开所在文件夹」/ 文件预览「文件夹」 | 在 Finder / Explorer 中定位文件 | 先探路径存在性(如 `lstat`)再 `shell.showItemInFolder(path)`;文件不存在返回 `{ ok: false, reason: "not-found" }`,**约定永不 throw**。详见下方 ⚠️ |
+| `saveFilePicker({ title?, defaultPath? })` | 「另存为」/ 文件管理「下载」 | 弹原生保存对话框,返回路径或 `null`(取消) | `dialog.showSaveDialog` |
+| `downloadResource(url, destPath)` | 「另存为」第二步 | 远程 URL → 落本地指定路径 | `fetch` → `mkdir -p` → `writeFile` |
+| `downloadResourceToTemp(url, namespace, filename, baseDir?, sessionId?)` | 「用本地应用打开」/「在文件夹中打开」前置;uri md 卡预览 | 远程 URL → 落 `baseDir` 的会话目录(缺省落临时目录),返回本地路径 | sanitize filename 防穿越;`namespace` 传**资源 URI**(资源身份)做幂等,不传卡片 id;`sessionId` 用于 `insight/<sessionId>/outputs/` 分桶 |
+| `writeFileBuffer(path, buffer)` | 文件管理「下载」第二步 | `ArrayBuffer` → 落本地指定路径 | `mkdir -p` → `writeFile`。⚠️ 见下方"类型缺口" |
+
+**本地工作目录(worktree,SPEC-INS-014)**
+
+| `window.api` 方法 | 触发位置 | 用途 | 实现要点 |
+|---|---|---|---|
+| `getPathForFile(file)` → `string` | 拖拽 / 选取附件 | 取 `File` 的真实本地路径 | Electron 32+ 已移除 `File.path`,用 `webUtils.getPathForFile`(preload 内同步解析);非桌面端返回 `undefined` |
+| `copyFileToWorktree(srcPath, baseDir, filename)` | 附件添加 / 文件管理「上传」 | 拷进 `<baseDir>/insight/uploads/` 预会话落地区,返回落地路径 | sanitize 文件名;撞名加后缀 `name (2).ext`,**不覆盖** |
+| `movePendingUploadToSession(srcPath, baseDir, sessionId)` | 发送消息时 | 把预会话区附件 rename 进 `<baseDir>/insight/<sessionId>/uploads/`,返回新路径 | `sessionId` 需 allow-list 清洗(`[A-Za-z0-9_-]`)防路径穿越——渲染进程不是安全边界 |
+| `writeFile(path, content)` | markdown 编辑器自动保存 | 覆盖写本地文本文件 | 主进程需校验路径白名单(限 `insight/<sessionId>/{uploads,outputs}` 等),不可任意写盘 |
+| `readFileBuffer(path)` → `ArrayBuffer \| null` | uri md 卡读「本地工作副本」 | 读本地文件为二进制;**文件不存在返回 `null`**(不 throw) | — |
+
+**其他**
+
+| `window.api` 方法 | 触发位置 | 用途 | 实现要点 |
+|---|---|---|---|
+| `openLink(url)` | 外链点击 | 用系统默认浏览器打开外链 | `shell.openExternal`;避免在 webview 内导航后无法返回 |
+| `writeClipboardText(text)` | 诊断信息复制(`error-beacon` / `octoDebug`) | 写系统剪贴板 | `clipboard.writeText` |
 
 > `DesktopApi` 各方法均为可选(`?:`):壳未暴露时按钮走 toast 兜底,不崩。
 > 壳侧 preload / main IPC 由 `packages/desktop/` 自行组织,本表只约定 renderer 侧依赖的接口形态。
+
+**类型缺口(与 SOT 的已知不一致,2026-07-17 核对)**
+
+- `writeFileBuffer` **是真实依赖但不在 `DesktopApi` 类型里**:文件管理「下载」经
+  `(window as any).api` 绕过类型调用它。壳必须实现,否则该功能静默失效。
+- `setTitlebar` / `onDownloadSavePath` 在 `DesktopApi` 里有声明,但 insight **当前无任何调用点**;
+  本表不列,壳不实现也不影响 insight。
 
 ⚠️ **`showItemInFolder` 不能做成 fire-and-forget**(本表 2026-07-17 前的写法就是,已修正):
 `shell.showItemInFolder` 返回 `void`,且**路径不存在时静默 no-op** —— 用户把文件从磁盘改名 / 移走后
