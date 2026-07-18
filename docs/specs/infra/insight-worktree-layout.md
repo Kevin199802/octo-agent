@@ -10,6 +10,13 @@
 
 > ## 修订记录
 >
+> **2026-07-18：v5（路径 C write 产物落点——从「提示词约定」改为「服务端确定性重定向」）**——取代 v4 §②的做法。v4 靠提示词让模型自己把 write 产物写进 `outputs/`（从 `[附件]` 路径推导绝对路径）；因绝对路径是运行时值、静态提示词写不了，客户端改成**每轮消息注入一条 `[输出目录] <绝对路径>` synthetic 指令**去纠偏。副作用:内网弱模型把这条常驻指令当成「当前要回应的事」复述出来——发个「你好」都回一段带 outputs 绝对路径的话，把内部路径暴露给用户（[反模式沉淀见 learning](../../learning/standing-instruction-echoed-by-weak-model.md)）。
+> - **改法**:回到业界标准——agent 的相对写入解析到其工作目录，不靠提示词喂绝对路径。新增 server 插件 [octo-outputs-redirect.ts](../../../packages/opencode/src/agent/octo-outputs-redirect.ts)，在 `tool.execute.before` 把 `write` 的**相对 `filePath`** 重定向到 `<会话directory>/insight/<sessionId>/outputs/`。
+> - **两道确定性闸门隔离影响面**（不动上游 write 本体，Chat/Design/Studio 的 write 走原生行为）:`input.tool === "write"` 且 `session.agent === "octo_insight"`（会话级 agent 字段，见 [session-agent-attribution](session-agent-attribution.md)）。**绝对路径原样尊重**——用户显式指定的位置、以及过渡期模型仍产出的绝对 outputs 路径都不改写。
+> - **随之删除**客户端每轮注入的 `[输出目录]` synthetic 指令（暴露问题的根因）；提示词「落文件产物」改为「只给文件名、系统自动存、别拼绝对路径、也别在回复里描述路径」，`.txt`/`.md` 镜像同步。
+> - **为什么不再顾虑 scratch 污染**（v4 §②的顾虑）:实证 insight agent 的 `write` 只用于交付产物——超长抽取的「全文落盘」走的是专门的 `TRUNCATION_DIR`（[truncate.ts](../../../packages/opencode/src/tool/truncate.ts)），不经模型 write；故「相对写入一律进 outputs」没有中间文件污染。
+> - UXAI PR #368。
+>
 > **2026-07-14：v4（产物落盘机制修订——确立「文件管理 = 会话真产物库」）**——把 §10 文件管理的定义收敛为「只收真·文件产物」，据此反转 §4.2 两处既有决定：
 > - ① MCP `resource_link` 产物从「点开卡才 materialize」的**懒落地**改为**出卡即落**（eager）。文件管理列的是 `outputs` 磁盘上的真实文件（§10 服务端 `listFiles`），懒落地导致「生成了但用户没点开的产物，在文件管理里查无此文件」——这正是本次要修的现象（起因：思维导图卡产物不在文件管理）。
 > - ② `write` 产物（路径 C）**由「不强制」升为「提示词约定写 outputs」**——[octo_insight.md](../../../packages/opencode/src/agent/prompt/octo_insight.md) 新增「落文件产物」小节：生成**交付型文件产物**时写入本会话 `insight/<sessionId>/outputs/`（从 `[附件]` 路径 `uploads`→`outputs` 同级推得），仅供自身回读的中间/暂存文件不写此处。**依据**：`write` 是 insight agent 的常驻工具（[agent.ts](../../../packages/opencode/src/agent/agent.ts) `write: allow`、`bash: deny`），产物写到任意路径会导致「对话里看得到 agent 写文件、常驻的文件管理里却查无此文件」（易被当 bug）；且这正是 **Claude Cowork 的既有做法**（同款 per-session `uploads`(只读)+`outputs`(可读写/持久) 结构，其 agent「输出文件写入 outputs/」）。**前端无需改动**——文件管理已列真实 `outputs/`，写入即可见。（起草 v4 初稿时曾一度改为「不落」，理由是顾虑 scratch 污染产物库；后据 Claude Cowork 实证 + `write:allow` + 常驻文件管理的一致性诉求，改回「约定写 outputs」，scratch 由 agent 自行写别处规避。）
@@ -175,9 +182,10 @@
   - [result-viewer/index.tsx `UriMarkdownTabBody`/`FileFallback`](../../../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx)、[action-bar.tsx](../../../packages/app/octoapp/pages/insight/components/result-viewer/action-bar.tsx)、[markdown-editor/index.tsx](../../../packages/app/octoapp/pages/insight/components/markdown-editor/index.tsx) — 各自本地 `useParams()` 取 `sessionId`（路由 `/insight/:id?`，Solid context 不受 `Portal` 影响，不需要逐层 prop 传递）
   - 桌面 IPC 内 `reuse-existing` 幂等逻辑：幂等键仍是"卡首次落地后记在 tab 上的本地路径"（不变，v1 已确立）
 - **幂等性保持**：路径多了一层 sessionId，"已落地复用用户改过的那份"行为不变。
-- **路径 C（write 产物）——维持不强制落 outputs（v4 复核后保留 v2 行为）**：write 工具写哪就在哪，不经本机制。**为什么不改**（起草 v4 时曾想「约定写 outputs」，核对 agent 行为后否掉）：insight agent「输出聚焦研究洞察、不做文件修改」（[octo_insight.md](../../../packages/opencode/src/agent/prompt/octo_insight.md) §注意），其 `write` 主要用于**中间/暂存文件**（超长抽取结果落盘回读等），非用户交付物；强塞 outputs 会像 inline 一样**污染产物库**（把 scratch 当产物）。
-  - **也不做前端事后搬运**：write 既可能是「生成产物」也可能是「就地修改用户文件」或「暂存 scratch」，前端从 tool part 无法可靠区分意图，一律 copy 进 outputs 是启发式误判（违反确定性原则）。
-  - 待将来真出现「write 交付物」能力（如生成结构化报告文件供用户下载/复用）时，再由那条能力在 agent 侧约定写 `insight/<sessionId>/outputs/` + 核对白名单（v2 白名单 [ipc.ts](../../../packages/desktop/src/main/ipc.ts) 已按分段放行 `insight/<sessionId>/{uploads,outputs}`，天然可用）。本次不改提示词。
+- **路径 C（write 产物）——服务端确定性重定向到 outputs（v5，取代 v4 的提示词约定）**：insight 会话里 `write` 的**相对 `filePath`** 由 server 插件 [octo-outputs-redirect.ts](../../../packages/opencode/src/agent/octo-outputs-redirect.ts) 在 `tool.execute.before` 重定向到 `<会话directory>/insight/<sessionId>/outputs/`，模型只需给文件名、无需知道绝对路径。两道确定性闸门（`tool==="write"` 且 `session.agent==="octo_insight"`）把影响面夹死，绝对路径原样尊重。**不改上游 write 本体**（[write.ts](../../../packages/opencode/src/tool/write.ts)，相对路径原生 join 到 `instance.directory`=项目根）。
+  - **为什么不再走「提示词约定」（v4 §②）**：绝对路径是运行时值、静态提示词写不了，v4 改成客户端每轮注入 `[输出目录] <绝对路径>` synthetic 指令纠偏——弱模型把这条常驻指令当当前任务复述、把路径暴露给用户（[learning](../../learning/standing-instruction-echoed-by-weak-model.md)）。重定向让绝对路径彻底退出对话上下文，暴露问题从根上消失。
+  - **为什么不用启发式（前端事后搬运）**：write 意图无法从 tool part 可靠区分，一律 copy 是启发式误判（违反确定性原则）；改用「相对→outputs」这条确定性规则替代。实证 scratch 顾虑不成立——超长抽取全文落盘走专门的 `TRUNCATION_DIR`（[truncate.ts](../../../packages/opencode/src/tool/truncate.ts)），不经模型 write，故 outputs 不会被 scratch 污染。
+  - 白名单天然可用：v2 白名单 [ipc.ts](../../../packages/desktop/src/main/ipc.ts) 已按分段放行 `insight/<sessionId>/{uploads,outputs}`。
 
 > 旧 v1 扁平数据（`insight/sources`、`insight/outputs`）：**不做迁移**。桌面 IPC 的 write-file 白名单改为只放行新的会话分桶路径，旧路径不再放行——Insight 的 tab 是纯内存 signal、不跨重启持久化，不存在"存活的 tab 引用旧路径"的场景，因此不会有半迁移状态。
 
