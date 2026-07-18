@@ -181,6 +181,8 @@ turn 3: 用户再次刷新
 
 > **冗余入口也必须指向同一份原始产物**:turn N 的内联卡**不能**直接用本 turn `get_task_result` 返回的链接渲染 —— server 重查可能给新 URI(见 §3.3 产物链接复用),那样 turn N 的卡会比 turn 1 多/换一批文件,"一式两份"变"两份不同"。实现要求:内联卡渲染前按 part 的 `task_id` 经 `resolveTaskLinks(taskId)` 换回该任务首次确定的产物链接,再出卡([insight-turn.tsx](../../../packages/app/src/pages/insight/components/insight-turn.tsx) `outputCards`)。无 `task_id` 的普通 resource_link turn 不受影响,仍走原 `findResourceLinks`。
 
+> **⚠️ 内联卡只出现在真正查到 completed 结果的那一次 turn(2026-07 修复,PR MyHeavenDyf/UXAI#384)**:早期实现只要本 turn 扒到 `task_id` 就经 `resolveTaskLinks` 回填产物卡,而 `readTaskInfo` 对**处理中**的 `get_task_result` 也返回 `task_id`;叠加 `resolveTaskLinks` 跨 turn 聚合「一旦任务完成就恒返回那批产物」,导致每一次「处理中」查询回答下方都被回填了最终产物卡(用户困惑:为什么还没查完的那几次也出卡)。**修复:gate 在本 turn 是否真正观测到该任务 `status === "completed"`** —— 仅 completed 的那次 turn 才 `resolveTaskLinks` 出卡,处理中的查询 turn 不出卡。这样"哪次真正查到结果,卡就出现在哪次",符合直觉。实现:`outputCards` 内 `completedTask = parts.find(readTaskInfo(p)?.status === "completed")`,`taskId` 取自它。
+
 **tab 重复**(禁止):点击两个入口后,ResultViewer 里**同一 URI 被开成两个独立 tab** — 这是 bug,必须避免。
 
 业界对照(VS Code / Cursor / Notion 等):同一文件路径 / document ID 在多个入口被打开时,**激活已有 tab,不新建**。我们的 tab 去重 key 应该是 `uri`,而不是 OutputCard.id(因为任务卡和 SSE 卡的 id 不同,但 uri 相同)。

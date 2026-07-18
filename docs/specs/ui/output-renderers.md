@@ -34,9 +34,13 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 |---|---|---|---|---|
 | **A. MCP 强契约** | MCP tool 返回的 `resource_link` part | 严格按 [mcp-contract.md §completed](../agents/mcp-contract.md) 解析 `content[].type === "resource_link"`，**零嗅探** | 高（契约强约束）| 持续扩展业务工具白名单 |
 | **B. 自由文本嗅探** | assistant text part 里的 LLM 自由输出 | 启发式（html fence / mindmap shape）兜底 | 中（业界 IDE 类工具标配，永远漏） | **窄而准**：仅 html fence / mindmap shape 确定性场景；不再 length 兜底，**也不再嗅探 md 表格**(2026-06) |
-| **C. write 工具产物** | Agent 调 `write` 工具写到本地的文件 | 严格按 `type:"tool"` + `tool === write` + `state.status:"completed"` 解析,按 `state.input.filePath` **扩展名**路由,**零嗅探** | 高（tool part 强信号）| **全部出卡**:文本→应用内预览(md/html/json/code),表格/office/二进制→file 卡拉本地应用 |
+| **~~C. write 工具产物~~(已退役,2026-07)** | ~~Agent 调 `write` 工具写到本地的文件~~ | — | — | **不再出卡**:write 产物由独立扫盘的「文件管理」面板呈现/预览 |
 
-> **路径 C 是 2026-06 新增**(详见 §2.6)。动机:Agent 用 `write` 工具写本地分析文档 / 可视化 HTML 时,与 MCP `resource_link` 产物对等,也应给出预览入口卡——但内容在**本地磁盘**(不是内网 S3),靠 opencode SDK `file.read({ path })` 读盘,**不走 http fetch**。
+> **⚠️ 路径 C 已退役(2026-07,PR MyHeavenDyf/UXAI#384)。** 2026-06 新增路径 C 的动机是「write 本地产物与 MCP resource_link 对等,也给预览入口卡」。但实践暴露其默认「凡 write 产物都出卡」不成立:模型为生成 docx 先 `write` 写 `gen_word.ps1` 脚本、再 `powershell` 执行脚本产出 docx —— **脚本(手段)被出卡,而真交付物 docx(脚本执行产物)抓不到反而不出卡**(§2.6.1 已知边界 1+2 的组合)。
+>
+> **决定:退役路径 C,write 产物统一交给「文件管理」面板(独立扫盘 + 可预览 + 刷新按钮),不再在对话流塞冗余卡。** 依据:①文件管理已独立覆盖 write 产物的发现与预览,卡片冗余;②「过程产物(脚本) vs 交付物」无可靠确定性信号可分辨(按扩展名剔除是启发式,与「脚本本身就是交付物」冲突),退役后无需分辨——两者都只在文件管理里可达;③业界对照:文件树=所有文件(Cursor/Copilot Workspace),artifact/canvas=意图驱动的头牌交付物(Claude Artifacts/ChatGPT Canvas),**都不为每次写文件出卡**。「write 完成 → 文件管理刷新」从出卡逻辑解耦成独立 effect 保留。
+>
+> **保留路径 A / B。** 后文 §2.6 全节为路径 C 历史设计,保留供追溯,**不再是现行实现**。真交付物(脚本产出的 docx/xlsx)出卡的根治属契约层(要脚本执行后显式声明产物路径),见 ROADMAP。
 
 **路径 A 内部还分两类**(by [insight-references.md](insight-references.md)):
 - **A1. 产物型(artifact)** — `_octoDisplay` 缺省或 `"artifact"` → 本 spec 的 OutputCard 大卡
@@ -65,7 +69,9 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 
 ## 1. 输出类型 taxonomy
 
-当前支持 7 种 OutputCard 类型（前 6 种与 6 个提示词模板的对应见 [insight-analysis-mode.md §2](insight-analysis-mode.md)；`code` 为路径 C 新增）：
+当前支持 7 种 OutputCard 类型（前 6 种与 6 个提示词模板的对应见 [insight-analysis-mode.md §2](insight-analysis-mode.md)；`code` 原为路径 C 新增）：
+
+> **注(2026-07):** 路径 C 已退役(见 §0.1 / §2.6 顶部横幅)。下表中「来源」列凡标「路径 C」者(如 `code` 卡、`json`/`file` 的路径 C 分支)**均不再触发出卡**——这些 write 产物改由「文件管理」面板呈现。`code` 类型现仅剩历史意义(路径 A/B 不产 code 卡);渲染器代码保留不影响。
 
 | 类型 | 触发模板 / 来源 | 服务端返回形态 | 入口卡文案 | 渲染器（ResultViewer 内） | 状态 |
 |---|---|---|---|---|---|
@@ -367,7 +373,9 @@ async function loadResourceText(uri: string): Promise<string> {
 
 ---
 
-## 2.6 write 工具产物来源（路径 C —— 本地文件出卡）
+## 2.6 write 工具产物来源（路径 C —— 本地文件出卡）〔已退役 2026-07〕
+
+> **⚠️ 本节已退役(2026-07,PR MyHeavenDyf/UXAI#384),仅作历史设计追溯,非现行实现。** 路径 C「凡 write 产物都出卡」的默认在「写脚本再执行」工作流下崩坏(脚本被出卡、真交付物 docx 抓不到反而不出卡),已退役。现行:write 产物统一交「文件管理」面板呈现,退役理由与业界对照见 §0.1 顶部横幅。`findWriteCards` 保留作「write 完成→文件管理刷新」的探针,不再出卡。以下 §2.6.x 描述的是退役前实现。
 
 > 2026-06 新增。与 §2.5（MCP resource_link）平行的第三条出卡路径。两者都是"强信号、零嗅探",区别仅在**内容位置**:resource_link 指向内网 S3 URI(http fetch),write 产物在**本地磁盘**(SDK `file.read` 读盘)。
 
