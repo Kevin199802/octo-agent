@@ -10,6 +10,8 @@
 
 > ## 修订记录
 >
+> **2026-07-20：v6（write 产物出卡——路径 C 收窄为 md/html 白名单）**——承接 v5:v5 让 write 产物确定性落 outputs（→ 文件管理必然可见），本条在此之上恢复 md/html 的**对话流预览卡**。#384 曾整条退役路径 C（无法确定性区分「交付物 vs 脚本/scratch」）；v6 改按**扩展名白名单**出卡（`type ∈ {markdown, html}`）——判的是「该类型有无应用内预览价值」（md→编辑器 / html→iframe），**不猜意图**，故 `.ps1`/`.docx`/`.py` 仍不出卡（#384 收益保住）、md/html 恢复就地预览。md/html 经 v5 落 outputs → **既出卡、又必然在文件管理**（与路径 A 一致，非冗余）；「write 完成→文件管理刷新」仍覆盖全部 write 产物。SOT 与验证清单在 [output-renderers §0.1 / §2.6](../ui/output-renderers.md#26-write-工具产物来源路径-c--本地文件出卡收窄为-mdhtml-白名单-2026-07)；实现 `insight-turn.tsx` 组件层过滤。UXAI 待提 PR。
+>
 > **2026-07-18：v5（路径 C write 产物落点——从「提示词约定」改为「服务端确定性重定向」）**——取代 v4 §②的做法。v4 靠提示词让模型自己把 write 产物写进 `outputs/`（从 `[附件]` 路径推导绝对路径）；因绝对路径是运行时值、静态提示词写不了，客户端改成**每轮消息注入一条 `[输出目录] <绝对路径>` synthetic 指令**去纠偏。副作用:内网弱模型把这条常驻指令当成「当前要回应的事」复述出来——发个「你好」都回一段带 outputs 绝对路径的话，把内部路径暴露给用户（[反模式沉淀见 learning](../../learning/standing-instruction-echoed-by-weak-model.md)）。
 > - **改法**:回到业界标准——agent 的相对写入解析到其工作目录，不靠提示词喂绝对路径。新增 server 插件 [octo-outputs-redirect.ts](../../../packages/opencode/src/agent/octo-outputs-redirect.ts)，在 `tool.execute.before` 把 `write` 的**相对 `filePath`** 重定向到 `<会话directory>/insight/<sessionId>/outputs/`。
 > - **两道确定性闸门隔离影响面**（不动上游 write 本体，Chat/Design/Studio 的 write 走原生行为）:`input.tool === "write"` 且 `session.agent === "octo_insight"`（会话级 agent 字段，见 [session-agent-attribution](session-agent-attribution.md)）。**绝对路径原样尊重**——用户显式指定的位置、以及过渡期模型仍产出的绝对 outputs 路径都不改写。

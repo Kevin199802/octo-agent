@@ -34,13 +34,21 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 |---|---|---|---|---|
 | **A. MCP 强契约** | MCP tool 返回的 `resource_link` part | 严格按 [mcp-contract.md §completed](../agents/mcp-contract.md) 解析 `content[].type === "resource_link"`，**零嗅探** | 高（契约强约束）| 持续扩展业务工具白名单 |
 | **B. 自由文本嗅探** | assistant text part 里的 LLM 自由输出 | 启发式（html fence / mindmap shape）兜底 | 中（业界 IDE 类工具标配，永远漏） | **窄而准**：仅 html fence / mindmap shape 确定性场景；不再 length 兜底，**也不再嗅探 md 表格**(2026-06) |
-| **~~C. write 工具产物~~(已退役,2026-07)** | ~~Agent 调 `write` 工具写到本地的文件~~ | — | — | **不再出卡**:write 产物由独立扫盘的「文件管理」面板呈现/预览 |
+| **C. write 工具产物(收窄为 md/html 白名单,2026-07)** | Agent 调 `write` 写到本地的 **`.md` / `.html`** 文件 | `findWriteCards` + 扩展名白名单(`type ∈ {markdown, html}`)，**零嗅探** | 高（扩展名确定性判定）| 白名单只收「有应用内专用预览」的类型;其余 write 产物不出卡、只走文件管理 |
 
-> **⚠️ 路径 C 已退役(2026-07,PR MyHeavenDyf/UXAI#384)。** 2026-06 新增路径 C 的动机是「write 本地产物与 MCP resource_link 对等,也给预览入口卡」。但实践暴露其默认「凡 write 产物都出卡」不成立:模型为生成 docx 先 `write` 写 `gen_word.ps1` 脚本、再 `powershell` 执行脚本产出 docx —— **脚本(手段)被出卡,而真交付物 docx(脚本执行产物)抓不到反而不出卡**(§2.6.1 已知边界 1+2 的组合)。
+> **路径 C 演进:全量出卡(2026-06)→ 退役(#384)→ 收窄为 md/html 白名单(2026-07,SPEC-INS-014 v6)。**
 >
-> **决定:退役路径 C,write 产物统一交给「文件管理」面板(独立扫盘 + 可预览 + 刷新按钮),不再在对话流塞冗余卡。** 依据:①文件管理已独立覆盖 write 产物的发现与预览,卡片冗余;②「过程产物(脚本) vs 交付物」无可靠确定性信号可分辨(按扩展名剔除是启发式,与「脚本本身就是交付物」冲突),退役后无需分辨——两者都只在文件管理里可达;③业界对照:文件树=所有文件(Cursor/Copilot Workspace),artifact/canvas=意图驱动的头牌交付物(Claude Artifacts/ChatGPT Canvas),**都不为每次写文件出卡**。「write 完成 → 文件管理刷新」从出卡逻辑解耦成独立 effect 保留。
+> **#384 为什么退役全量路径 C**:2026-06 的默认「凡 write 产物都出卡」在「写脚本再执行」工作流下崩坏——模型为生成 docx 先 `write` 写 `gen_word.ps1`、再 `powershell` 执行产出 docx，**脚本(手段)被出卡、真交付物 docx 抓不到反而不出卡**(§2.6.1 已知边界 1+2)。根因是「交付物 vs 过程产物/scratch」**没有可靠确定性信号可分辨**。
 >
-> **保留路径 A / B。** 后文 §2.6 全节为路径 C 历史设计,保留供追溯,**不再是现行实现**。真交付物(脚本产出的 docx/xlsx)出卡的根治属契约层(要脚本执行后显式声明产物路径),见 ROADMAP。
+> **v6 为什么能重开(且不违反确定性)**:白名单**不去判「交付物 vs scratch」那个无解问题**——它判的是另一件确定性的事:**「这个扩展名有没有应用内专用预览价值」**。`.md`→markdown 编辑器、`.html`→iframe 渲染,是纯粹的扩展名属性,不猜意图。`.ps1`/`.docx`/`.py` 不出卡不是因为我们判定它「是 scratch」,而是因为它们**不在预览白名单里**——#384 那个无法确定性区分的点被绕开了,而不是重新踩进去。所以脚本仍不出卡(#384 的收益保住),md/html 交付物恢复就地预览。
+>
+> **与 #368 落点重定向的合成**:md/html write 经 [octo-outputs-redirect](../../../packages/opencode/src/agent/octo-outputs-redirect.ts) 落会话 `outputs/`,于是**既出预览卡(路径 C)、又必然在文件管理(outputs 磁盘扫描)出现**——与路径 A 的「出卡 + eager 落 outputs + 文件管理」行为一致,不是冗余。
+>
+> **「write 完成 → 文件管理刷新」覆盖全部 write 产物**(不止 md/html):任何 write 都落 outputs、都要刷新文件管理,故该 effect 仍扫全量 `findWriteCards`、不按白名单过滤——与出卡白名单是两条正交的线。
+>
+> **业界对照**:文件树=所有文件(Cursor/Copilot Workspace);artifact/canvas=有预览价值的产物(Claude Artifacts/ChatGPT Canvas)——本质就是「文件管理列全部 + 白名单类型额外给预览卡」这个组合。
+>
+> **保留路径 A / B。** 后文 §2.6.x 详细机制(path 源卡 / 本地读盘 / `source:"path"`)对 **md/html 仍是现行实现**;`.json`/`.csv`/`code`/`file` 等路径 C 分支已随 #384 剔除、不再出卡(仅历史追溯)。脚本产物(bash/powershell 产出的 docx/xlsx)出卡的根治仍属契约层,见 ROADMAP。
 
 **路径 A 内部还分两类**(by [insight-references.md](insight-references.md)):
 - **A1. 产物型(artifact)** — `_octoDisplay` 缺省或 `"artifact"` → 本 spec 的 OutputCard 大卡
@@ -71,7 +79,7 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 
 当前支持 7 种 OutputCard 类型（前 6 种与 6 个提示词模板的对应见 [insight-analysis-mode.md §2](insight-analysis-mode.md)；`code` 原为路径 C 新增）：
 
-> **注(2026-07):** 路径 C 已退役(见 §0.1 / §2.6 顶部横幅)。下表中「来源」列凡标「路径 C」者(如 `code` 卡、`json`/`file` 的路径 C 分支)**均不再触发出卡**——这些 write 产物改由「文件管理」面板呈现。`code` 类型现仅剩历史意义(路径 A/B 不产 code 卡);渲染器代码保留不影响。
+> **注(2026-07):** 路径 C **收窄为 md/html 白名单**(见 §0.1 / §2.6 顶部横幅)。下表中「来源」列标「路径 C」者:**`markdown`/`html` 仍出卡**;`code`/`json`/`file`/`table` 等**非白名单路径 C 分支不再触发出卡**——这些 write 产物只由「文件管理」面板呈现。`code` 类型现仅剩历史意义(路径 A/B 不产 code 卡、路径 C 也不再出 code 卡);渲染器代码保留不影响。
 
 | 类型 | 触发模板 / 来源 | 服务端返回形态 | 入口卡文案 | 渲染器（ResultViewer 内） | 状态 |
 |---|---|---|---|---|---|
@@ -373,9 +381,12 @@ async function loadResourceText(uri: string): Promise<string> {
 
 ---
 
-## 2.6 write 工具产物来源（路径 C —— 本地文件出卡）〔已退役 2026-07〕
+## 2.6 write 工具产物来源（路径 C —— 本地文件出卡）〔收窄为 md/html 白名单 2026-07〕
 
-> **⚠️ 本节已退役(2026-07,PR MyHeavenDyf/UXAI#384),仅作历史设计追溯,非现行实现。** 路径 C「凡 write 产物都出卡」的默认在「写脚本再执行」工作流下崩坏(脚本被出卡、真交付物 docx 抓不到反而不出卡),已退役。现行:write 产物统一交「文件管理」面板呈现,退役理由与业界对照见 §0.1 顶部横幅。`findWriteCards` 保留作「write 完成→文件管理刷新」的探针,不再出卡。以下 §2.6.x 描述的是退役前实现。
+> **⚠️ 本节机制部分现行、部分历史,按扩展名区分(2026-07,SPEC-INS-014 v6):**
+> - **现行**:`.md` / `.html` write 产物**出卡**(`type ∈ {markdown, html}` 白名单),走以下 §2.6.x 的 path 源卡机制(本地读盘 / `source:"path"` / PathTabBody)。
+> - **已剔除(#384)**:`.json` / `.csv` / `code` / `file` 等**非白名单** write 产物**不出卡**,只走「文件管理」面板;§2.6.x 里这些分支仅作历史追溯。
+> - 收窄理由(白名单判「预览价值」而非「交付物 vs scratch」,绕开 #384 无解点)、与 #368 落点重定向的合成,见 §0.1 顶部横幅。`findWriteCards` 同时供①白名单出卡②「write 完成→文件管理刷新」(后者扫全量,不过滤)。
 
 > 2026-06 新增。与 §2.5（MCP resource_link）平行的第三条出卡路径。两者都是"强信号、零嗅探",区别仅在**内容位置**:resource_link 指向内网 S3 URI(http fetch),write 产物在**本地磁盘**(SDK `file.read` 读盘)。
 
@@ -499,31 +510,31 @@ write 产物在**本地磁盘**,有 `filePath`——所以"用本地应用打开
 
 | tag | 触发点 | 字段 |
 |---|---|---|
-| `[octo:write-card] scan` | findWriteCards 每条消息(只要有 tool part 就打) | cardCount / cards / **toolParts**(每个工具 part 的 tool/status/filePath/判定 type/skip 原因)——"写了文件却不出卡"时看这条定位是哪一环断的 |
+| `[octo:write-card] scan` | findWriteCards 每条消息(只要有 tool part 就打) | cardCount / cards / **toolParts**(每个工具 part 的 tool/status/filePath/判定 type/skip 原因)——"写了文件却不出卡"时看这条定位是哪一环断的(注:scan 出的是全量 write 产物,是否出卡还要过组件层 md/html 白名单) |
+| `[octo:card] resource_links + write(md/html)` | outputCards memo(路径 A links + 路径 C 白名单 write) | linkCount / **writeCount** / links / writes——writeCount=0 而磁盘有 md/html 写入,即白名单/落点脱钩的排查抓手 |
 | `[octo:path] read start/ok/error` | PathTabBody 读盘(预览卡) | path / bytes / err |
 | `[octo:path] open-local` / `open-failed` | file 卡 / ActionBar 本地打开 | filePath / reason |
 | `[octo:path] reveal-local` / `reveal-failed` | 文件夹中打开 | filePath |
 
-### 2.6.7 人工验证步骤
+### 2.6.7 人工验证步骤〔v6 白名单，2026-07〕
 
-> 前置:insight 页面能正常对话;opencode server 的工作目录能访问到 write 的目标路径(相对路径相对 server cwd,联调出 `[octo:path] read error` 时改用绝对路径)。桌面壳需有 `openPath` / `showItemInFolder`。
+> **前置**:改动跨 server(#368 落点重定向插件)+ renderer(出卡白名单)两层,**必须彻底重启 `dev:desktop`** 让 sidecar 重建(见 [development.md §3.5](../../development.md#35-改动生效模型renderer--main--opencode-server-三层),否则只有前端生效、落点仍旧);insight 页能正常对话。
 
 | # | 操作 | 预期 |
 |---|---|---|
-| 1 | 让 Agent「用 write 写 `测试报告.md`,含三级标题」 | 出入口卡(md 图标);点开右栏 markdown 渲染,「预览/代码」可切换;ActionBar 有 复制/下载 + **本地打开/文件夹打开**;控制台 `[octo:write-card] found` `[octo:path] read ok` |
-| 2 | 让它写 `.html` | 出卡 → iframe 预览,可切源 |
-| 3a | 让它写**树形** `.json`(顶层带 `children`,如组织架构 `{name,type,children}`) | 出 **json 卡**(入口图标=JSON,不误标"思维导图") → 点开**默认 markmap 思维导图预览**,ActionBar 出「预览/代码」切换,切代码看原始 json(2026-06-24 选项 C) |
-| 3b | 让它写**普通配置** `.json`(无 `children`,如 `{name,version,...}`) | 出 json 卡 → 点开 **shiki 高亮 json 源,单视图无切换**;**不再被误渲成单根思维导图**(2026-06-24 修) |
-| 5 | 让它写 `.py` / `.txt` / `.sql` | 出 `code` 卡 → shiki 高亮;ActionBar 有"本地打开/文件夹打开"(可用 VSCode 打开) |
-| 6 | 让它写 `.cpp` / `.py` / 任意冷门代码扩展名 | 出 `code` 卡 → shiki 高亮(冷门语言走 text 也正常显示);**验证"任何文本都内预览"兜底** |
-| 7 | 让它写 `.csv`(关键:表格走本地) | 出 **file 卡** → 「本地打开」唤起 Excel/Numbers、「文件夹打开」定位;控制台 `[octo:path] open-local` |
-| 8 | path 源 file 卡 | **没有「另存为/下载」按钮**(本地无复制 IPC,与 uri 源区分);uri 源 MCP 产物仍有另存为 |
-| 9 | 写 `a.md` → 覆盖写新内容 → **关 tab** 再点入口卡重开 | 显示**最新内容**(组件重挂重读);同一 tab 反复点是去重激活、沿用已读 |
-| 10 | (若有 MCP 业务工具)同轮既触发 resource_link 又触发 write | 两类卡**并列**,互不顶替(§2.6.5) |
+| 1 | 让 Agent「用 write 写 `测试报告.md`,含三级标题」,`filePath` **只给文件名** | ①出入口卡(md 图标)→ 右栏 markdown 渲染、预览/代码可切、ActionBar 有 复制/下载/本地打开/文件夹打开;②文件落在 **`insight/<sessionId>/outputs/`**(不在项目根);③**文件管理「生成文件」自动出现**该文件(无需手点刷新);④server 日志 `[octo:outputs-redirect] write 落点重定向`、renderer 日志 `[octo:card] resource_links + write(md/html)`(writeCount≥1) |
+| 2 | 让它写 `.html` | 出卡 → iframe 预览可切源;同样落 outputs + 文件管理可见 |
+| 3 | 让它写 `.py` / `.txt` / `.json` / `.csv` / `.docx` | **不出卡**(白名单外);但文件仍落 outputs、**文件管理里能看到**(非白名单只走文件管理);renderer 日志 writeCount 不含它们 |
+| 4 | 让它写 `.md` 但**明确指定绝对路径**(如 `D:\tmp\x.md`) | 落点**尊重绝对路径**(不重定向 outputs);仍出 md 卡,卡 filePath = 你给的绝对路径 |
+| 5 | 覆盖写同名 `.md` → **关 tab** 再点入口卡重开 | 显示**最新内容**(组件重挂重读);同一 tab 反复点是去重激活 |
+| 6 | 直接让它「**输出 md 内容但不写文件**」 | **不出卡**——inline md 由对话区 `<Markdown>` 原样渲染,路径 B 不嗅探 md(印证:出卡来自 write 白名单,不是 inline md) |
+| 7 | 让它写脚本 `gen.ps1` 再执行产 `docx`(#384 原始场景) | `.ps1` **不出卡**(白名单外)、docx 是脚本产物抓不到也不出卡——两者都去文件管理找;**#384 的假阳被白名单挡住,收益保住** |
+| 8 | (若有 MCP 业务工具)同轮既 resource_link 又 write `.md` | 两类卡**并列**(路径 A + 路径 C),互不顶替(§2.6.5) |
+| 9 | path 源 md/html 卡的 ActionBar | 有 复制/下载/本地打开/文件夹打开;file 卡类(本次白名单已无 file 类型)不涉及 |
 
-> **关于 `.xlsx`/`.docx` 等真二进制**:见 §2.6.1 已知边界——`write` 写不出有效二进制,出卡能点本地打开但文件损坏;Agent 用 python 生成的则是 bash 产物,当前抓不到。**这两种都不是路径 C 的 bug,是工具能力边界**,验证时不必纠结。
+> **`.docx`/`.xlsx` 真二进制**:`write` 写不出有效二进制、且它们本就不在白名单——不涉及本次。用 python 生成的是 bash 产物,当前抓不到(契约层根治,见 ROADMAP)。
 >
-> **纯逻辑单测**:`extToOutputType`(md/html→渲染 / `.json`→json / 任意代码→code / office-二进制→file)、`canOpenLocally`、`langFromPath`、`basename`、`findWriteCards`(全部出卡 / write+edit 工具 / 去重 / 防御字段)见 `packages/app/octoapp/pages/insight/utils/write-output.test.ts`,与 §2.6.1~§2.6.2 对齐。
+> **纯逻辑单测**:`extToOutputType`/`findWriteCards`/`basename` 等见 `write-output.test.ts`(util 层返回全量 write 产物,**白名单过滤在 `insight-turn.tsx` 组件层**——`type ∈ {markdown, html}`),已过。
 
 ### 2.6.8 路径 A(MCP 产物)vs 路径 C(write 产物)规则对照
 

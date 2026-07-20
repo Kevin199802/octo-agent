@@ -130,6 +130,7 @@ opencode 源没改时第一次跑过即可(后续 dev 仍重复)。
 | 看主进程 / 后端日志 | 启动 `dev:desktop` 的那个终端 stdout |
 | 改前端立即生效 | 直接改 `packages/app/octoapp/**`,Vite HMR |
 | 改 main 进程立即生效 | 改 `packages/desktop/src/main/**`,electron-vite 自动重启 |
+| **改 opencode server 生效** | `packages/opencode/src/**`(含 agent 提示词 `.txt`)**不吃 HMR**——必须彻底重启 `dev:desktop`,见 [§3.5](#35-改动生效模型renderer--main--opencode-server-三层) |
 | 强制刷新 renderer | DevTools `Cmd + R` |
 | **找本地落盘日志在磁盘哪儿** | 见 [find-local-logs.md](find-local-logs.md)(main.log / insight-debug.log / sidecar,dev vs 成品包 / 各平台 / 怎么认 appId) |
 
@@ -145,6 +146,25 @@ opencode 源没改时第一次跑过即可(后续 dev 仍重复)。
 4. **递给外网**:把上面任一步复制出的纯文本(剪贴板可外发)贴给 Claude → 对照 [insight-debugging.md](insight-debugging.md) 的日志字典 + 症状表定位。
 
 > 工作流 SOT 在 [insight-debug-toolkit.md §3](specs/ui/insight-debug-toolkit.md)(取数流程)+ §9(错误信标);命令字典、`why()` 规则、症状对照表在 [insight-debugging.md](insight-debugging.md)。本节只给入口,不重复细节。
+
+### 3.5 改动生效模型(renderer / main / opencode server 三层)
+
+本地跑桌面 dev 时,三层各自独立生效。混淆哪层就会看到「改了没反应」或「一半生效」的假象——**排查前先确认改的是哪层、对应的生效方式对不对**。
+
+| 改了哪层 | 路径 | 怎么生效 | 要不要重启 |
+|---|---|---|---|
+| renderer(前端) | `packages/app/octoapp/**` | Vite **HMR**,秒级热更 | 否 |
+| main 进程 | `packages/desktop/src/main/**` | electron-vite 自动重启主进程 + 重新 fork sidecar(**用现有 dist**) | 自动 |
+| **opencode server** | `packages/opencode/src/**`——插件 / 路由 / 工具 / **agent 提示词 `.txt`** | 编进独立 bundle `packages/opencode/dist/node`(由 `predev` 的 `bun script/build-node.ts` 构建);**只有全新 `dev:desktop` 才会重建 + 重新 fork sidecar** | **必须重启 `dev:desktop`** |
+
+**为什么 server 层最容易踩**:桌面壳的 opencode server 不是从源码跑的,是**打包进 sidecar 的 dist 产物**([desktop/src/main/server.ts](../../UXAI/packages/desktop/src/main/server.ts) `spawnLocalServer` → `utilityProcess.fork(sidecar)`;[electron.vite.config.ts](../../UXAI/packages/desktop/electron.vite.config.ts) `virtual:opencode-server` → `../opencode/dist/node/node.js`)。renderer HMR 和 main 自动重启**都不会重建这份 dist**,fork 出去的旧 server 进程照跑老代码。
+
+**混层陷阱(务必记住)**:一次 renderer HMR 可能让你以为「改动生效了」(前端行为变了),而 sidecar 还跑旧 server(后端行为没变)。两层陈旧度不一致,会看到自相矛盾的现象——**真实案例(2026-07)**:改前端触发 HMR、把已合并的「路径 C 退役」热替换进来 → 写产物卡片消失;但没重启 `dev:desktop`,sidecar 仍是旧 dist(无落点重定向)→ 文件仍落根目录、文件管理扫不到。看着像「卡片莫名消失 + 文件失踪」,实则是 renderer 走新逻辑、server 走旧逻辑。**判断法**:看启动终端 stdout 有没有对应 server 日志前缀(如 `[octo:outputs-redirect]`),没有就是 server 没重建。
+
+**重启了还不生效,按序查**:
+1. 你跑的是 **`dev:desktop`** 不是根 `dev`——根 `dev`(`bun run --cwd packages/opencode --conditions=browser src/index.ts`)只起**源码版独立 server**,不碰桌面壳的 sidecar,改壳的行为看不到。
+2. **残留 sidecar 进程**:`utilityProcess.fork` 的子进程未必随窗口退出,旧进程还占着。彻底退出 Electron 后 `pkill -f sidecar`(或按服务名找)再重起 `dev:desktop`。
+3. 只想快速验证 **server 逻辑本身**(不重启整壳):照 [learning/hono-vs-effect-httpapi-routing.md](learning/hono-vs-effect-httpapi-routing.md) 直接源码跑 server + curl,绕开 dist 构建/fork 这一整条链。
 
 ---
 
