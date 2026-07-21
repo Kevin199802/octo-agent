@@ -208,6 +208,23 @@ mock 插件注册在两个 TypeScript config 入口，不在 `vite.js`（Node.js
 
 ---
 
+## 命名约定：用户操作 vs 服务端真实使用
+
+同一套 `tracker.interaction` 接口承载两类语义不同的打点，靠 **name 前缀**区分，分析侧按前缀切分：
+
+| 类别 | 语义 | name 约定 | 触发方 |
+|------|------|-----------|--------|
+| 用户操作（常规） | 用户点击 / 发送 / 切换等主动行为 | 裸 kebab（`message-send`、`preset-click`…） | 前端 handler |
+| 服务端真实使用 | 模型 / 服务端真的调起某能力并把内容回显到会话 | `server-` 前缀（`server-mcp-used`、`server-skill-used`） | 前端从会话 parts 派生 |
+
+**服务端使用类的落点规范（避免虚增计数）：**
+
+- **只统计真的回显到会话中的调用**：从本轮 assistant parts / 任务卡片派生，而非监听全局事件——`skill.used` 一类全局事件不带 sessionID/agent，无法区分是哪个 agent（insight 与 make/studio 都绑了 skill），会误标 `module`。
+- **baseline 快照 + 去重 set 两层配合**：render 派生的打点在页面刷新 / 切回会话重挂时会把历史调用重新扫到；必须在组件首次观测时把已存在的调用记为「历史」不上报（baseline），并用模块级 set 保证同一 usage 跨重挂只报一次。
+- insight 首批已落地 `server-mcp-used`（业务 MCP 工具提交长任务，每 `task_id` 一次）、`server-skill-used`（skill 被调用，每 part 一次），实现清单见 UXAI 仓 `packages/app/octoapp/pages/insight/docs/tracking.md`。
+
+---
+
 ## 待办
 
 - [x] 实现 tracker SDK
