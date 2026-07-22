@@ -59,7 +59,7 @@
 
 - 提示词铁律：调 MCP 工具时，文件参数填**文件名**（清单里那个，人类可读），**绝不填 URL**。
 - 插件在 `tool.execute.before` 钩子：
-  1. `tool === extract_document` → **直接放行**（那是我们自己的本地工具，收本地路径，绝不能被换成 url）；
+  1. **本地文件工具**（`extract_document` / `write` / `edit` / `apply_patch` / `read` / `glob` / `grep`）→ **直接放行**（它们的 path/filePath 是**本地磁盘目标**，绝不能被换成 url——S3 URL 替换只服务 MCP 工具 `uxr-tool_*`）。⚠️ 2026-07-22 修复：此前排除集只有 `extract_document`，漏了 `write` 等 —— 模型对上传文件做 `write`（如「在末尾追加一段」）时 `filePath` 命中清单键被换成 S3 URL，`octo-outputs-redirect` 再把非绝对的 `https://` 串 join 进 `outputs/`，建目录时因路径含 URL 成分崩溃（`makeDirectory .../outputs/https:/octo-beta.../...`）；
   2. args 里无「以文档扩展名结尾」的串 → 零开销放行（非文件工具一律不动）；
   3. 聚合整个 session 所有 `[附件]` 清单 → `引用 → 本地路径` 总表：**引用键收录文件名 / 完整路径 / 磁盘 basename 三种**（分多轮添加的文件都在表里）；匹配**只做精确命中**——不做去空白等启发式归一化（2026-07-03 加过、同日复审回退：可能把引用静默误配到"仅空白不同"的另一文件，且"模型改写引用"是无界类追不完；模型抄错 → 不替换 → 工具失败错误回灌，根治见 [SPEC-INS-017 §2.1](insight-mcp-explicit-entry.md) chip 声明钉死）；
   4. 对 args 里引用到的每个键：读本地文件 → POST `OCTO_UPLOAD_ENDPOINT` 拿 url（**进程内缓存 `路径→url`**，同文件多轮多次只上传一次；multipart 文件名 = 原样 basename——客户端不做清洗，字符集安全由上传服务合同 v2 保证，见 [file-upload.md 顶部提案](file-upload.md)；v2 落地前特殊字符文件名在 MCP 下载链路仍可能失败，已知窗口）→ 就地把该串换成 url；
