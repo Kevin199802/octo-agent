@@ -10,6 +10,8 @@
 
 > ## 修订记录
 >
+> **2026-07-22：v7（本地落点根迁 `.octo/` + 去掉 agent 命名层 + 预会话区 `uploads`→`tmps`）**——按 PM 全局约定,所有模块的本地磁盘落点统一收进 `.octo/` 根。对 insight 有三处结构变更:① 根从 `<projectDir>/insight/` 迁到 `<projectDir>/.octo/`;② **去掉 agent 命名层**——原 `insight/<sessionId>/` 改为 `.octo/<sessionId>/`,会话归属哪个 agent 由 `sessionId` 反查即可,不必用目录段表达;③ 预会话落地区 `insight/uploads/` 改名 `.octo/tmps/`(会话内 `uploads`/`outputs` 不变)。**本条反转 §2 旧决策**（v1/v2 曾坚持"不藏 `.octo/`、放显性 `insight/` 下",理由见旧 §2；v7 认定"跨模块目录约定一致"优先，可见性由 §10 文件管理 UI 承接——详见 §2 新论证）。会话段 `<sessionId>` 即平台 `session.id`(形如 `ses_ab12…`)，与 make 的 `.octo/artifacts/make/<sessionId>/` 同源；make 上层命名空间(`artifacts/make`)由 design 侧独立整改,不在本次。**存量本地文件不迁移**（新旧路径不冲突，旧文件留原处、不主动清理，延续既有 orphan 立场；迁移方式的业界做法——前向不迁移 / 惰性迁移 / 启动期批量——留待需要时另议，倾向前向不迁移）。八处落点 + write-file 白名单(改按 `.octo` 分段)已改，UXAI PR #411。
+>
 > **2026-07-20：v6（write 产物出卡——路径 C 收窄为 md/html 白名单）**——承接 v5:v5 让 write 产物确定性落 outputs（→ 文件管理必然可见），本条在此之上恢复 md/html 的**对话流预览卡**。#384 曾整条退役路径 C（无法确定性区分「交付物 vs 脚本/scratch」）；v6 改按**扩展名白名单**出卡（`type ∈ {markdown, html}`）——判的是「该类型有无应用内预览价值」（md→编辑器 / html→iframe），**不猜意图**，故 `.ps1`/`.docx`/`.py` 仍不出卡（#384 收益保住）、md/html 恢复就地预览。md/html 经 v5 落 outputs → **既出卡、又必然在文件管理**（与路径 A 一致，非冗余）；「write 完成→文件管理刷新」仍覆盖全部 write 产物。SOT 与验证清单在 [output-renderers §0.1 / §2.6](../ui/output-renderers.md#26-write-工具产物来源路径-c--本地文件出卡收窄为-mdhtml-白名单-2026-07)；实现 `insight-turn.tsx` 组件层过滤。UXAI 待提 PR。
 >
 > **2026-07-18：v5（路径 C write 产物落点——从「提示词约定」改为「服务端确定性重定向」）**——取代 v4 §②的做法。v4 靠提示词让模型自己把 write 产物写进 `outputs/`（从 `[附件]` 路径推导绝对路径）；因绝对路径是运行时值、静态提示词写不了，客户端改成**每轮消息注入一条 `[输出目录] <绝对路径>` synthetic 指令**去纠偏。副作用:内网弱模型把这条常驻指令当成「当前要回应的事」复述出来——发个「你好」都回一段带 outputs 绝对路径的话，把内部路径暴露给用户（[反模式沉淀见 learning](../../learning/standing-instruction-echoed-by-weak-model.md)）。
@@ -44,10 +46,10 @@
 把 insight 在所选项目目录（projectDir）下的本地文件，从"隐藏的工具缓存（`.octo/downloads`）+ 只在 S3 的源文件"，规整成一套**显性、可管理、按会话隔离的工作目录**：
 
 ```
-<projectDir>/insight/
-├── uploads/                  ← 预会话落地区(§4.1.2):会话不存在时,非图片附件先落这里;扁平,不属于任何会话
-└── <sessionId>/              ← 会话命名空间(v2 新增,替代 v1 的 projectDir 级扁平共享)
-    ├── uploads/               ← 发送时把这次要发的附件从 insight/uploads/ rename 进来
+<projectDir>/.octo/
+├── tmps/                     ← 预会话落地区(§4.1.2):会话不存在时,非图片附件先落这里;扁平,不属于任何会话
+└── <sessionId>/              ← 会话命名空间(形如 ses_ab12…,即平台 session.id;v2 新增替代 v1 扁平共享;v7 去掉 agent 命名层直接挂 .octo)
+    ├── uploads/               ← 发送时把这次要发的附件从 .octo/tmps/ rename 进来
     └── outputs/                ← 产物:MCP materialize 落地 + 本地能力 write 输出(从一开始就要求 sessionId)
 ```
 
@@ -66,20 +68,21 @@
 |---|---|---|
 | projectDir 目录绑定（会话 / 事件 / SDK 同源） | ✓ | `useProjectDir()` / `sdk.directory`，[index.tsx](../../../packages/app/octoapp/pages/insight/index.tsx)，[SPEC-INS-012](../ui/insight-directory-scoping.md) |
 | v1：显性 `insight/sources` `insight/outputs`（projectDir 扁平共享） | ✓（已上线 dev，PR #238） | 本 spec v1 |
-| v2：按会话隔离 `insight/<sessionId>/{uploads,outputs}` | ✗ | 本 spec（本次） |
-| v2：`sources` → `uploads` 改名 | ✗ | 本 spec（本次） |
-| v2：预会话落地区（`insight/uploads/` + 发送时 rename） | ✗ | 本 spec（本次） |
-| 文件管理 UI（列出 uploads/outputs） | ✗ | 本 spec §10（本次，取代 [SPEC-INS-004](../ui/insight-workspace.md) 原草案） |
+| v2：按会话隔离 `insight/<sessionId>/{uploads,outputs}` | ✗ | 本 spec v2 |
+| v2：`sources` → `uploads` 改名 | ✗ | 本 spec v2 |
+| v2：预会话落地区（`insight/uploads/` + 发送时 rename） | ✗ | 本 spec v2 |
+| 文件管理 UI（列出 uploads/outputs） | ✗ | 本 spec §10（取代 [SPEC-INS-004](../ui/insight-workspace.md) 原草案） |
+| v7：落点根迁 `.octo/` + 去 agent 命名层 + 预会话区 `uploads`→`tmps` | ✓（PR #411） | 本 spec v7（§2、顶部修订记录） |
 
 ---
 
-## 2. 目录布局（SOT，v2）
+## 2. 目录布局（SOT，v7）
 
 ```
-<projectDir>/insight/
-├── uploads/
+<projectDir>/.octo/
+├── tmps/
 │   └── <sanitized-filename>            （预会话落地区；扁平；同名按 §3.3 去重 / 加后缀）
-└── <sessionId>/
+└── <sessionId>/                        （形如 ses_ab12…，即平台 session.id）
     ├── uploads/
     │   └── <sanitized-filename>        （该会话的附件；扁平；撞名按 §3.3 加后缀）
     └── outputs/
@@ -88,12 +91,12 @@
 
 | 层 | 作用 | 备注 |
 |---|---|---|
-| `insight/` | agent 命名空间 | 未来 `make/` 等并列；不存在则**自动创建**（首次写入时 `mkdir -p`） |
-| `insight/uploads/` | 预会话落地区 | 非图片附件在没有真实 sessionId 时的临时落点，见 [§4.1.2](#412-预会话落地区与发送时归属) |
-| `insight/<sessionId>/uploads/` | 该会话的附件 | 发送时从 `insight/uploads/` rename 进来 |
-| `insight/<sessionId>/outputs/` | 该会话的产物 | MCP materialize（§4.2）+ 本地能力 write 输出（路径 C）；扁平、撞名加后缀 |
+| `.octo/` | 全局本地根（v7） | insight / make 等所有模块的本地落点统一收进这里；不存在则**自动创建**（首次写入时 `mkdir -p`） |
+| `.octo/tmps/` | 预会话落地区 | 非图片附件在没有真实 sessionId 时的临时落点，见 [§4.1.2](#412-预会话落地区与发送时归属) |
+| `.octo/<sessionId>/uploads/` | 该会话的附件 | `<sessionId>` 即平台 `session.id`（形如 `ses_ab12…`），与 make 的 `.octo/artifacts/make/<sessionId>/` 同源；发送时从 `.octo/tmps/` rename 进来 |
+| `.octo/<sessionId>/outputs/` | 该会话的产物 | MCP materialize（§4.2）+ 本地能力 write 输出（路径 C）；扁平、撞名加后缀 |
 
-**为什么显性（不藏 `.octo/`，v1 决定 v2 continue 沿用）**：源文件与产物是**用户的工作资产**，要能在文件管理 UI 列出、能用本地应用打开、能被用户在 Finder 里直接找到——属于"显性存储"。`.octo/` 保留给**纯工具缓存**。站内 Make 模块把同类产物存进 `.octo/artifacts/make/<sessionId>/`（隐藏），本 spec **不跟这一点**——两个模块对"是否显性"的判断不同，是各自模块的独立选择，不视为不一致需要修的问题。
+**为什么统一收进 `.octo/`、且去掉 agent 命名层（v7 决定，反转 v2 的"显性放 `insight/` 下"）**：v1/v2 曾坚持"用户工作资产要显性、可在 Finder 直接找到"，据此把落点放在可见的 `insight/` 下、并刻意**不跟** Make 把产物藏进 `.octo/` 的做法（旧论证：`.octo/` 只留给纯工具缓存）。v7 按 PM 全局约定推翻这条：**所有模块的本地落点统一收进 `.octo/` 根**，理由是"跨模块目录约定一致"这条产品级诉求压过了单模块的"显性优先"——两个同类模块各自为政（insight 显性、make 隐藏）本身就是需要收敛的不一致。同时**去掉 agent 命名层**（原 `insight/` 这一段）：会话归属哪个 agent 可由 `sessionId` 反查得到，不必再用目录段表达，`.octo/<sessionId>/` 直接挂在根下即可。可见性诉求由**文件管理 UI**（§10，列 `.octo/<sessionId>/{uploads,outputs}`）承接，不再依赖"落点是否在 Finder 显眼处"。
 
 **为什么改成按会话隔离（v1→v2 的核心决定，见顶部修订记录）**：v1 的"projectDir 键控、不分桶"是为了免费拿到跨会话共享，且把分桶列为"以后再说"的选项。这次直接改成分桶，放弃跨会话共享，换来跟 Claude / Make 一致的用户心智模型（"这是这次对话的文件"）。**不做跨会话聚合视图**（本 spec 明确排除，见 §9）；未来若要看"整个项目下所有会话的文件"，需要新增聚合能力，属独立 spec，本次的目录结构（`sessionId` 作为已知的必填维度）不阻碍那件事。
 
@@ -109,10 +112,10 @@
 会话目录名（`sessionId` 作为路径分段）额外做纯 allow-list 清洗（`[A-Za-z0-9_-]`，非法字符替换为 `_`）——渲染进程不是安全边界，防御性拒绝路径穿越。
 
 ### 3.2 outputs 命名
-文件名取 `resource_link.name`（uri 源）或 `basename(filePath)`（path 源），sanitize 后落 `insight/<sessionId>/outputs/`，撞名加后缀（§3.3）。不做 `<id>` 分桶（只按 `sessionId` 分桶，桶内扁平）。
+文件名取 `resource_link.name`（uri 源）或 `basename(filePath)`（path 源），sanitize 后落 `.octo/<sessionId>/outputs/`，撞名加后缀（§3.3）。不做 `<id>` 分桶（只按 `sessionId` 分桶，桶内扁平）。
 
 ### 3.3 撞名处理（uploads 与 outputs 统一）
-两个目录同一套规则：撞名（目标已存在）就**加后缀** `name (2).docx`（操作系统下载器习惯），不覆盖。`insight/uploads/` → `insight/<sessionId>/uploads/` 的 rename 步骤同样应用这条规则（目标目录里撞名就加后缀，不覆盖）。
+两个目录同一套规则：撞名（目标已存在）就**加后缀** `name (2).docx`（操作系统下载器习惯），不覆盖。`.octo/tmps/` → `.octo/<sessionId>/uploads/` 的 rename 步骤同样应用这条规则（目标目录里撞名就加后缀，不覆盖）。
 
 > 2026-07-03 曾把落地文件名改为 `name_2.docx`（防空格/括号随 basename 进 S3 URL 致 MCP 下载失败），同日随上传合同 v2 提案（[file-upload.md](file-upload.md) 顶部：文件名退出 URL）回退，统一 ` (n)`。v2 落地前撞名文件走 MCP 会因 URL 特殊字符失败，与其他特殊字符文件名同属已知窗口，服务端改造收口。
 
@@ -128,11 +131,11 @@
 
 ```
 用户选文件 / 拖拽
-  → （本地）fs.copyFile(原始路径, <projectDir>/insight/uploads/<sanitized>)   ← 总是做,落预会话区
+  → （本地）fs.copyFile(原始路径, <projectDir>/.octo/tmps/<sanitized>)   ← 总是做,落预会话区
   → （MCP 用）POST S3 → 拿 url + handle → 注入 session                       ← 见 §4.1.1
 ```
 
-- **拷贝实现**：文件选择器 / 拖拽能拿到**真实本地路径**（Electron `File.path`），主进程 `fs.copyFile(srcPath, dest)` 即可——**磁盘上流式拷贝、不占渲染进程内存**（100MB 也无压力），`copyFileToWorktree(srcPath, baseDir, filename)` IPC（v1 已有，v2 目的地从 `insight/sources` 改 `insight/uploads`，签名不变）。
+- **拷贝实现**：文件选择器 / 拖拽能拿到**真实本地路径**（Electron `File.path`），主进程 `fs.copyFile(srcPath, dest)` 即可——**磁盘上流式拷贝、不占渲染进程内存**（100MB 也无压力），`copyFileToWorktree(srcPath, baseDir, filename)` IPC（v1 已有，v2 目的地从 `insight/sources` 改 `.octo/tmps`，签名不变）。
 - **格式不变**：原样拷贝，**docx 还是 docx**，绝不转格式（office→文本是 Spec B 的事，且只另存派生文本、不动原件）。
 - **不在本期处理**：粘贴的内存 blob（无真实路径，如剪贴板二进制）——少见，留作后续独立 spec（届时再加"写字节"API）。
 - **无 projectDir / 非桌面端**：跳过本地拷贝，本地能力线在该会话不可用——降级而非报错。
@@ -161,16 +164,16 @@
 **机制**：
 ```
 选中/拖拽非图片文件（无论有无 sessionId）
-  → fs.copyFile → <projectDir>/insight/uploads/<sanitized>          ← §4.1，不变
+  → fs.copyFile → <projectDir>/.octo/tmps/<sanitized>          ← §4.1，不变
   → 用户点发送，createAndNavigate() resolve 出真实 sessionId
-  → fs.rename(insight/uploads/<file>, insight/<sessionId>/uploads/<file>)   ← 新增，本 spec
+  → fs.rename(.octo/tmps/<file>, .octo/<sessionId>/uploads/<file>)   ← 新增，本 spec
   → 更新附件状态里的本地 path，供 [附件] 清单 / MCP 按需上传使用
 ```
 - `rename` 是同一文件系统内的原子操作，单文件通常 < 5ms，多附件可并行，不显著拖慢发送。
 - **失败处理**：`rename` 失败（极少见）不阻断发送，该附件的 `[附件]` 清单路径退化为指向预会话区，仍可读；记 `[octo:worktree] upload-move failed`。
-- **未发送的附件怎么办**：用户撤销附件（`removeAttachment`）不删除磁盘副本——这是 v1 就有的既有行为（附件被撤销后，v1 的 `insight/sources/` 里也会留孤儿文件），v2 沿用同一行为：留在 `insight/uploads/` 里不清理。**不做**发送失败/用户中途关闭 App 时的自动清理（跟 v1 一致的"孤儿数据不主动清理"立场）。
+- **未发送的附件怎么办**：用户撤销附件（`removeAttachment`）不删除磁盘副本——这是 v1 就有的既有行为（附件被撤销后，v1 的 `insight/sources/` 里也会留孤儿文件），v2 沿用同一行为：留在 `.octo/tmps/` 里不清理。**不做**发送失败/用户中途关闭 App 时的自动清理（跟 v1 一致的"孤儿数据不主动清理"立场）。
 
-### 4.2 产物落点（`insight/<sessionId>/outputs`）
+### 4.2 产物落点（`.octo/<sessionId>/outputs`）
 
 **落地时机 = 出卡即落（eager，v4 修订）**：MCP `resource_link` 产物在**对话流出卡时**就触发 materialize 落进 outputs，不等用户点开卡片。
 
@@ -178,16 +181,16 @@
 >
 > **eager vs lazy 权衡**：懒落地省一次网络+磁盘（没看的产物不下载），但代价是文件管理与「产物是否被查看」耦合，违反「产物库 = 已生成的全部产物」的心智；eager 反过来。选 eager，与「显性存储、可管理」的 spec 立场（§0）一致。**实现注意**：① 一次 `completed` 可能返回 N 个 `resource_link`，eager 落地要控制并发、单个失败不阻断其余（记 `[octo:worktree] result-materialize` 带 `reason`）；② 幂等键不变（见下「幂等性保持」），已落地/用户改过的那份不被 eager 覆盖。
 
-- `downloadResourceToTemp` 的落点为 `<baseDir>/insight/<sessionId>/outputs/<file>`（扁平，撞名加后缀），新增必填 `sessionId` 参数；`baseDir` 或 `sessionId` 缺一 → 走 OS 临时目录降级（不持久，无本地能力线）。
+- `downloadResourceToTemp` 的落点为 `<baseDir>/.octo/<sessionId>/outputs/<file>`（扁平，撞名加后缀），新增必填 `sessionId` 参数；`baseDir` 或 `sessionId` 缺一 → 走 OS 临时目录降级（不持久，无本地能力线）。
 - **同步更新调用点**（否则预览读 A、编辑写 B 会漂移）：
   - [local-resource.ts `ensureLocalMarkdownFile`](../../../packages/app/octoapp/pages/insight/utils/local-resource.ts) — 新增 `sessionId` 参数
   - [result-viewer/index.tsx `UriMarkdownTabBody`/`FileFallback`](../../../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx)、[action-bar.tsx](../../../packages/app/octoapp/pages/insight/components/result-viewer/action-bar.tsx)、[markdown-editor/index.tsx](../../../packages/app/octoapp/pages/insight/components/markdown-editor/index.tsx) — 各自本地 `useParams()` 取 `sessionId`（路由 `/insight/:id?`，Solid context 不受 `Portal` 影响，不需要逐层 prop 传递）
   - 桌面 IPC 内 `reuse-existing` 幂等逻辑：幂等键仍是"卡首次落地后记在 tab 上的本地路径"（不变，v1 已确立）
 - **幂等性保持**：路径多了一层 sessionId，"已落地复用用户改过的那份"行为不变。
-- **路径 C（write 产物）——服务端确定性重定向到 outputs（v5，取代 v4 的提示词约定）**：insight 会话里 `write` 的**相对 `filePath`** 由 server 插件 [octo-outputs-redirect.ts](../../../packages/opencode/src/agent/octo-outputs-redirect.ts) 在 `tool.execute.before` 重定向到 `<会话directory>/insight/<sessionId>/outputs/`，模型只需给文件名、无需知道绝对路径。两道确定性闸门（`tool==="write"` 且 `session.agent==="octo_insight"`）把影响面夹死，绝对路径原样尊重。**不改上游 write 本体**（[write.ts](../../../packages/opencode/src/tool/write.ts)，相对路径原生 join 到 `instance.directory`=项目根）。
+- **路径 C（write 产物）——服务端确定性重定向到 outputs（v5，取代 v4 的提示词约定）**：insight 会话里 `write` 的**相对 `filePath`** 由 server 插件 [octo-outputs-redirect.ts](../../../packages/opencode/src/agent/octo-outputs-redirect.ts) 在 `tool.execute.before` 重定向到 `<会话directory>/.octo/<sessionId>/outputs/`，模型只需给文件名、无需知道绝对路径。两道确定性闸门（`tool==="write"` 且 `session.agent==="octo_insight"`）把影响面夹死，绝对路径原样尊重。**不改上游 write 本体**（[write.ts](../../../packages/opencode/src/tool/write.ts)，相对路径原生 join 到 `instance.directory`=项目根）。
   - **为什么不再走「提示词约定」（v4 §②）**：绝对路径是运行时值、静态提示词写不了，v4 改成客户端每轮注入 `[输出目录] <绝对路径>` synthetic 指令纠偏——弱模型把这条常驻指令当当前任务复述、把路径暴露给用户（[learning](../../learning/standing-instruction-echoed-by-weak-model.md)）。重定向让绝对路径彻底退出对话上下文，暴露问题从根上消失。
   - **为什么不用启发式（前端事后搬运）**：write 意图无法从 tool part 可靠区分，一律 copy 是启发式误判（违反确定性原则）；改用「相对→outputs」这条确定性规则替代。实证 scratch 顾虑不成立——超长抽取全文落盘走专门的 `TRUNCATION_DIR`（[truncate.ts](../../../packages/opencode/src/tool/truncate.ts)），不经模型 write，故 outputs 不会被 scratch 污染。
-  - 白名单天然可用：v2 白名单 [ipc.ts](../../../packages/desktop/src/main/ipc.ts) 已按分段放行 `insight/<sessionId>/{uploads,outputs}`。
+  - 白名单天然可用：v2 白名单 [ipc.ts](../../../packages/desktop/src/main/ipc.ts) 已按分段放行 `.octo/<sessionId>/{uploads,outputs}`。
 
 > 旧 v1 扁平数据（`insight/sources`、`insight/outputs`）：**不做迁移**。桌面 IPC 的 write-file 白名单改为只放行新的会话分桶路径，旧路径不再放行——Insight 的 tab 是纯内存 signal、不跨重启持久化，不存在"存活的 tab 引用旧路径"的场景，因此不会有半迁移状态。
 
@@ -200,8 +203,8 @@
 | handle 注入格式 + `octo-upload-inject` 插件替换 | 现有胶水（我们侧）+ MCP 工具（他们侧） | **一行不改**（block 仍 `handle:真实url`）|
 | S3 上传**时机**改造（→ 模型调 MCP 时按需上传）| 我们侧（自有上传服务）| 否——移至 [SPEC-INS-015](insight-file-passing.md)；本 spec 不动上传时机 |
 | 提交 MCP 任务 / 查询 / resource_link 形态 | MCP 团队 | **一行不改** |
-| 把 resource_link 结果**下载到 `insight/<sessionId>/outputs`** | 我们侧新增 | 否——通过现有 `resource_link` 接口**读他们的输出**，不改他们的行为 |
-| 源文件拷贝进 `insight/uploads` → `insight/<sessionId>/uploads` | 我们侧新增 | 否，与 MCP 无关 |
+| 把 resource_link 结果**下载到 `.octo/<sessionId>/outputs`** | 我们侧新增 | 否——通过现有 `resource_link` 接口**读他们的输出**，不改他们的行为 |
+| 源文件拷贝进 `.octo/tmps` → `.octo/<sessionId>/uploads` | 我们侧新增 | 否，与 MCP 无关 |
 
 **责任交接点 = resource_link / 那份产物文件**：之前（原始分析质量）= MCP；之后（本地怎么存、怎么读、怎么二次改）= 我们。materialize 是纯消费动作，UXR 那份 S3 原件不动，随时可重新拉取对比"原版 vs 本地改过的"。
 
@@ -211,9 +214,9 @@
 
 | tag | 触发点 | 字段 |
 |---|---|---|
-| `[octo:worktree] ensure-dir` | 首次创建 `insight/uploads`、`insight/<sessionId>/uploads` 或 `.../outputs` | dir / created(bool) |
-| `[octo:worktree] upload-copy ok/failed` | 源文件拷贝进 `insight/uploads`（预会话区） | srcPath / dest / reason |
-| `[octo:worktree] upload-move ok/failed`（v2 新增） | 发送时把附件从 `insight/uploads` rename 进 `insight/<sessionId>/uploads` | srcPath / dest / sessionId / reason |
+| `[octo:worktree] ensure-dir` | 首次创建 `.octo/tmps`、`.octo/<sessionId>/uploads` 或 `.../outputs` | dir / created(bool) |
+| `[octo:worktree] upload-copy ok/failed` | 源文件拷贝进 `.octo/tmps`（预会话区） | srcPath / dest / reason |
+| `[octo:worktree] upload-move ok/failed`（v2 新增） | 发送时把附件从 `.octo/tmps` rename 进 `.octo/<sessionId>/uploads` | srcPath / dest / sessionId / reason |
 | `[octo:worktree] result-materialize` | 产物落地 | filename / path / sessionId / reused(bool) |
 | `[octo:insight-files] list-ok/list-failed`（v2 新增，客户端） | 文件管理 UI 拉取当前会话文件列表 | sessionId / category / count |
 
@@ -248,14 +251,14 @@
 
 | # | 操作 | 期望 | 环境 |
 |---|---|---|---|
-| 1 | 选项目目录，欢迎页（无 session）拖一个 .docx | 立刻 `<projectDir>/insight/uploads/<name>.docx`（原样拷贝、格式不变）；`[octo:worktree] upload-copy ok` | 外网 |
-| 2 | 发送第一条消息（带上一步的附件） | 文件被 rename 进 `<projectDir>/insight/<新sessionId>/uploads/<name>.docx`；`insight/uploads/` 下不再有它；`[octo:worktree] upload-move ok`；`[附件]` 清单路径是新路径 | 外网 |
+| 1 | 选项目目录，欢迎页（无 session）拖一个 .docx | 立刻 `<projectDir>/.octo/tmps/<name>.docx`（原样拷贝、格式不变）；`[octo:worktree] upload-copy ok` | 外网 |
+| 2 | 发送第一条消息（带上一步的附件） | 文件被 rename 进 `<projectDir>/.octo/<新sessionId>/uploads/<name>.docx`；`.octo/tmps/` 下不再有它；`[octo:worktree] upload-move ok`；`[附件]` 清单路径是新路径 | 外网 |
 | 3 | 走预置 → 触发 MCP | 与今天一致（eager 上传 + `[octo:inject] args rewritten`）；本 spec 未改此链路 | 内网（依赖 MCP） |
 | 4 | 同名不同内容再导入（同一会话内） | 加后缀 `<name> (2).docx`，不覆盖；输入框 chip 与 `[附件]` 清单显示**带后缀的落地名** | 外网 |
-| 5 | 触发 MCP 任务 → 完成、**卡片出现即刻（不点开）** | 产物**当场**落 `<projectDir>/insight/<sessionId>/outputs/<file>`（v4 eager，不再需要点开）；文件管理「生成文件」段立刻能看到；`[octo:worktree] result-materialize` 带 `sessionId` | 内网（依赖 MCP 产出真实产物；本地也可用 write 工具产物代替验证落点） |
+| 5 | 触发 MCP 任务 → 完成、**卡片出现即刻（不点开）** | 产物**当场**落 `<projectDir>/.octo/<sessionId>/outputs/<file>`（v4 eager，不再需要点开）；文件管理「生成文件」段立刻能看到；`[octo:worktree] result-materialize` 带 `sessionId` | 内网（依赖 MCP 产出真实产物；本地也可用 write 工具产物代替验证落点） |
 | 5b | 对话回复里含 ```mindmap / html fence（inline 嗅探出卡）| 卡片可预览，但 outputs 目录**不新增**文件、文件管理也不出现它（v4：inline 不物化落盘）；点该卡的「下载」另存到别处，outputs 仍不变 | 外网（本地构造含 fenced mindmap 的回复即可复现）|
-| 6 | markdown 卡编辑 → 保存 → 关卡重开 | 回显改动（幂等工作副本仍生效，落点在 `insight/<sessionId>/outputs`）| 外网 |
-| 7 | 关 app 重开同一目录、同一会话 | `insight/<sessionId>/uploads` `outputs` 里该会话的文件仍在 | 外网 |
+| 6 | markdown 卡编辑 → 保存 → 关卡重开 | 回显改动（幂等工作副本仍生效，落点在 `.octo/<sessionId>/outputs`）| 外网 |
+| 7 | 关 app 重开同一目录、同一会话 | `.octo/<sessionId>/uploads` `outputs` 里该会话的文件仍在 | 外网 |
 | 8 | 新建第二个会话 | 文件管理 UI 只看到这个新会话自己的文件，看不到第一个会话的（**不再**跨会话共享，v1→v2 的核心行为变化）| 外网 |
 | 9 | 不选目录 / 浏览器 __dev | 跳过本地拷贝；MCP 主流程不受影响（降级不报错）| 外网 |
 | 10 | 文件管理面板拉取失败（如 `/insight/files` 404 或其他网络错误）| 只在文件管理面板内显示"加载文件列表失败 + 重试"，**不整页崩溃**（`FileManagerInner` 用 `try/catch` 收口 uploads/outputs 两段 `Promise.all` fetch，失败置 `store.error` → 面板内渲染重试按钮，不 `throw` 到 ErrorBoundary。注:v3 已从 v2 的 `createResource` 双 resource 改为手动 `refresh()` + store 收口,以对齐 Design 的取数形态）| 外网 |
@@ -284,7 +287,7 @@ SPEC-INS-014（本 spec，地基）
 
 与 Make 的关键差异：Insight 的 worktree 是**扁平**的（无子文件夹），文件管理面板不需要 Make 那套文件夹导航（breadcrumb/navigateToFolder）。v2 直接是"已上传 / 已生成"两段平铺列表；**v3（§10.1）已升级为表格视图**（多选/表头排序/分组/类型筛选），两段作为可折叠顶层分区保留。
 
-**服务端接口（重要：不是普通 Hono 路由）**：`GET /insight/files?sessionId&category=uploads|outputs`，列 `insight/<sessionId>/<category>/`；不做 `/content`（复用现有 `source:"path"` tab 机制读文件）、不做 kind/mime 分类（复用客户端已有的 `extToOutputType()`/`fileTypeIconUrl()`）。
+**服务端接口（重要：不是普通 Hono 路由）**：`GET /insight/files?sessionId&category=uploads|outputs`，列 `.octo/<sessionId>/<category>/`；不做 `/content`（复用现有 `source:"path"` tab 机制读文件）、不做 kind/mime 分类（复用客户端已有的 `extToOutputType()`/`fileTypeIconUrl()`）。
 
 > **实现踩坑记录**：本仓开发/预览渠道默认启用 `OPENCODE_EXPERIMENTAL_HTTPAPI`（`packages/opencode/src/core/flag/flag.ts`），启用后请求走的是**另一套基于 Effect 的类型化 HttpApi 系统**（`server/routes/instance/httpapi/groups/*.ts` 定义 endpoint schema + `handlers/*.ts` 实现），普通 Hono 路由文件（`server/routes/instance/*.ts`，如 `artifact.ts`）在这个后端模式下**完全不会被调用**——首版实现照抄 `artifact.ts` 的写法新写了一个 Hono 文件，排查了很久才发现整条代码路径是死的。正确做法：接口应加进已有的类型化 `insight` 分组（`httpapi/groups/insight.ts` 定义 `InsightFileListQuery`/`InsightFileListResult`/`listFiles` endpoint + `httpapi/handlers/insight.ts` 实现 `listFiles` handler，用 `InstanceState.context` 拿 `instance.directory`，不是普通 Hono 里的 `Instance.directory` 静态导入）。这个机制的详细说明见 learning 笔记 [hono-vs-effect-httpapi-routing.md](../../learning/hono-vs-effect-httpapi-routing.md)。
 
@@ -294,7 +297,7 @@ v2 本期范围：只读列表 + 点击以 tab 打开 + 本地打开/显示文�
 
 ### §10.1 UI 打磨对齐 Design 模块（v3，已实施）
 
-> 2026-07-09 落地。参照站内 **Design 模块**已上线的"文件管理"（`pages/make/components/design-files/` + `make/utils/artifact-file-store.ts`，用户内网实测"还原度高"），把 §10 的两段平铺列表升级为表格视图，**不抄它的存储层**（Design 存 `.octo/artifacts/make/`，Insight 按 §2 走显性 `insight/<sessionId>/`）。Insight 自包含，未 import 任何 make 目录下的组件。
+> 2026-07-09 落地。参照站内 **Design 模块**已上线的"文件管理"（`pages/make/components/design-files/` + `make/utils/artifact-file-store.ts`，用户内网实测"还原度高"），把 §10 的两段平铺列表升级为表格视图，**不抄它的存储层**（Design 存 `.octo/artifacts/make/`，Insight 按 §2 走 `.octo/<sessionId>/`——v7 后两者同在 `.octo/` 根下、各自命名空间）。Insight 自包含，未 import 任何 make 目录下的组件。
 
 下表为已落地的对照结果（"Insight 实际做法"列即本次实现；与 sonnet 原草案不一致处已就地订正）：
 
@@ -305,7 +308,7 @@ v2 本期范围：只读列表 + 点击以 tab 打开 + 本地打开/显示文�
 | 排序：点表头（名称/类型/修改时间）切换升降序 | `artifact-file-store.ts` 的 `sortKey`/`sortDir` + 表头点击 | 同上，在 `insight-file-store.ts` 里照抄 |
 | 类型筛选：popover + 各类型 count | `artifact-file-store.ts` 的 `kindFilter`/`availableKinds`/`kindCounts` | **kind 在客户端派生，未动服务端**（订正 sonnet 原草案的"服务端 listFiles handler 里分类"——`listFiles` 已把 `name` 回给客户端,分类是纯展示逻辑,信息够;且 `extToOutputType()` 在 app 包、opencode 服务端 import 不到,照字面做等于服务端重写分类器 + 改一次类型化 HttpApi schema,按 [hono-vs-effect-httpapi 笔记](../../learning/hono-vs-effect-httpapi-routing.md) 能不碰服务端就不碰）。实现见 `insight-file-api.ts` 的 `fileKind()`/`kindLabel()`/`kindSortPriority()`,口径与 `fileTypeIconUrl()` 同源,枚举比 Design 的 12 类精简 |
 | 多选：checkbox 列 + 全选 | `artifact-file-store.ts` 的 `selected`/`allPageSelected`/`somePageSelected` | 照抄为 `selected`/`allSelected`/`someSelected`；**只做选中态**，批量操作（下载/删除）未做 |
-| 真上传：点"上传"接文件选择器 + 拖拽 | `design-files-toolbar.tsx` 的上传入口 + Design 自己的 `/artifact/upload` | **未新造上传通道**：`local-file-ops.ts` 新增 `copyFilesToSessionUploads()`,复用输入框附件那条既有链路——`copyFileToWorktree`（拷进预会话区 `insight/uploads/`）→ `movePendingUploadToSession`（rename 进 `insight/<sessionId>/uploads/`）。文件管理面板一定在真实会话里,故拷完直接归属本会话。支持文件选择器 + 拖拽落区 |
+| 真上传：点"上传"接文件选择器 + 拖拽 | `design-files-toolbar.tsx` 的上传入口 + Design 自己的 `/artifact/upload` | **未新造上传通道**：`local-file-ops.ts` 新增 `copyFilesToSessionUploads()`,复用输入框附件那条既有链路——`copyFileToWorktree`（拷进预会话区 `.octo/tmps/`）→ `movePendingUploadToSession`（rename 进 `.octo/<sessionId>/uploads/`）。文件管理面板一定在真实会话里,故拷完直接归属本会话。支持文件选择器 + 拖拽落区 |
 | 视图空态 / loading 态细节 | `design-files-panel.tsx` 的 loading/error/empty 三态 | 三态齐备：初次加载 Spinner、空态（插画 + 上传按钮，按钮色值/尺寸对齐 Design 的 `#0a59F7`/108×32）、错误态（面板内"加载失败 + 重试"）。错误处理见 §8 #10 订正 |
 
 **没做（与 Design 有意不同）**：Design 的文件夹导航（`navigateToFolder`/breadcrumb）——insight worktree 扁平，没有子文件夹；`upload-files/` 前缀剥离逻辑同理不需要。批量下载/删除也未做（只做多选选中态）。
