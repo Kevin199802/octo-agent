@@ -6,6 +6,21 @@
 >
 > 只读排查文档,不改任何代码。真相源:`packages/desktop/src/main/`(UXAI 仓)。标 ✅ 的路径为本机(macOS · run dev)**实测确认**,标 📄 的为**代码推导**(成品包/Win/Linux 手上没环境实测)。
 
+## TL;DR(名字/渠道不确定就先跑这条,找不到再往下读)
+
+**日志不在 app 数据目录(`Application Support` / userData),在系统 Logs 目录里** —— 别猜目录名,直接把这一层所有 `.log` 按修改时间摊开,最新那条就是当前包在写的。这步只为**落到 Logs 这层**;精确区分 4 类日志 / dev·beta·prod 看下面详解。
+
+- **macOS** — `~/Library/Logs/<显示名>/`(`~` = 当前登录用户家目录;多用户机 / 切过用户 / sudo 导致 `~` 指错时,把 `~/` 换成 `/Users/*/` 扫所有用户):
+  ```bash
+  find ~/Library/Logs -name '*.log' 2>/dev/null -exec ls -lt {} +
+  ```
+- **Windows** 📄 — 与 mac 相反,日志在 userData 里:`%APPDATA%\<appId>\logs\`(Roaming);sidecar 的 run dev 日志另在 `%LOCALAPPDATA%\opencode\log`。直接粘进 PowerShell 回车即可 —— **用单行**(PS5 多行粘贴会断裂),且是**交互命令**、不受 ExecutionPolicy 限制(那个只挡 `.ps1` 脚本,无需改任何策略):
+  ```powershell
+  Get-ChildItem $env:APPDATA,$env:LOCALAPPDATA -Recurse -Filter *.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 30 LastWriteTime,FullName
+  ```
+
+命令全盘扫、不依赖精确目录名,拿到最新那条路径后,再按 [insight-debugging.md](./insight-debugging.md) 的 `[octo:*]` 前缀 grep 内容。
+
 ## 为什么总找不到目录(先读这段)
 
 同一个 app 有**多套名字**,磁盘上不同日志用的还不是同一套——这是找错目录的根因:
