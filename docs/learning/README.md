@@ -55,6 +55,8 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 33. [standing-instruction-echoed-by-weak-model.md](standing-instruction-echoed-by-weak-model.md) — 「常驻/条件性指令塞进 user turn → 弱模型当当前任务复述」反模式:insight 发「你好」内网模型回一段带 outputs 绝对路径的话(每轮注入 `[输出目录] synthetic` 指令,空问候无锚点时被弱模型 latch)/ 本质=弱模型分不清「背景配置」vs「这轮要做的事」、「每轮注入」放大命中 / 三级避免法(工具兜底>常驻位置>别靠改措辞)/ 判据「想让模型知道但通常不提的东西别当 user turn 指令喂」/ 唯一稳妥「不暴露」=根本不放进对话(锚点:SPEC-INS-014 v5 / UXAI PR #368)
 34. [stale-path-predicate-after-layout-refactor.md](stale-path-predicate-after-layout-refactor.md) — 排查复盘:输入框上传的文件对话正常、却永远进不了文件管理。根因 = 落点迁 `.octo/tmps` 那次重构**只改了判据上方的注释、函数体仍按旧布局找 `insight/uploads`** → 判据恒假 → 附件停在预会话区不搬进会话 uploads / 四个放大器(注释反向漂移比过期更难 review · 恒假判据是静默降级三条日志一条不打 · 私有纯函数不在可测面 · 面板上传旁路仍能用制造"功能正常"假象)/ 规约:迁落点 grep 旧名字·路径判据从已知根派生·死分支要可观测·纯函数搬 utils 加单测(锚点:SPEC-INS-014 §4.1.2 / UXAI `b90d404c6`)
 
+35. [permission-ask-and-always-allow.md](permission-ask-and-always-allow.md) — 权限询问完整链路(以 insight「读取工作区外文件」`external_directory` 弹窗为线索):7 个工具经 `assertExternalDirectory` 发起 ask → `Deferred.await` **阻塞整个工具调用**(「贴路径卡在正在探索」的成因)→ once/always/reject 三种应答差异 / **两个反直觉点**:①「始终允许」作用域是**整个项目(directory)下所有会话**而非当前会话(`reply()` 里那句 sessionID 判断只管即时解阻塞,不决定授权作用域;`approved` 存在按 directory 缓存的 InstanceState、表主键也是 `project_id`)②`permission` 表建好了却**只在启动时 select、运行时从不写回**(全仓唯一写入是 json-migration 一次性迁移)→ **「始终允许」重启即失效**,是 bug 还是安全取舍存疑不下定论 / 服务端 `approved` vs 前端 `autoAccept` 两套机制辨析 / `patterns` 是目录 glob、真实文件在 `metadata.filepath` / 「弹窗没出现」五条排查清单
+
 > 后续可能补:
 >
 > - `electron-vite-build.md` — main/preload/renderer 三段构建模型(暂不重要)
