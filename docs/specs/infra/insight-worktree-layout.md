@@ -10,6 +10,8 @@
 
 > ## 修订记录
 >
+> **2026-07-24：v7.2（搬迁判据健壮性 —— 布局知识收敛 + refresh 解耦，UXAI PR #424 的后续）**——本条不改布局本身,收敛「布局知识散落导致 v7 迁移漏改」这个类别的脆弱。背景:v7 把预会话落地区 `insight/uploads`→`.octo/tmps`,主进程落盘(ipc.ts)改了、**渲染端搬迁判据 `isPendingUploadPath` 漏改**(只改注释、函数体仍找 `insight`)→ 判据恒假 → 附件搬不进 `.octo/<sessionId>/uploads/`、文件管理面板为空(PR #424 止血)。两处根因收敛:① 判据从 2000+ 行页面组件抽到 [worktree-layout.ts](../../../packages/app/octoapp/pages/insight/utils/worktree-layout.ts)(渲染端布局唯一入口、可单测),布局字面量集中为常量;主进程 [ipc.ts](../../../packages/desktop/src/main/ipc.ts) 落点处加交叉引用注释——两处受进程边界隔离**无法共享常量**(desktop 主进程不 import 渲染端包),故跨进程真相源仍是本 spec §2,改布局须同步三处(见 [§2.1 实现映射](#21-实现映射改布局要同步哪几处))。② 文件管理刷新 `setFilesRefreshKey` 的 gate 从 `movedPaths.size > 0` 解耦为 `localFiles.length > 0`——刷新只依赖「本次有无本地附件」这个可靠事实,不再耦合到搬迁判据是否为真;否则判据一旦再脱节,附件进不去(已是 bug)会连带把可见性刷新也哑掉、放大故障。完整复盘见 learning [stale-path-predicate-after-layout-refactor.md](../../learning/stale-path-predicate-after-layout-refactor.md)。UXAI PR #424(判据止血)+ 后续 refactor PR(本条收敛)。
+>
 > **2026-07-22：v7.1（outputs materialize 幂等**持久化到磁盘清单**，消除重装/重启后同名产物重复 #90）**——旧 `downloadResourceToTemp` 靠桌面主进程**内存表**（`namespace` = 资源 URI → 本地路径）记幂等，落盘走 `collisionFreePath` 撞名加后缀；内存表跨重启/重装清空，重开旧会话再触发 eager 落盘 → 查不到 → 撞名重落 `xxx (2)`，**每装一次多一份**（#90）。**修法：幂等键(仍是资源 URI)从内存表搬到磁盘持久清单** `.octo/<sessionId>/outputs/.materialized.json`（`URI → {file, fetchedAt}`；dotfile，`listFiles` 已过滤不进文件管理；随会话目录生命周期，天然活过重启/重装）。命中且落地文件仍在 → 复用那份（含用户改动）、绝不 re-fetch/覆盖；未命中才 `collisionFreePath` 落盘 + 写回清单。内存表保留为进程内快路径（键加 `outputsDir` 前缀，避免同一 URI 跨会话串场）。**为什么按 URI 记而非按文件名**：文件名 ≠ 身份，两个不同 URI 同名不能 alias 成同一份（故撞名仍 `collisionFreePath` 各留一份）——起草时曾考虑「确定性按名复用」（对齐 Design [artifact-auto-save.ts](../../../packages/app/octoapp/pages/make/utils/artifact-auto-save.ts)），评审指出 filename≠identity 后否掉，改回「按 URI + 持久清单」（业界同款：npm cacache / pip / MCP 缓存代理都用「跨重启存活的 逻辑键→已落地条目 清单」）。**已知边界**：① 首次升级、老会话尚无清单 → 那一次仍可能出一份 `(2)`，之后稳定；② 用户手动改名 → 清单指向的旧名失效 → 再落一份原名副本。UXAI PR #418。
 >
 > **2026-07-22：v7（本地落点根迁 `.octo/` + 去掉 agent 命名层 + 预会话区 `uploads`→`tmps`）**——按 PM 全局约定,所有模块的本地磁盘落点统一收进 `.octo/` 根。对 insight 有三处结构变更:① 根从 `<projectDir>/insight/` 迁到 `<projectDir>/.octo/`;② **去掉 agent 命名层**——原 `insight/<sessionId>/` 改为 `.octo/<sessionId>/`,会话归属哪个 agent 由 `sessionId` 反查即可,不必用目录段表达;③ 预会话落地区 `insight/uploads/` 改名 `.octo/tmps/`(会话内 `uploads`/`outputs` 不变)。**本条反转 §2 旧决策**（v1/v2 曾坚持"不藏 `.octo/`、放显性 `insight/` 下",理由见旧 §2；v7 认定"跨模块目录约定一致"优先，可见性由 §10 文件管理 UI 承接——详见 §2 新论证）。会话段 `<sessionId>` 即平台 `session.id`(形如 `ses_ab12…`)，与 make 的 `.octo/artifacts/make/<sessionId>/` 同源；make 上层命名空间(`artifacts/make`)由 design 侧独立整改,不在本次。**存量本地文件不迁移**（新旧路径不冲突，旧文件留原处、不主动清理，延续既有 orphan 立场；迁移方式的业界做法——前向不迁移 / 惰性迁移 / 启动期批量——留待需要时另议，倾向前向不迁移）。八处落点 + write-file 白名单(改按 `.octo` 分段)已改，UXAI PR #411。
@@ -103,6 +105,17 @@
 **为什么改成按会话隔离（v1→v2 的核心决定，见顶部修订记录）**：v1 的"projectDir 键控、不分桶"是为了免费拿到跨会话共享，且把分桶列为"以后再说"的选项。这次直接改成分桶，放弃跨会话共享，换来跟 Claude / Make 一致的用户心智模型（"这是这次对话的文件"）。**不做跨会话聚合视图**（本 spec 明确排除，见 §9）；未来若要看"整个项目下所有会话的文件"，需要新增聚合能力，属独立 spec，本次的目录结构（`sessionId` 作为已知的必填维度）不阻碍那件事。
 
 **为什么 outputs 不需要预会话处理**：MCP 产物只可能发生在模型已经在真实会话里运行时——不存在"会话还没创建就有产物"的场景，因此 `outputs` 从一开始就要求真实 `sessionId`，没有 `uploads` 那样的预会话落地区问题。
+
+### 2.1 实现映射（改布局要同步哪几处）
+
+本 §2 是布局的**唯一真相源（SOT）**。落点的字面量（`.octo` / `tmps` / `uploads` / `outputs`）在代码里分落两处，且**受进程边界隔离、无法共享同一常量**（Electron 主进程不 import 渲染端 `@opencode-ai/app` 包，无先例、有构建风险），因此靠本 spec + 交叉引用注释保持一致，而非编译期约束：
+
+| 处 | 位置 | 角色 |
+|---|---|---|
+| 主进程落盘 | [ipc.ts](../../../packages/desktop/src/main/ipc.ts) `copy-file-to-worktree` / `move-pending-upload-to-session` | **权威实现**——真正 `mkdir`/`copyFile`/`rename` 的地方 |
+| 渲染端判据 | [worktree-layout.ts](../../../packages/app/octoapp/pages/insight/utils/worktree-layout.ts) `isPendingUploadPath` + 布局常量 | 发送时「要不要搬迁」的**镜像判据**，渲染端布局唯一入口、带单测 |
+
+**改布局（如再迁一次落点根 / 改目录段名）必须三处同步改**：① 本 §2 ② ipc.ts 落点构造 ③ worktree-layout.ts 常量。v7 迁移只改了 ①②、漏了 ③，判据恒假半程失效（顶部 v7.2 + learning [stale-path-predicate-after-layout-refactor.md](../../learning/stale-path-predicate-after-layout-refactor.md)）——这张表就是为不再漏而立。
 
 ---
 
