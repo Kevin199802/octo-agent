@@ -229,14 +229,38 @@ packages/opencode/src/storage/json-migration.ts:371
 
 **「始终允许」的实际有效期 = 当前 opencode 实例的生命周期。**
 
-### 这是 bug 还是设计?
+### 这是 bug 还是设计?—— 是上游 opencode 有意保留的未启用代码,不是疏漏
 
-**存疑,不下定论。** 支持「有意为之」的理由:永久放行外部目录是有安全代价的,
-不落盘意味着每次重启都重新确认,更保守。支持「遗漏」的理由:表、schema、迁移逻辑
-一应俱全,只差一次 write-back,不太像刻意设计。
+用 git 历史查证过,结论明确:**这是上游 opencode 的行为,不是本仓改动;而且写回是
+被刻意注释掉的,不是忘写。**
 
-在拿到上游 opencode 的设计依据之前,这里只记录事实,不改行为 —— 贸然补上写回会让
-外部目录授权永久化,安全影响需要单独评估。
+三条证据:
+
+1. **全是上游作者。** `packages/opencode/src/permission/` 目录 65 次提交,作者全部是
+   opencode 核心(Kit Langton 30 次、Dax Raad 14 次…),**团队成员零改动**。相关提交都
+   带上游 PR 号(#22915、#18483、#10597 等)。
+
+2. **写回代码存在,但被注释掉。** 引入 SQLite 的那次提交(`6d95f0d14` "sqlite again")
+   diff 里能看到,写回逻辑在**旧的 JSON 存储时代就已经是注释状态**,迁移到 SQLite 时
+   上游作者把这行注释**一起翻译成了 Drizzle 写法,依旧保留为注释**:
+
+   ```diff
+   -    // await Storage.write(["permission", Instance.project.id], s.approved)
+   +    // db().insert(PermissionTable).values({ projectID: ..., data: s.approved })
+   +    //   .onConflictDoUpdate({ target: PermissionTable.projectID, set: { data: s.approved } }).run()
+   ```
+
+   有人特地把一行注释掉的代码从 JSON 写法翻译成 SQLite 写法**还保留注释** —— 这是
+   有意识地把持久化搁置,不是遗漏。
+
+3. 所以之前「表建好了却不写、像遗漏」的猜测被推翻:表、schema、迁移逻辑一应俱全,
+   写回代码也在,只是**被上游主动停用**。
+
+**仍然未知的是「上游为何停用」** —— 注释里没写原因,commit message 也只有 "sqlite again"。
+合理推测是安全取舍(永久放行外部目录有代价,每次重启重新确认更保守),但这是推测,无直接依据。
+
+**对我们的行动含义:** 不要「顺手补上写回」。这不是修一个 bug,而是**推翻上游一个有意的
+默认**,会让外部目录授权永久化,安全影响需单独评估、并最好对齐上游意图后再动。
 
 ---
 
