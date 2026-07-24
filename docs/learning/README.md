@@ -53,6 +53,7 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 31. [reasoning-output-formats.md](reasoning-output-formats.md) — 思考链输出格式的业界四类规范(`<think>` 内联 / `reasoning_content` 国内事实标准 / `reasoning` OpenRouter·gpt-oss 派 / 结构化块)/ 请求头协商为何是反模式 / 多轮回传三种口径 / AI SDK(两字段名都认)→ opencode ReasoningPart → UI 消费链路 / 2026-07 内网 MaaS 思考格式变更评估:更正规非魔改、零改动兼容、DeepSeek 多轮回传观察点
 32. [electron-main-fetch-vs-net-fetch.md](electron-main-fetch-vs-net-fetch.md) — 内网"浏览器能下载、应用内 fetch failed"根因:主进程 undici fetch 与 Chromium 栈(渲染端/`net.fetch`)代理·DNS·证书·挂起恢复四项差异 / PAC-only 可达的内网 host 对 Node 直连是死路 / `error.cause` 被 IPC 序列化吞掉与裸 console.log 不进 main.log 两个排障陷阱 / 规约:主进程 http(s) 一律 `net.fetch`、失败展开 cause 链走 `log.error`(锚点:2026-07-16 OBS 产物下载失败)
 33. [standing-instruction-echoed-by-weak-model.md](standing-instruction-echoed-by-weak-model.md) — 「常驻/条件性指令塞进 user turn → 弱模型当当前任务复述」反模式:insight 发「你好」内网模型回一段带 outputs 绝对路径的话(每轮注入 `[输出目录] synthetic` 指令,空问候无锚点时被弱模型 latch)/ 本质=弱模型分不清「背景配置」vs「这轮要做的事」、「每轮注入」放大命中 / 三级避免法(工具兜底>常驻位置>别靠改措辞)/ 判据「想让模型知道但通常不提的东西别当 user turn 指令喂」/ 唯一稳妥「不暴露」=根本不放进对话(锚点:SPEC-INS-014 v5 / UXAI PR #368)
+34. [stale-path-predicate-after-layout-refactor.md](stale-path-predicate-after-layout-refactor.md) — 排查复盘:输入框上传的文件对话正常、却永远进不了文件管理。根因 = 落点迁 `.octo/tmps` 那次重构**只改了判据上方的注释、函数体仍按旧布局找 `insight/uploads`** → 判据恒假 → 附件停在预会话区不搬进会话 uploads / 四个放大器(注释反向漂移比过期更难 review · 恒假判据是静默降级三条日志一条不打 · 私有纯函数不在可测面 · 面板上传旁路仍能用制造"功能正常"假象)/ 规约:迁落点 grep 旧名字·路径判据从已知根派生·死分支要可观测·纯函数搬 utils 加单测(锚点:SPEC-INS-014 §4.1.2 / UXAI `b90d404c6`)
 
 > 后续可能补:
 >
