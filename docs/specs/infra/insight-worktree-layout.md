@@ -10,7 +10,7 @@
 
 > ## 修订记录
 >
-> **2026-07-22：v7.1（outputs materialize 幂等改「确定性落点」，消除重装/重启后同名产物重复 #90）**——反转 §3.3 outputs 的「撞名加后缀 + 内存表幂等」旧做法。原 `downloadResourceToTemp` 靠桌面主进程**内存表**（`namespace` = 资源 URI → 本地路径）记幂等，落盘走 `collisionFreePath` 撞名加后缀；内存表跨重启/重装清空，重开旧会话再触发 eager 落盘 → 查不到 → 磁盘已有同名 → 撞名重落 `xxx (2)`，**每装一次多一份**（#90）。改为**确定性落点**：落点恒为 `outputs/<sanitized-name>`，目标已存在即复用那一份（含用户改动）、绝不 re-fetch/覆盖、不加后缀——与 Design 页 [artifact-auto-save.ts](../../../packages/app/octoapp/pages/make/utils/artifact-auto-save.ts) 同口径，幂等落在**路径本身**，天生跨重启/重装保持。**权衡**：同一会话内两个不同资源恰好同名时，后者复用前者那份、不再各留一份（与 Design 同口径，接受）。仅 outputs 的 materialize 走此规则；uploads/tmps（用户手动导入）仍撞名加后缀（§3.3）。UXAI PR #412。
+> **2026-07-22：v7.1（outputs materialize 幂等**持久化到磁盘清单**，消除重装/重启后同名产物重复 #90）**——旧 `downloadResourceToTemp` 靠桌面主进程**内存表**（`namespace` = 资源 URI → 本地路径）记幂等，落盘走 `collisionFreePath` 撞名加后缀；内存表跨重启/重装清空，重开旧会话再触发 eager 落盘 → 查不到 → 撞名重落 `xxx (2)`，**每装一次多一份**（#90）。**修法：幂等键(仍是资源 URI)从内存表搬到磁盘持久清单** `.octo/<sessionId>/outputs/.materialized.json`（`URI → {file, fetchedAt}`；dotfile，`listFiles` 已过滤不进文件管理；随会话目录生命周期，天然活过重启/重装）。命中且落地文件仍在 → 复用那份（含用户改动）、绝不 re-fetch/覆盖；未命中才 `collisionFreePath` 落盘 + 写回清单。内存表保留为进程内快路径（键加 `outputsDir` 前缀，避免同一 URI 跨会话串场）。**为什么按 URI 记而非按文件名**：文件名 ≠ 身份，两个不同 URI 同名不能 alias 成同一份（故撞名仍 `collisionFreePath` 各留一份）——起草时曾考虑「确定性按名复用」（对齐 Design [artifact-auto-save.ts](../../../packages/app/octoapp/pages/make/utils/artifact-auto-save.ts)），评审指出 filename≠identity 后否掉，改回「按 URI + 持久清单」（业界同款：npm cacache / pip / MCP 缓存代理都用「跨重启存活的 逻辑键→已落地条目 清单」）。**已知边界**：① 首次升级、老会话尚无清单 → 那一次仍可能出一份 `(2)`，之后稳定；② 用户手动改名 → 清单指向的旧名失效 → 再落一份原名副本。UXAI PR #418。
 >
 > **2026-07-22：v7（本地落点根迁 `.octo/` + 去掉 agent 命名层 + 预会话区 `uploads`→`tmps`）**——按 PM 全局约定,所有模块的本地磁盘落点统一收进 `.octo/` 根。对 insight 有三处结构变更:① 根从 `<projectDir>/insight/` 迁到 `<projectDir>/.octo/`;② **去掉 agent 命名层**——原 `insight/<sessionId>/` 改为 `.octo/<sessionId>/`,会话归属哪个 agent 由 `sessionId` 反查即可,不必用目录段表达;③ 预会话落地区 `insight/uploads/` 改名 `.octo/tmps/`(会话内 `uploads`/`outputs` 不变)。**本条反转 §2 旧决策**（v1/v2 曾坚持"不藏 `.octo/`、放显性 `insight/` 下",理由见旧 §2；v7 认定"跨模块目录约定一致"优先，可见性由 §10 文件管理 UI 承接——详见 §2 新论证）。会话段 `<sessionId>` 即平台 `session.id`(形如 `ses_ab12…`)，与 make 的 `.octo/artifacts/make/<sessionId>/` 同源；make 上层命名空间(`artifacts/make`)由 design 侧独立整改,不在本次。**存量本地文件不迁移**（新旧路径不冲突，旧文件留原处、不主动清理，延续既有 orphan 立场；迁移方式的业界做法——前向不迁移 / 惰性迁移 / 启动期批量——留待需要时另议，倾向前向不迁移）。八处落点 + write-file 白名单(改按 `.octo` 分段)已改，UXAI PR #411。
 >
@@ -88,7 +88,7 @@
     ├── uploads/
     │   └── <sanitized-filename>        （该会话的附件；扁平；撞名按 §3.3 加后缀）
     └── outputs/
-        └── <sanitized-filename>        （该会话的产物；扁平；materialize 确定性落点、同名复用，§3.3）
+        └── <sanitized-filename>        （该会话的产物；扁平；materialize 按 URI 幂等,落地映射记入 .materialized.json,§3.3）
 ```
 
 | 层 | 作用 | 备注 |
@@ -96,7 +96,7 @@
 | `.octo/` | 全局本地根（v7） | insight / make 等所有模块的本地落点统一收进这里；不存在则**自动创建**（首次写入时 `mkdir -p`） |
 | `.octo/tmps/` | 预会话落地区 | 非图片附件在没有真实 sessionId 时的临时落点，见 [§4.1.2](#412-预会话落地区与发送时归属) |
 | `.octo/<sessionId>/uploads/` | 该会话的附件 | `<sessionId>` 即平台 `session.id`（形如 `ses_ab12…`），与 make 的 `.octo/artifacts/make/<sessionId>/` 同源；发送时从 `.octo/tmps/` rename 进来 |
-| `.octo/<sessionId>/outputs/` | 该会话的产物 | MCP materialize（§4.2）+ 本地能力 write 输出（路径 C）；扁平；materialize 确定性落点、同名复用（§3.3，v7.1） |
+| `.octo/<sessionId>/outputs/` | 该会话的产物 | MCP materialize（§4.2）+ 本地能力 write 输出（路径 C）；扁平；materialize 按 URI 幂等 + 持久清单 `.materialized.json`（§3.3，v7.1） |
 
 **为什么统一收进 `.octo/`、且去掉 agent 命名层（v7 决定，反转 v2 的"显性放 `insight/` 下"）**：v1/v2 曾坚持"用户工作资产要显性、可在 Finder 直接找到"，据此把落点放在可见的 `insight/` 下、并刻意**不跟** Make 把产物藏进 `.octo/` 的做法（旧论证：`.octo/` 只留给纯工具缓存）。v7 按 PM 全局约定推翻这条：**所有模块的本地落点统一收进 `.octo/` 根**，理由是"跨模块目录约定一致"这条产品级诉求压过了单模块的"显性优先"——两个同类模块各自为政（insight 显性、make 隐藏）本身就是需要收敛的不一致。同时**去掉 agent 命名层**（原 `insight/` 这一段）：会话归属哪个 agent 可由 `sessionId` 反查得到，不必再用目录段表达，`.octo/<sessionId>/` 直接挂在根下即可。可见性诉求由**文件管理 UI**（§10，列 `.octo/<sessionId>/{uploads,outputs}`）承接，不再依赖"落点是否在 Finder 显眼处"。
 
@@ -114,14 +114,14 @@
 会话目录名（`sessionId` 作为路径分段）额外做纯 allow-list 清洗（`[A-Za-z0-9_-]`，非法字符替换为 `_`）——渲染进程不是安全边界，防御性拒绝路径穿越。
 
 ### 3.2 outputs 命名
-文件名取 `resource_link.name`（uri 源）或 `basename(filePath)`（path 源），sanitize 后落 `.octo/<sessionId>/outputs/`，**确定性落点、同名即复用不加后缀（§3.3，v7.1 修订）**。不做 `<id>` 分桶（只按 `sessionId` 分桶，桶内扁平）。
+文件名取 `resource_link.name`（uri 源）或 `basename(filePath)`（path 源），sanitize 后落 `.octo/<sessionId>/outputs/`，**幂等键=资源 URI、落地映射记入持久清单 `.materialized.json`；命中即复用，撞名走 `collisionFreePath` 加后缀（§3.3，v7.1 修订）**。不做 `<id>` 分桶（只按 `sessionId` 分桶，桶内扁平）。
 
 ### 3.3 撞名处理
 
 **uploads / tmps（用户手动导入）——撞名加后缀**：撞名（目标已存在）就**加后缀** `name (2).docx`（操作系统下载器习惯），不覆盖。`.octo/tmps/` → `.octo/<sessionId>/uploads/` 的 rename 步骤同样应用这条规则（目标目录里撞名就加后缀，不覆盖）。
 
-**outputs（MCP materialize 产物）——确定性落点、不加后缀（v7.1 修订，#90 / UXAI PR #412）**：落点恒为 `outputs/<sanitized-name>`，目标已存在即**复用那一份**（含用户改动），绝不 re-fetch / 覆盖，**不撞名加后缀**。与 Design 页 [artifact-auto-save.ts](../../../packages/app/octoapp/pages/make/utils/artifact-auto-save.ts) 同口径，把幂等落在**路径本身**。
-> 旧做法靠桌面主进程**内存表**（`namespace` = 资源 URI → 本地路径）记幂等；内存表跨重启/重装清空，重开旧会话再触发 eager 落盘 → 撞名重落 `xxx (2)`，每装一次多一份（#90）。确定性落点让幂等天生跨重启保持。**权衡**：同一会话内两个不同资源恰好同名时，后者复用前者那份、不再各留一份（接受）。
+**outputs（MCP materialize 产物）——按 URI 幂等 + 磁盘持久清单（v7.1 修订，#90 / UXAI PR #418）**：幂等键 = **资源 URI**（不是文件名），落地映射记入 `.octo/<sessionId>/outputs/.materialized.json`（`URI → {file, fetchedAt}`；dotfile，`listFiles` 已过滤不进文件管理）。判定顺序：内存 Map 快路径（键 `${outputsDir}::${URI}`）→ 磁盘清单命中且落地文件仍在 → **复用那一份**（含用户改动），绝不 re-fetch / 覆盖；都未命中才 `collisionFreePath` 落盘（**撞名仍加后缀**：两个不同 URI 同名各留一份、不 alias）+ 写回清单。
+> 为什么要持久清单：旧实现只有进程内内存表，跨重启/重装即清空 → 重开旧会话查不到 → 撞名重落 `xxx (2)`，每装一次多一份（#90）。清单落 `.octo/` 随会话目录活过重装（业界同款：npm cacache / pip / MCP 缓存代理都用「跨重启存活的 逻辑键→已落地条目 清单」）。**为什么按 URI 不按文件名**：文件名 ≠ 身份，两个不同 URI 同名不能被 alias 成同一份。**已知边界**：① 首次升级、老会话尚无清单 → 那次仍可能一份 `(2)`，之后稳定；② 用户手动改名 → 清单旧名失效 → 再落一份原名副本。
 
 > 2026-07-03 曾把落地文件名改为 `name_2.docx`（防空格/括号随 basename 进 S3 URL 致 MCP 下载失败），同日随上传合同 v2 提案（[file-upload.md](file-upload.md) 顶部：文件名退出 URL）回退，统一 ` (n)`。v2 落地前撞名文件走 MCP 会因 URL 特殊字符失败，与其他特殊字符文件名同属已知窗口，服务端改造收口。
 
@@ -185,14 +185,14 @@
 
 > **为什么改 eager（v4）**：文件管理「生成文件」段列的是 outputs 目录里的**真实文件**（§10 `listFiles`），而非「对话里出过的卡」。v3 及以前是**懒落地**——`downloadResourceToTemp` 只在用户点开产物卡（result-viewer 渲染 / 编辑 / 定位）时才被调用，导致「生成了、卡也在，但没点开过 → 文件管理查无此文件」。eager 让「文件管理 = 会话真产物库」的定义自洽。
 >
-> **eager vs lazy 权衡**：懒落地省一次网络+磁盘（没看的产物不下载），但代价是文件管理与「产物是否被查看」耦合，违反「产物库 = 已生成的全部产物」的心智；eager 反过来。选 eager，与「显性存储、可管理」的 spec 立场（§0）一致。**实现注意**：① 一次 `completed` 可能返回 N 个 `resource_link`，eager 落地要控制并发、单个失败不阻断其余（记 `[octo:worktree] result-materialize` 带 `reason`）；② 幂等由确定性落点保证（§3.3，v7.1：幂等键 = `outputs/<sanitized-name>` 本身），已落地/用户改过的那份不被 eager 覆盖。
+> **eager vs lazy 权衡**：懒落地省一次网络+磁盘（没看的产物不下载），但代价是文件管理与「产物是否被查看」耦合，违反「产物库 = 已生成的全部产物」的心智；eager 反过来。选 eager，与「显性存储、可管理」的 spec 立场（§0）一致。**实现注意**：① 一次 `completed` 可能返回 N 个 `resource_link`，eager 落地要控制并发、单个失败不阻断其余（记 `[octo:worktree] result-materialize` 带 `reason`）；② 幂等由按 URI 的持久清单保证（§3.3，v7.1：幂等键 = 资源 URI，落地映射记入 `.materialized.json`），已落地/用户改过的那份不被 eager 覆盖。
 
 - `downloadResourceToTemp` 的落点为 `<baseDir>/.octo/<sessionId>/outputs/<file>`（扁平，撞名加后缀），新增必填 `sessionId` 参数；`baseDir` 或 `sessionId` 缺一 → 走 OS 临时目录降级（不持久，无本地能力线）。
 - **同步更新调用点**（否则预览读 A、编辑写 B 会漂移）：
   - [local-resource.ts `ensureLocalMarkdownFile`](../../../packages/app/octoapp/pages/insight/utils/local-resource.ts) — 新增 `sessionId` 参数
   - [result-viewer/index.tsx `UriMarkdownTabBody`/`FileFallback`](../../../packages/app/octoapp/pages/insight/components/result-viewer/index.tsx)、[action-bar.tsx](../../../packages/app/octoapp/pages/insight/components/result-viewer/action-bar.tsx)、[markdown-editor/index.tsx](../../../packages/app/octoapp/pages/insight/components/markdown-editor/index.tsx) — 各自本地 `useParams()` 取 `sessionId`（路由 `/insight/:id?`，Solid context 不受 `Portal` 影响，不需要逐层 prop 传递）
-  - 桌面 IPC 内 `reuse-existing` 幂等逻辑：**幂等键 = 确定性落点本身**（`outputs/<sanitized-name>`，v7.1 修订 §3.3 / #90）——不再用进程内内存表 / 记在 tab 上的本地路径，天生跨重启/重装保持
-- **幂等性保持**：路径多了一层 sessionId，"已落地复用用户改过的那份"行为不变（v7.1 起改由确定性落点保证，见 §3.3）。
+  - 桌面 IPC 内 `reuse-existing` 幂等逻辑：**幂等键 = 资源 URI**，落地映射持久化到 `.octo/<sessionId>/outputs/.materialized.json`（v7.1 修订 §3.3 / #90）——内存 Map 仅作进程内快路径，跨重启/重装靠磁盘清单存活
+- **幂等性保持**：路径多了一层 sessionId，"已落地复用用户改过的那份"行为不变（v7.1 起幂等键=URI、由磁盘持久清单保证跨重启，见 §3.3）。
 - **路径 C（write 产物）——服务端确定性重定向到 outputs（v5，取代 v4 的提示词约定）**：insight 会话里 `write` 的**相对 `filePath`** 由 server 插件 [octo-outputs-redirect.ts](../../../packages/opencode/src/agent/octo-outputs-redirect.ts) 在 `tool.execute.before` 重定向到 `<会话directory>/.octo/<sessionId>/outputs/`，模型只需给文件名、无需知道绝对路径。两道确定性闸门（`tool==="write"` 且 `session.agent==="octo_insight"`）把影响面夹死，绝对路径原样尊重。**不改上游 write 本体**（[write.ts](../../../packages/opencode/src/tool/write.ts)，相对路径原生 join 到 `instance.directory`=项目根）。
   - **为什么不再走「提示词约定」（v4 §②）**：绝对路径是运行时值、静态提示词写不了，v4 改成客户端每轮注入 `[输出目录] <绝对路径>` synthetic 指令纠偏——弱模型把这条常驻指令当当前任务复述、把路径暴露给用户（[learning](../../learning/standing-instruction-echoed-by-weak-model.md)）。重定向让绝对路径彻底退出对话上下文，暴露问题从根上消失。
   - **为什么不用启发式（前端事后搬运）**：write 意图无法从 tool part 可靠区分，一律 copy 是启发式误判（违反确定性原则）；改用「相对→outputs」这条确定性规则替代。实证 scratch 顾虑不成立——超长抽取全文落盘走专门的 `TRUNCATION_DIR`（[truncate.ts](../../../packages/opencode/src/tool/truncate.ts)），不经模型 write，故 outputs 不会被 scratch 污染。
