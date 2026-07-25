@@ -96,6 +96,7 @@ insight 用户气泡是**上游 `SessionTurn`**，只渲染「**第一个非 syn
 
 - **技能**：`loadSkillsFromPanel("octo_insight")`（平台，util 自动排除 common）+ `loadSkillsFromPanel("common")`（自定义）。`@` 触发时惰性加载一次并缓存进 `skillConfig` 信号。
 - **文件**：`fetchInsightFiles(sdk.url, sdk.directory, sid, "outputs" | "uploads")`，用 `createResource` 挂到已有的 `filesRefreshKey`（发送带附件时自动重拉）。生成 = outputs、上传 = uploads，`isFolder` 过滤掉目录。
+- **文件管理上传/删除的实时同步（2026-07-25 修 bug）**：`mentionFiles` 挂 `filesRefreshKey`，靠它 bump 才重拉。但**文件管理面板自己**上传/删除时,`renderResultViewer` 原来**只把 `refreshKey` 往下传给 ResultViewer、没把 `onFilesRefresh` 往上接**——文件管理内部 `props.onFilesRefresh?.()` 成空操作,`filesRefreshKey` 不增 → `@` 面板不刷新,现象是「文件管理上传的文件 @ 时不出来,切一下会话/agent(`sid` 变 → resource 重拉)才出」。**修复**：给 `renderResultViewer` 的 `<ResultViewer>` 补上 `onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}`。现在文件管理上传/删除都 bump `filesRefreshKey`,`@` 面板与文件列表实时同步(顺带修了「删文件后 @ 面板还留旧文件」)。文件管理自身刷新走内部 `refresh()`,新增的 refreshKey 触发是 `defer` 幂等,无死循环。
 
 ---
 
@@ -204,4 +205,6 @@ insight 用户气泡是**上游 `SessionTurn`**，只渲染「**第一个非 syn
   - `pages/insight/docs/{tracking.md,tracking-plan.md}`:`mention-open` / `mention-select`
 - **实现修正**:见 §6 顶注——文件由「可见文本 `读取path`」改为「synthetic `[引用文件]` 清单」,可见文本保持 `@名`,避免气泡暴露绝对路径;技能文件统一走 synthetic。
 - **方案 B（2026-07-25,输入控件换 ProseMirror,见 §3.1）**:新增 `insight/components/prosemirror-editor/`(schema + mention-trigger/sync/atom-keymap/no-empty-paragraph 四插件 + styles + 本地化 index),两处 composer `<textarea>` → `<ProseMirrorEditor>`,胶囊去 `overflow-hidden`,删除 textarea 版键盘/合成/自适应高度逻辑,清空/回填改走编辑器 ref。`packages/app` typecheck 全绿。**动因**:textarea 无法渲染行内胶囊,用户要求对齐 Design。
+- **文件管理上传实时同步 @ 面板（2026-07-25 修 bug,见 §4）**:`renderResultViewer` 补 `onFilesRefresh={() => setFilesRefreshKey(k+1)}`,修「文件管理上传的文件 @ 时不出、切会话才出」。
+- **合入**:实现 UXAI PR #432(`feat/insight-at-mention` → dev,待评审);spec/ROADMAP 已合入 octo-agent dev(PR #15)。
 - **待**:内网真机验证(技能确定性激活 / 文件 extract_document 读取 / 排队带引用 / 打点上报 / **中文输入法 + 胶囊交互回归**),补 PR 号。
