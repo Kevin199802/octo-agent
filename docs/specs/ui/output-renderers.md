@@ -367,8 +367,9 @@ async function loadResourceText(uri: string): Promise<string> {
 
 ### 2.5.5 缓存策略
 
-- **session 内缓存**：同一 URI 在同一 session 内只 fetch 一次，存入 `tab-store` 的 `content` 字段（懒填充）
-- **跨 session 不持久化**：用户重开 session 点旧卡片仍重新 fetch（依赖 ADR-011 约定的"URI 长期可用"）
+- **session 内缓存**：同一 URI 在同一 session 内只取一次内容，存入 `tab-store` 的 `content` 字段（懒填充）
+- **桌面端改读本地工作副本(2026-07,文件身份统一)**：uri 卡(json/html/table/mindmap/markdown)不再直接 `fetch(uri)` 拉远端 S3,而是先 `downloadResourceToTemp` 幂等落本地工作副本(outputs/,按 uri 去重)再读盘——与「文件管理打开的同一磁盘文件」读**同一份**,外部改了文件重开即见最新、且对话卡与文件管理项收敛为一个 tab。此前只有 markdown 卡这样做,其余 uri 卡直接 fetch 远端原件 → 「改了不生效、看起来像两个文件」。**非桌面端 / `__dev` / 测试**无落盘能力时退回原 `fetch(uri)` 只读预览。`file`(office/二进制)与 `image` 不走此路,各自 FileFallback / 图片渲染。
+- **跨 session 不持久化(缓存层)**：用户重开 session 点旧卡片重新取内容（依赖 ADR-011 约定的"URI 长期可用"；桌面端已落盘者复用本地工作副本）
 - 关闭 session 时不主动清缓存，由内存回收
 
 ### 2.5.6 错误处理
@@ -557,7 +558,7 @@ write 产物在**本地磁盘**,有 `filePath`——所以"用本地应用打开
 | 维度 | 路径 A(`source:"uri"` MCP 产物) | 路径 C(`source:"path"` write 产物) |
 |---|---|---|
 | 内容位置 | 内网 S3 URI | 本地磁盘 filePath |
-| 取内容 | `fetch(uri)`(http) | `sdk.client.file.read({ path })`(读盘) |
+| 取内容 | **桌面端**:幂等落本地工作副本(`downloadResourceToTemp`)后读盘(§2.5.5,2026-07 起,与文件管理同一份);**非桌面端**:退回 `fetch(uri)`(http) | `sdk.client.file.read({ path })`(读盘) |
 | **csv** | `text/csv` → **table 卡**(业务分析表格,应用内渲染 + Excel 导出) | `.csv` → **file 卡**(原始数据,拉本地 Excel/Numbers) |
 | **code 类型** | 无(MCP 不返回代码文件) | 有(任意代码/文本 → code 卡 shiki 预览,兜底) |
 | 触发工具 | MCP tool 返回 resource_link | `write`(新建)/ `edit`(修改)tool part;bash/python 产物抓不到 |
@@ -954,12 +955,15 @@ iframe 默认高度 0，需要显式给。三种方案：
 
 样式由 [octo-tokens.css](../../../packages/app/octoapp/pages/insight/octo-tokens.css) `.octo-preview-entry` 系列 class 定义。
 
+**展示名对齐磁盘落地名(2026-07,文件身份统一)**:入口卡标题来自 `resource_link.name` 原文(如 `林(2).json`),而同一份文件在「文件管理」里显示的是主进程清洗后的磁盘名(`林_2_.json`,见 [insight-worktree-layout.md §3.1](../infra/insight-worktree-layout.md))——两名不一致会让用户以为是两个文件。故入口卡对「文件名形态」标签(带扩展名)做对齐:**已落盘**用磁盘真实 basename(含撞名后缀,`materializedLocalPath` 响应式,落盘后自动重算);**未落盘**用 `predictWorktreeLandingName`(渲染侧复刻主进程 `sanitizeWorktreeName` 清洗规则,**两处必须逐字一致**)预测。友好标签(可视化页面 / 思维导图 / 自定义标题)不带扩展名,原样保留。文件名过长被 truncate 时,tab 标签与文件管理行加 `title` 让 hover 看全名。
+
 ### 6.B.3 点击行为
 
 点击入口条 → `onOpenResult(card)` → `tabStore.openTab(card)`:
 - `(uri, type)` 复合命中已有 tab → 激活已有 tab
+- **filePath 命中**（uri 卡已 eager 落盘,`tabLocalPath` 回查注册表拿到本地路径）→ 激活已有 tab。**跨 source(对话 uri 卡 ↔ 文件管理 path 卡)时忽略 type**:同一份 `mindmap.json` 被文件管理按扩展名判 json、被对话卡按 business_type 判 mindmap,是同一个磁盘文件,合成一个 tab(否则「一份文件两个条目、改了不同步」);视图差异由 tab 内「预览/代码」切换承担
 - 否则新建 tab,激活
-- 同 URI 不同 type(典型:json + mindmap)各开一个 tab,互不冲突
+- 同 URI 不同 type(典型:对话区 json 卡 + mindmap 卡,**source 都是 uri**)各开一个 tab——这是用户要的双视图,仅在 `(uri,type)` 判据里保留
 
 ### 6.B.4 与旧设计的对比
 
@@ -1274,11 +1278,13 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 | `[octo:detect] start` / `match` / `reject` / `html-fence-found` | 路径 B 嗅探决策 | 每条 assistant 消息流完 |
 | `[octo:task-detect] readTaskInfo` | 路径 A 任务 part 解析 | 每个 task 类型 part |
 | `[octo:resource-link] found` / `none-found-but-candidates-present` | 路径 A resource_link 解析（含命中 branch 计数）| 每条 assistant 消息流完 |
-| `[octo:resource] fetch start` / `ok` / `failed` | 路径 A URI fetch | 打开 uri 模式卡 |
+| `[octo:resource] fetch start` / `ok` / `failed` | 路径 A URI fetch（**仅非桌面端 / `__dev` 降级路径**——桌面端已改读本地工作副本，见 uri-local） | 无本地落盘能力时打开 uri 卡 |
+| `[octo:resource] uri-local` | 桌面端 uri 卡（json/html/table/mindmap/markdown）**落本地工作副本后读盘**渲染（取代直接 fetch 远端）——与「文件管理打开的同一磁盘文件」读同一份，含 localPath / type / bytes | 打开已可落盘的 uri 卡 |
+| `[octo:resource] eager-materialize` / `eager-materialize-failed` | uri 产物「出卡即落」outputs（客户端触发侧；主进程另打 `[octo:worktree] result-materialize`）| completed 任务 / 直接 resource_link 出卡 |
 | `[octo:task] aggregate diff` | 任务卡聚合变化 | tasks 状态变化 |
 | `[octo:task] refresh click` / `markRefreshed` / `stop click` / `followup seed` | 任务卡操作 | 用户点按钮 |
 | `[octo:task] openResult` / `auto-openResult` | 任务卡打开结果 | 点查看结果 / 自动开 |
-| `[octo:tab] openTab` / `dedupe-by-uri-and-type` / `dedupe-by-id` | tab 创建 / (uri,type) 复合去重 / id 去重 | openTab 调用 |
+| `[octo:tab] openTab` / `dedupe-by-uri-and-type` / **`dedupe-by-path`** / `dedupe-by-id` | tab 创建 / (uri,type) 复合去重 / **filePath 去重（跨 source 忽略 type，把对话卡 ↔ 文件管理同一磁盘文件合成一个 tab；字段含 existingType/incomingType/crossSource）** / id 去重 | openTab 调用 |
 | `[octo:office] download-start` / `download-ok` / `open-path` / `open-failed` | Office 唤起 | 点 FileFallback 按钮 |
 | `[octo:office] reuse-locked` (主进程 warn) | 覆盖写临时副本时 **EBUSY/EPERM**=文件正被本地应用占用,已回退复用已下载副本(不报错) | 文件已在 Word/Excel/WPS 打开后,再点「本地打开」/「在文件夹中打开」 |
 | `[octo:queue] enqueued` / `flushing` / `canceled` | busy 排队 | busy 时发送 / idle 后 flush |

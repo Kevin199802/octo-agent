@@ -122,7 +122,9 @@
 ## 3. 文件命名与冲突
 
 ### 3.1 sanitize
-沿用 [file-upload.md §filename sanitize](file-upload.md) 的服务端规则在客户端对齐：保留字母/数字/`-`/`_`/`.`/中文；空格 → `_`；其他 → `_`；主名截 100 字符；空名兜底 `unnamed`。
+沿用 [file-upload.md §filename sanitize](file-upload.md) 的服务端规则在客户端对齐：保留字母/数字/`-`/`_`/`.`/中文；空格 → `_`；其他 → `_`；主名截 100 字符；空名兜底 `unnamed`。规则实现在**主进程** `packages/desktop/src/main/ipc.ts` `sanitizeWorktreeName`（落盘落地）。
+
+> **渲染侧镜像(2026-07,文件身份统一)**：为让产物入口卡在**落盘前**就按此规则展示名（对齐磁盘名，避免 `林(2).json` vs `林_2_.json` 的双文件错觉，见 [output-renderers.md §6.B](../ui/output-renderers.md)），渲染进程 `packages/app/octoapp/pages/insight/utils/local-file.ts` `predictWorktreeLandingName` **逐字复刻**了此规则。两进程分属不同构建、不能共享模块，**改一处务必同步另一处**；两侧各有单测锁定一致性（如 `林(2).json → 林_2_.json`）。落盘完成后一律以磁盘真实 basename 为准（那才含 §3.3 撞名后缀），预测名仅作落盘前占位。
 
 会话目录名（`sessionId` 作为路径分段）额外做纯 allow-list 清洗（`[A-Za-z0-9_-]`，非法字符替换为 `_`）——渲染进程不是安全边界，防御性拒绝路径穿越。
 
