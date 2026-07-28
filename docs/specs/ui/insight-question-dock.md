@@ -1,4 +1,4 @@
-# SPEC-INS-023 Insight question 工具答题 UI（对齐 Claude AskUserQuestion）
+# SPEC-INS-025 Insight question 工具答题 UI（对齐 Claude AskUserQuestion）
 
 - **状态**：草案（待实现）
 - **领域**：ui/insight

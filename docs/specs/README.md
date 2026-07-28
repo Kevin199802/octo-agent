@@ -33,7 +33,11 @@
 | 020 | 聊天区排版产品化 — 现状取证 + 设计对接 | 现状取证阶段 | ui/insight | [reasoning-content-typography.md](ui/reasoning-content-typography.md) |
 | 021 | insight 工具集收敛 + 权限交互 + extract_document 入口修正 | 已实现（外网，分支 `feat/insight-toolset-convergence`；人工验证清单见 spec §8） | infra/insight | [insight-toolset-convergence.md](infra/insight-toolset-convergence.md) |
 | 022 | Insight 响应式布局适配（窄屏三栏 / 抽屉） | 草案（v2 已实现，外网，PR #369；未真机验证，待设计确认） | ui/insight | [insight-responsive-layout.md](ui/insight-responsive-layout.md) |
-| 023 | Insight question 工具答题 UI（对齐 Claude AskUserQuestion） | 草案（待实现） | ui/insight | [insight-question-dock.md](ui/insight-question-dock.md) |
+| 023 | Insight 输入框 `@` 引用面板 | 已实现（外网），待内网验证 | ui/insight | [insight-mention-at.md](ui/insight-mention-at.md) |
+| 024 | 输入区草稿保留（per 会话分桶 · 跨模块通用） | v1 已实现（外网，UXAI 分支 `feat/composer-draft-per-session`；insight 已接入，make / pattern / studio 待接） | ui（跨模块） | [composer-draft.md](ui/composer-draft.md) |
+| 025 | Insight question 工具答题 UI（对齐 Claude AskUserQuestion） | 草案（待实现） | ui/insight | [insight-question-dock.md](ui/insight-question-dock.md) |
+
+> **025 编号说明（2026-07-28）**：question 工具答题 UI 起草时取号 023，但同期 `@` 引用面板已用 023 落地并推送、`composer-draft` 已占 024。按下方 019 / 020 确立的"孤儿号改分配新号，不动已发布号"原则，未推送的这份改分配为 025。
 
 > **019 / 020 编号说明（2026-07-11）**：这两份历史上分别误标成 009 / 010，与 [009](ui/insight-result-panel-reveal.md) / [010](ui/insight-standalone-extraction.md) 撞号。撞号排查发现后者才是被外部引用坐实的真号（前者零外部引用），按"孤儿号改分配新号，不动已发布号"处理，改分配为当时的下一个空闲号 019 / 020。001–018 未受影响。
 
