@@ -31,7 +31,7 @@ insight 输入框支持 `@` 唤起面板，**只做两类引用**：
 | 平台技能面板 key | `octo_make` | **`octo_insight`** |
 | 自定义技能 | `common` | `common` |
 | 文件数据源 | `fetchArtifactList`（generated/uploaded） | **`fetchInsightFiles`（outputs/uploads）** |
-| 文件 tab 文案 | 「设计资产」 | **「会话文件」** |
+| 文件 tab 一级项文案 | 「设计资产」 | **「用研资产」** |
 | 技能落地 | `session.command` 真执行 `/技能名` | **synthetic 注入 SKILL.md 到 `promptAsync`**（§2.2） |
 | 文件落地 | `@名` → 文本 `读取{path}这个文件` | **synthetic `[引用文件]` 清单**（不暴露路径，§7） |
 
@@ -66,7 +66,7 @@ insight 输入框支持 `@` 唤起面板，**只做两类引用**：
 
 `@` 面板 UI，`index.tsx` + `styles.css`（类名前缀 `ins-mention-*`，用 `--octo-*` token）。
 
-- 两 tab：**技能库**（一级：平台技能 / 自定义技能）、**文件管理**（一级：会话文件）；二级面板按 `query` 过滤。
+- 两 tab：**技能库**（一级：平台技能 / 自定义技能）、**文件管理**（一级：用研资产 = 会话文件）；二级面板按 `query` 过滤。
 - Props 收敛（传算好的列表，不传原始 skillConfig）：
   ```ts
   {
@@ -111,7 +111,8 @@ insight 输入框支持 `@` 唤起面板，**只做两类引用**：
 - **取消**：面板里再点一次 → 删对应 mention 节点 + 光标前残留 `@query`。
 - **键盘 / 输入法**：Enter 发送、Shift-Enter 换行（编辑器 keymap）；退格删整块胶囊（`atom-keymap`）；中文输入法合成由 ProseMirror 原生处理（合成期 Enter 不误发）。
 - **关闭**：Esc / 点面板外 `mousedown` 关闭。
-- **挂载**：welcome 态与对话态两处 composer 各一个 `<ProseMirrorEditor>`；胶囊容器**不加 `overflow-hidden`**（对齐 Design），否则会裁掉编辑器内 `bottom:100%` 的面板弹层。
+- **挂载**：welcome 态与对话态两处 composer 各一个 `<ProseMirrorEditor>`。
+- **弹层定位（Portal + fixed，对齐 Design a919045a2）**：`@` 面板用 `<Portal>` 挂到 `document.body`、`position: fixed`，坐标由编辑器容器 `getBoundingClientRect()` 实时算（面板每次 query 变化重算）。这样弹层**脱离胶囊的 `overflow` 与堆叠上下文**，永不被裁切/遮挡 → 胶囊容器**保留 `overflow-hidden`**（圆角完整）。z-index 用 `1000/1001`。（早期方案曾靠「去掉胶囊 overflow-hidden」绕过裁剪，Portal 方案更彻底，已回退。）
 
 ---
 
@@ -207,5 +208,6 @@ insight 输入框支持 `@` 唤起面板，**只做两类引用**：
 
 - **已实现（外网，UXAI 分支 `feat/insight-at-mention`）**，`packages/app` typecheck + pre-push turbo typecheck（12/12）全绿。
 - 实现 PR：UXAI [#432](https://github.com/MyHeavenDyf/UXAI/pull/432)（`feat/insight-at-mention` → dev，待评审）。
-- spec / ROADMAP：octo-agent dev（PR #15 + #16）。
+- spec / ROADMAP：octo-agent dev（PR #15 + #16 + #17 重写）。
+- **弹层定位改 Portal + fixed（2026-07-25，见 §6）**：对齐 Design a919045a2，恢复胶囊 `overflow-hidden` 圆角、z-index 抬到 1000/1001；文件管理一级项文案「会话文件」→「用研资产」。随 UXAI PR #432 追加提交 `383c6f5`。
 - **待**：内网真机验证（技能确定性激活 / 文件 `extract_document` 读取 / 排队带引用 / 中文输入法 + 胶囊交互回归 / 文件管理实时同步 / 打点上报），补内网验证结论。

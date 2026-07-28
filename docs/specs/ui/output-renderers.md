@@ -1282,6 +1282,8 @@ shape: [[{"name": "...", "children": [{"name": "...", "children": [...]}]}]]
 | `[octo:office] download-start` / `download-ok` / `open-path` / `open-failed` | Office 唤起 | 点 FileFallback 按钮 |
 | `[octo:office] reuse-locked` (主进程 warn) | 覆盖写临时副本时 **EBUSY/EPERM**=文件正被本地应用占用,已回退复用已下载副本(不报错) | 文件已在 Word/Excel/WPS 打开后,再点「本地打开」/「在文件夹中打开」 |
 | `[octo:queue] enqueued` / `flushing` / `canceled` | busy 排队 | busy 时发送 / idle 后 flush |
+| `[octo:draft] 草稿超出落盘上限` / `草稿落盘失败` (warn，见 [SPEC-INS-024](composer-draft.md)) | 输入区草稿**没能存到 localStorage**,该桶降级为纯内存 —— 切会话 / 切顶层 tab 照常保留,但**刷新后会丢**。前者=单桶超 64KB(正文太长,附件那侧有界);后者=配额耗尽或隐私模式。字段:key(桶)/ bytes / limit / err。同一个桶只警告一次,成功落盘后复位 | 用户反馈「刷新后草稿没了」时第一个要搜的 —— 没有这条则说明落盘本身没问题,该往 hydrate 侧查 |
+| `[octo:upload] draft attachment(s) no longer on disk, dropped` | 落盘恢复出来的附件,其本地文件在两次启动之间被删了,已静默剔除 | 进入某个会话后异步核查时(每桶只核一次) |
 
 **定位"LLM 究竟返回了什么"的最快路径**:
 1. 复现一次怪问题 → 等 assistant 回完(idle)
