@@ -23,6 +23,11 @@
 4. **内网流量保护**：sidecar 自动把 `localhost` 等 loopback 追加进 `NO_PROXY`（`ensureLoopbackNoProxy`），`util/network.ts` 再追加 `.huawei.com` 等内网域名。所以配代理**不会**把内网 LLM 网关 / MCP / 上传流量带偏。
 5. **中间人证书**：sidecar 启动时把系统证书（含公司根证书）加载进 Node（`useSystemCertificates`），所以网关对 HTTPS 做中间人重签时 app 也能正常校验——终端 curl 会报证书错，app 不会（见 §4）。
 
+### 2.1 两个反直觉点（2026-07-15 实证补充）
+
+- **终端 `env` 有代理 ≠ sidecar 有**。sidecar 拿到的是主进程启动那一瞬间 `$SHELL -il` 探测出的**快照**（超时 5 秒放弃），不是实时环境。另外 Shell 工具以 `zsh -l -c` 起进程，**不 source `.zshrc`**——所以"我在终端 echo 得出来"不能证明 app 里也有。
+- **来路不明的 `all_proxy` 会让 webfetch / MCP 全线 Transport error**。实证过一次：用户机器上存在一个指向失效端口的 `all_proxy`，删掉即恢复（重启因素已排除——该 app 关窗即完全退出，程序坞小黑点消失）。排查手法：让 agent webfetch 抓 **`http://ifconfig.me/ip`（明文 http）**，能通就说明是 TLS/证书问题，还不通才是代理链路本身没生效。
+
 ## 3. 公司网关（netentsec）的实测行为
 
 出口网关不是透明管道，会按策略干预，这些行为容易被误判成"代理没配好"：
