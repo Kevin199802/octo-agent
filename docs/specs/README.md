@@ -51,6 +51,7 @@
 |---|---|---|---|
 | chat 内网知识库检索工具（knowledge_search） | 上游已实现 ✗，自加原生工具 | agents | [chat-knowledge-search.md](agents/chat-knowledge-search.md) |
 | MCP 接口合同 — UXR 服务团队交付物 | 唯一接口真相源 | agents | [mcp-contract.md](agents/mcp-contract.md) |
+| `question` 工具 — skill 作者须知 | 对外交付（发给 skill 开发者；刻意不写 schema，理由见 §0） | agents | [question-tool-for-skills.md](agents/question-tool-for-skills.md) |
 | MCP 集成（重点：内网数据访问） | 草案 | agents | [mcp-integration.md](agents/mcp-integration.md) |
 | 多 Agent 协作 | 草案 | agents | [multi-agent.md](agents/multi-agent.md) |
 | Skill 系统 | 草案 | agents | [skill-system.md](agents/skill-system.md) |

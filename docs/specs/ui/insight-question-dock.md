@@ -11,27 +11,35 @@
 
 ## 背景 / 目标
 
-### 现状取证（2026-07-27，UXAI `dev` @ `d7205a899`）
+### 现状取证（2026-07-27 初稿；2026-07-28 **实测修正**）
 
-**① 三道闸门全部放行 —— 模型现在就能调 `question`**
+> ⚠️ **初稿结论有误，已推翻**。初稿写「三道闸门全部放行，模型现在就能调 question」——第三道闸门看漏了：只检查了 `octo_insight` **自己的** deny 列表，没看它 merge 的 `defaults`。
+> 实测（`bun … debug agent octo_insight`）：改动前 `"question": false`。现象是模型直接回**「我并没有名为 question 的工具」**，而不是调用后卡住。
+
+**① 三道闸门:前两道放行，第三道拦死**
 
 | 闸门 | 代码坐标 | 结论 |
 |---|---|---|
-| 工具是否进 builtin | `packages/opencode/src/tool/registry.ts:207` | `questionEnabled` = `OPENCODE_CLIENT` 默认 `"cli"` ∈ `[app,cli,desktop]` → **进** |
-| 是否按 agent 过滤 | `registry.ts:308` `tools()` | question **无** agent 过滤（对比 `extract_document` 硬限 `octo_insight`、`knowledge_search` 硬限 `octo_ai`） |
-| 是否被权限 deny | `agent/agent.ts` `octo_insight.permission` | 只 deny 了 `bash` / `todowrite` / `jimeng_image_generate` / `internel_image_generate`，**未** deny question；`session/llm.ts:458` `resolveTools` 只隐藏被 deny 的 |
+| 工具是否进 builtin | `packages/opencode/src/tool/registry.ts:208` | `questionEnabled` = `OPENCODE_CLIENT` 默认 `"cli"` ∈ `[app,cli,desktop]` → **进** ✓（全仓只有 `cli/cmd/acp.ts` 会改这个 env） |
+| 是否按 agent 过滤 | `registry.ts:308` `tools()` | question **无** agent 过滤（对比 `extract_document` 硬限 `octo_insight`） ✓ |
+| **是否被权限 deny** | `agent/agent.ts:124` **`defaults`** | ❌ **`question: "deny"` 写在全局 defaults 里**，对所有 agent 默认关闭；全仓只有 `plan` agent（`agent.ts:168`）显式 `question: "allow"`，`octo_make`（`agent.ts:294`）显式再 deny 一次。`octo_insight` 未覆盖 → **继承 deny** |
 
-**② 前端数据已经到了，缺的只是 UI**
+判定链：`Permission.disabled()`（`permission/index.ts:311`）只要匹配到 `pattern:"*" + action:"deny"` 就把工具塞进 disabled 集 → `session/llm.ts:459` `resolveTools` 据此从模型工具列表**整个摘掉**。所以模型压根看不到这个工具。
+
+**② 前端数据通道已就绪，但缺 UI**
 
 - `packages/app/octoapp/context/global-sync/event-reducer.ts:356`：`question.asked` → 写入 `store.question[sessionID]`
-- `packages/app/octoapp/pages/insight/lib/debug-observer.ts:98`：`question.asked` 已被列入 `BLOCKING_TYPES`，`octoDebug.pending()` 会报「卡在等用户」
+- `packages/app/octoapp/pages/insight/lib/debug-observer.ts:98`：`question.asked` 已列入 `BLOCKING_TYPES`，`octoDebug.pending()` 会报「卡在等用户」
 - insight 全目录 **零** question 渲染组件（`grep` 仅命中 debug-observer）
 
-**③ 后果**
+**③ 后果（两级）**
 
-模型一旦调 `question` → 服务端 `Question.ask` 在 Deferred 上阻塞（`packages/opencode/src/question/index.ts:155`）→ insight 界面无任何答题入口 → **会话永久挂起**。与 SPEC-INS-021 §0.2 记录的「贴路径卡死」（permission 无 UI）**同源同病**，只是换成了 question。
+1. **当前（权限未放开）**：模型看不到工具 → 用户要求调用时回「没有这个工具」。这是**现在实际观测到的现象**。
+2. **仅放开权限、不补 UI**：模型能调 → 服务端 `Question.ask` 在 Deferred 上阻塞（`question/index.ts:155`）→ insight 无答题入口 → **会话永久挂起**。与 SPEC-INS-021 §0.2「贴路径卡死」同源同病。
 
-之所以至今未撞上：`octo_insight` 提示词未提及 question，模型几乎不主动调用——属于**未引爆**，不是不存在。
+→ 因此本 spec 必须**权限 + UI 一起做**，只做任一半都不可用。
+
+> **给其他页面同事的提醒**：这条全局 deny 对 design / studio / pattern 等**同样生效**。若这些页面已适配了 question UI 但没在各自 agent 权限里显式 `allow`，实际仍不会触发。
 
 ### 目标
 
@@ -43,13 +51,18 @@
 
 **做**：insight 页面的 question 答题 dock（含 DEV 预览页）。
 
+**必须一起做（初稿遗漏）**：在 `agent.ts` 的 `octo_insight.permission` 里显式 `question: "allow"`，翻掉 `defaults` 的全局 deny。不改这一条，UI 做得再全也永远不会触发。
+
+> 这类改动**有先例**：SPEC-INS-021 就是在同一处 `octo_insight.permission` 增删 deny 项来收敛工具集。octo 的 agent 定义本就住在 `packages/opencode/src/agent/agent.ts`，此处只动 octo_insight 这一个 agent 的权限项，不碰上游通用逻辑。
+
 **明确划走（不做）**：
 
 | 不做的事 | 原因 |
 |---|---|
-| 不动 `registry.ts` agent 白名单 | question 保持对所有 agent 开放。design 已自行适配，其他页面同事已知会——各 agent 自建 UI 是既定分工 |
+| 不动 `registry.ts` agent 白名单 | question 在 registry 层本就不按 agent 过滤，无需改。各页面自建 UI + 各自放权是既定分工 |
+| 不动**其他 agent** 的 question 权限 | design / studio / pattern 由各自同事按需放开（见上方提醒） |
 | 不动 `octo_insight` 提示词 | 调用引导由知识库问答那条线另出，本 spec 只保证「工具可用」 |
-| 不动 `packages/ui` / `packages/opencode` / `packages/sdk` | 上游 schema 原样复用：**不加** `preview` 字段、**不改** `header` 30 字上限、**不改**每问独立 Skip |
+| 不动 `packages/ui` / `packages/sdk`，`packages/opencode` **只动 octo_insight 那一项权限** | 上游 schema 原样复用：**不加** `preview` 字段、**不改** `header` 30 字上限、**不改**每问独立 Skip；question 子系统（工具 / 服务 / 路由 / 样式）一行不改 |
 | 不抽跨页面公共组件 | 见下「架构约定」 |
 
 ### 架构约定：上游一套 API，下游各 agent 自建 UI
@@ -89,6 +102,7 @@
 
 ### 改动文件
 
+- **`packages/opencode/src/agent/agent.ts`** —— `octo_insight.permission` 加 `question: "allow"`（**前置条件，见 §范围**）
 - `pages/insight/index.tsx` —— 挂载，位置紧邻现有 `<InsightPermissionDock sessionID={params.id} />`（`index.tsx:2253`）
 - `pages/insight/__dev/routes.tsx` —— `PAGES` 加 `/insight/__dev/question-dock`
 - `pages/insight/__dev/index-preview.tsx` —— `DEV_PAGES` 加一条
@@ -97,9 +111,14 @@
 
 多问题分页（`1 of 2` + 进度点，可点击跳题）、单选 radio / 多选 checkbox、「输入自定义答案」行内 textarea、Skip（= `reject`）/ Back / Next / Submit、键盘导航（↑↓ / Home / End / Esc 取消 / ⌘+Enter 下一题）、module 级 `cache` 按 `request.id` 保住「填了一半的答案」。
 
-### 输入框互斥
+### 输入框保持可用（**不**做互斥）
 
-答题期间禁用输入框，与 make 页一致（`make/index.tsx:2835` `inputDisabled` 已把 `questionRequest()` 纳入）。
+答题期间输入框**不禁用**。两条依据：
+
+- Claude 客户端截图里 question 卡下方的输入框 placeholder 就是 **“Or reply directly…”** —— 允许用户不选选项、直接打字回复
+- insight 现有约定一致：`sendDisabled`（`index.tsx:1451`）只看「文本为空 / 附件上传中」，权限 dock 弹出时输入框同样可用
+
+> make 页的做法相反（`make/index.tsx:2835` `inputDisabled` 把 `questionRequest()` 纳入禁用）。此处**有意不对齐 make**，按 Claude 与 insight 自身既有行为走。
 
 ---
 
@@ -124,11 +143,41 @@
 
 ## 验证（外网可复现）
 
-### V1 组件层 —— 不依赖模型
+### V0 权限放开 —— 工具真的进了模型列表（✅ 2026-07-28 已实测）
 
-1. `bun dev` 起 UXAI，浏览器开 `/insight/__dev/question-dock`
-2. 预览页喂 mock `QuestionRequest`，覆盖：单问题单选 / 双问题（一单选一多选）/ 带 description 的选项 / `custom: false`
-3. 断言：分页器显示 `1 of 2`、单选为圆点多选为方框、自定义答案行可展开输入
+```bash
+bun run --cwd packages/opencode --conditions=browser src/index.ts debug agent octo_insight
+```
+
+看输出末尾 `tools` 映射里的 `question`。`debug agent` 走的是与真实会话同一条码路（`registry.tools()` + `Permission.disabled`），故结论可直接外推。
+
+实测结果（同机对照，改前改后各跑一次）：
+
+| | `question` |
+|---|---|
+| 改动前 | `false` ❌ |
+| 加 `question: "allow"` 后 | `true` ✅ |
+
+`read` / `extract_document` 两次均为 `true`，说明差异确由本项权限引起，非环境漂移。
+
+### V1 组件层 —— 不依赖模型（✅ 2026-07-28 已实测，Playwright）
+
+1. `bun --cwd packages/app dev`，浏览器开 `/insight/__dev/question-dock`
+2. 预览页喂 mock，覆盖：单问题单选 / 双问题（一单选一多选）/ 长答案 / 选项滚动 / `custom: false` / 与权限 dock 共存
+
+实测结果（Playwright 驱动真实点击）：
+
+| 断言 | 结果 |
+|---|---|
+| 6 个场景 dock 全部渲染 | ✅ |
+| 进度文案 `1/2 个问题` → 翻页后 `2/2 个问题` | ✅ |
+| Q1 单选点选后选中数 = 1 | ✅ |
+| Q2 多选控件 `data-type` = `checkbox` | ✅ |
+| Q2 连点两项后选中数 = 2 | ✅ |
+| 第 2 页出现「返回」按钮 | ✅ |
+| 提交回传答案数组 | ✅ `Q1=[评估打分] Q2=[Markdown 报告 / Excel 明细表]` |
+
+> **前置修复**：web 入口 `octoapp/app.tsx` 此前**没挂** `insightDevRoutes()`（只有桌面入口 `octo.tsx:647` 挂了），`/insight/__dev/*` 会被通配 `/insight/:id?` 当成 session id 吃掉、渲染成空 InsightPage，浏览器与 Playwright 都够不到预览页。已按 octo.tsx 同款方式补上（DEV-only，生产构建摇树掉）。
 
 ### V2 真实链路 —— 端到端
 
@@ -137,22 +186,40 @@
 3. 断言：dock 弹出 → 作答 → Submit → 模型收到 `User has answered your questions: ...` 并继续
 4. `octoDebug.pending()` 在作答前应报 `question:1`，作答后归 0
 
-### V3 长答案回归（对应硬约束）
+### V3 长答案回归（对应硬约束）（✅ 2026-07-28 已实测，截图确认）
 
-mock 一条**超长 label**（≥120 字中文）+ 一条**长不断词串**（如 `https://example.com/a/very/long/path/...`），断言两者均换行、不溢出、不截断，选项区可滚。
+mock 一条**超长 label**（≥120 字中文）+ 一条**长不断词串**（长 URL / 长 Windows 路径）。
+
+实测：三条选项均**整行铺开、正常换行、无截断、无省略号、不撑破容器**；长 URL 在串中间断行——即 `option-label` 的 `overflow-wrap: anywhere` 补丁确实生效（去掉该补丁则溢出）。确认**不是词组胶囊**布局。
 
 ### V4 路由切换不丢
 
 作答到一半（选中第 1 题、第 2 题留空）→ 切到 `/make` → 切回 `/insight/:id`
 断言：dock 重新渲染，已选答案仍在（服务端 pending 在 `Question` service 的 Map，前端在 app 级 global-sync store，均不随页面卸载丢失；半填状态由 module 级 `cache` 兜）
 
-### V6 与 permission dock 共存
+### V6 与 permission dock 共存（✅ 2026-07-28 已实测，测边界框）
 
-构造两者同时 pending（最简：`__dev` 预览页同时渲染两块 mock），断言纵向堆叠不重叠、选项区被压缩后仍可滚、输入区不被顶出视口。
+`__dev` 预览页同时渲染两块 mock，量各自 boundingBox：
 
-### V5 Skip / 取消
+```
+权限块 y: 367 → 573
+答题块 y: 589 → 1046
+结论:不重叠,间距 16px(来自 .octo-perm-dock 的 margin-bottom)
+```
 
-点 Skip（或 Esc）→ 断言 `question.rejected` 发出、服务端 `RejectedError`、模型收到「用户已忽略」并继续，会话**不卡死**。
+确认纵向堆叠即正确行为，无需互斥或 z-index 处理。
+
+### V5 Skip / 取消（✅ 2026-07-28 内网已验证，用户实测）
+
+点「忽略」（或 Esc）实测行为：
+
+- **一次性跳过本轮全部问题**（不是只跳当前题，也不产生部分答案）
+- 对话区显示一行「问题已忽略」小字
+- **对话不阻塞**，模型继续往下走，会话不卡死
+
+机制：`RejectedError` → `session/processor.ts:406` 的 `tool-error` 分支 → `failToolCall`，属工具错误而非会话崩溃。
+
+> 由此对 skill 作者的约束：任何一次 `question` 都可能一个答案都拿不到，**不能把「必须拿到答案」当前提**，须有兜底路径。已写入 [question 工具 skill 作者须知](../agents/question-tool-for-skills.md) §4。
 
 ---
 
