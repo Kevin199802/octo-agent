@@ -34,9 +34,13 @@ insight 的输入区状态（正文 / 附件 / MCP chip）此前都是 `InsightP
 
 ## 决策
 
-### D1 · 分桶键 = `<scope>/<sessionID>`，未建会话单独一桶
+### D1 · 分桶键 = `<scope>/<sessionID>`，未建会话单独一桶（且可再分层）
 
 `scope` 是模块名（`insight` / 后续 `make` …），既是内存桶前缀也是落盘命名空间。尚未建会话（欢迎页）用 `__new__` 桶——它与任何真实会话都隔离，切进切出各归各的。
+
+**已建会话的桶不带项目目录**，因为会话 id 全局唯一，不会跨目录撞键。但 `__new__` 只有一个名字，当页面还有「路由之外的维度」时就会串：insight 路由是 `/insight/:id?`、不带 `:dir`，目录取自 `server.projects.last()`，**切项目目录时路由不变** → 在 A 项目欢迎页写了一半的草稿会跟着切到 B 项目去。
+
+故 hook 提供可选的 `newSessionScope`（insight 传 `projectDir`），只给 `__new__` 桶按其摘要再分一层：`insight/__new__.<checksum(dir)>`。上游 `context/prompt.tsx` 的桶键本身就带 `dir`（它的空会话桶叫 `__workspace__`），这是同一件事的等价物——只是我们把「带 dir」收窄到真正需要的那一个桶，避免无谓地改动已建会话的键。`newSessionScope` 取不到值（如目录尚未就绪）时回落到裸 `__new__`，保证 key 恒定可用。
 
 ### D2 · 模块级单例 + 同步 localStorage，**不**做 Provider
 
@@ -53,6 +57,18 @@ insight 的输入区状态（正文 / 附件 / MCP chip）此前都是 `InsightP
 ### D4 · LRU 上限 20，**按 scope 独立计**
 
 对齐上游 `MAX_PROMPT_SESSIONS`。按 scope 而非全局计：多模块共用同一个 store，全局计会让活跃模块把别的模块的草稿挤掉。淘汰时释放该桶附件的 objectURL 与原 File 引用，并删掉落盘记录。
+
+### D5 · 单桶落盘上限 64KB，超限**整桶**放弃落盘并留痕
+
+附件那侧是有界的（条数有上限、每条只存元数据，满配约 3KB），**正文没有上限**——用户粘一份长文本进输入框就可能几百 KB，多个桶叠起来会顶爆 localStorage 配额（通常 5–10MB）。而配额一爆是静默的：草稿看着好好的，刷新后没了，用户和排查的人都不知道为什么。
+
+所以：
+
+- 单桶序列化后超 64KB（≈3 万汉字，任何真实草稿都够用）→ **不落盘**，内存照常保留，当前会话完全不受影响；
+- 超限时**整桶**放弃而不是只截断正文——恢复出「附件在、正文没了」的半截草稿比不恢复更让人困惑（同 D3 的判断标准）；
+- 同时清掉该桶的旧记录，免得刷新后回填一份过时内容；
+- 配额真爆时（`setItem` 抛）同样降级为纯内存，**不重试、不淘汰别人的键**——草稿不值得动整个 origin 的存储（上游 `utils/persist` 会那么做，它扛的是应用主状态，量级不同）；
+- 两种情况都打 `[octo:draft]` warn（同一个桶只警告一次，成功落盘后复位），见 [output-renderers 日志字典](output-renderers.md)。没有这条 warn 就说明落盘本身没问题，该往 hydrate 侧查。
 
 ---
 
@@ -104,7 +120,7 @@ objectURL 与原 `File` 引用不再随组件卸载消失，必须显式管。�
 |---|---|
 | `packages/app/octoapp/utils/composer-draft.ts` | 存储层：分桶 store + 落盘 + LRU + 资源释放 |
 | `packages/app/octoapp/hooks/use-composer-draft.ts` | Solid 适配层：页面唯一入口 |
-| `packages/app/octoapp/utils/composer-draft.test.ts` | 14 用例 |
+| `packages/app/octoapp/utils/composer-draft.test.ts` | 19 用例 |
 | `packages/app/octoapp/pages/insight/index.tsx` | 接入 + insight 的落盘编解码 |
 
 页面侧接入后，原有 `prompt()` / `setPrompt()` / `attachments()` / `setAttachments()` 调用点**一行未改**——hook 返回同签名的 accessor/setter：
@@ -113,7 +129,8 @@ objectURL 与原 `File` 引用不再随组件卸载消失，必须显式管。�
 const draft = useComposerDraft<Attachment, McpSelection | null>({
   scope: "insight",
   session: () => params.id,
-  emptyExtra: null,          // extra 用来放 MCP chip
+  newSessionScope: projectDir,   // 见 D1：欢迎页那个桶按项目目录再分一层
+  emptyExtra: null,              // extra 用来放 MCP chip
   persist: DRAFT_PERSIST,
 })
 const prompt = draft.text, setPrompt = draft.setText
@@ -125,7 +142,9 @@ const mcpSelection = draft.extra, setMcpSelection = draft.setExtra
 
 ### 单测口径
 
-`bun test` 把 `solid-js` 解析到 `dist/server.js`（**无响应式**，memo 只算一次），所以断言一律打在存储层（`readDraft`）而不是 hook 的 memo 上——memo 只是 3 行透传，正确性归 Solid；要守的是分桶路由、落盘过滤、恢复、LRU 释放这些自己的逻辑。跑法：`bun test --preload ./happydom.ts ./octoapp`（注意 `test:unit` 只跑 `./src`，octoapp 下的单测不在默认脚本里，是既有缺口）。
+`bun test` 把 `solid-js` 解析到 `dist/server.js`（**无响应式**，memo 只算一次），所以断言一律打在存储层（`readDraft`）而不是 hook 的 memo 上——memo 只是 3 行透传，正确性归 Solid；要守的是分桶路由、落盘过滤、恢复、LRU 释放这些自己的逻辑。跑法：`bun run test:unit`。
+
+> **顺带修掉的既有 CI 缺口**：`test:unit` / `test:ci` 原先只跑 `./src`，octoapp 下的全部单测（含 insight 既有十余个）从未进 CI。不能简单写成 `bun test ./src ./octoapp`——两棵镜像树有同名测试文件，而 bun 的 `mock.module` 是进程级且不可撤销的，同进程会互相污染模块注册表（实测 src 的 mock 漏进 octoapp，`createSdkForServer` 变 `undefined`，跑出 11 个假失败）。已拆成两次独立进程，各出一份 junit。约束记在 `packages/app/AGENTS.md`，别合并回一条命令。
 
 ---
 
@@ -139,5 +158,6 @@ const mcpSelection = draft.extra, setMcpSelection = draft.setExtra
 
 - **图片 url 无 TTL（2026-07-27 已确认）** —— 与 [file-upload §合同修订提案 v2 第 3 条](../infra/file-upload.md) 的设计一致：下载地址是上传服务自有域名上的稳定资源路径 `GET /octoAiServer/files/<uuid>.<ext>`（查表 → 流式转发 S3），**不是预签名短时地址**。因此图片草稿跨重启恢复后，缩略图（直接用该 url 作 `<img src>`）与发送产出的 vision `FilePart{url}` 都仍然有效。若后续按该条备注改成「302 预签名 URL 卸载数据面」，本结论失效，届时需要给恢复出来的图片附件加过期兜底。
 - 上传中 / 失败的附件不跨重启（见上表，物理约束）。
+- 超 64KB 的草稿不跨重启（D5），内存仍完整；命中时有 `[octo:draft]` warn。
 - **待接入**：make（顺带并掉它 text-only 的 localStorage 草稿）、pattern、studio。
 - chat 不动（上游 `context/prompt.tsx` 已覆盖，且属上游核心）。
