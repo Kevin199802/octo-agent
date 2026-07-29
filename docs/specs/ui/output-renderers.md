@@ -77,41 +77,66 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 
 ## 1. 输出类型 taxonomy
 
-当前支持 7 种 OutputCard 类型（前 6 种与 6 个提示词模板的对应见 [insight-analysis-mode.md §2](insight-analysis-mode.md)；`code` 原为路径 C 新增）：
+支持 **6 种** OutputCard 类型（提示词模板对应见 [insight-analysis-mode.md §2](insight-analysis-mode.md)；`code` 原为路径 C 新增）：
 
-> **注(2026-07):** 路径 C **收窄为 md/html 白名单**(见 §0.1 / §2.6 顶部横幅)。下表中「来源」列标「路径 C」者:**`markdown`/`html` 仍出卡**;`code`/`json`/`file`/`table` 等**非白名单路径 C 分支不再触发出卡**——这些 write 产物只由「文件管理」面板呈现。`code` 类型现仅剩历史意义(路径 A/B 不产 code 卡、路径 C 也不再出 code 卡);渲染器代码保留不影响。
+> **注(2026-07-29,SPEC-INS-026):** 类型判定收敛为**单一函数** `resolveOutputType(filename, mimeType?)`,解析顺序「扩展名 → mimeType 兜底 → `code`」,真相源见 [insight-artifact-identity.md §4.2](../infra/insight-artifact-identity.md)。此前 uri 卡走 `mimeToOutputType`+`business_type`、文件管理/write 走 `extToOutputType`、文件管理另有 `InsightFileKind`,**三套判定对同一文件可以给出不同答案**(`.csv`→`table` vs `file`;`text/plain`→`file` vs `code`),是「同一份文件开出两个 tab」的直接成因。`InsightFileKind` 保留但改为从 `resolveOutputType` 派生。
+>
+> 同版**废除两个类型**:`table`(见下方 §1.1)与 `mindmap`(降为 `json` 的内容形态,见 §1.2)。
+
+> **注(2026-07):** 路径 C **收窄为 md/html 白名单**(见 §0.1 / §2.6 顶部横幅)。下表中「来源」列标「路径 C」者:**`markdown`/`html` 仍出卡**;`code`/`json`/`file` 等**非白名单路径 C 分支不再触发出卡**——这些 write 产物只由「文件管理」面板呈现。`code` 类型现仅剩历史意义(路径 A/B 不产 code 卡、路径 C 也不再出 code 卡);渲染器代码保留不影响。
 
 | 类型 | 触发模板 / 来源 | 服务端返回形态 | 入口卡文案 | 渲染器（ResultViewer 内） | 状态 |
 |---|---|---|---|---|---|
-| `table` | 路径 A `text/csv` resource_link（业务工具产出的表格文件） | CSV → Markdown 表格 | 分析表格 | TableRenderer | ✅ 已实现 |
-| `mindmap` | 思维导图 | JSON 结构（UXR 现有接口） | 思维导图 | MindmapRenderer（markmap-view）+ 预览/代码切换 | ✅ 已实现 |
 | `html` | 未来富展示类 MCP tool（如独立的用户画像/可视化 tool）| HTML 字符串（建议 ```html``` fence 包裹） | 可视化页面 | HtmlRenderer（iframe sandbox）| ✅ 已实现 |
 | `markdown` | 用研知识问答 + 走 MCP `text/markdown` resource_link | Markdown 纯文本 | Markdown 文档 | MarkdownRenderer（**2026-06 起复用 Vditor 渲染引擎 `MarkdownPreview`**，与全屏编辑器同源、效果一致；~~旧:上游 `<Markdown>`~~，见 [insight-markdown-editor §6.3.1](insight-markdown-editor.md)）| ✅ 已实现 |
-| `json` | 路径 A `application/json` resource_link（无 `business_type:"mindmap"`）/ **路径 C `.json` write 产物** / 路径 B 嗅探到独立 JSON | JSON 字符串 | JSON 数据 | JsonRenderer（**上游 `<Markdown>` ```json fence 获 shiki 高亮**） | ✅ 已实现 |
+| `json` | 任何 `.json` / `application/json` 产物（路径 A resource_link、路径 C write、路径 B 嗅探、文件管理打开——**不再区分 `business_type`**） | JSON 字符串 | JSON 数据；内容为导图 shape 时入口卡升级为「思维导图」文案+图标（§1.2） | 内容为导图 shape → MindmapRenderer(markmap)；否则 SourceCodeView(shiki) | ✅ 已实现 |
 | `file` | 路径 A Office / PDF / 图片 / 二进制 resource_link | 二进制 URI | 文件名 | FileFallback（"用本地应用打开"+"下载"双按钮）| ✅ 已实现 |
 | `code` | **路径 C** write 工具写的代码/纯文本(.py/.ts/.txt/.sql/无扩展名…;csv/office/二进制走 `file`) | 本地文本文件 | 文件名 | SourceCodeView(上游 `<Markdown>` ```lang fence 获 shiki 高亮,lang 按扩展名 `langFromPath`)单视图 | ✅ 已实现 |
+
+### 1.1 `table` 类型已废除（2026-07-29，SPEC-INS-026 §7）
+
+`table` 的唯一生产者是 `mimeType === "text/csv"`（2026-06 起路径 B 不再嗅探 md 表格）。而这条链**从未真正连通**：
+
+- 本 spec 曾描述链路为「fetch URI → **转 Markdown 表格** → 走 TableRenderer」，但 **csv → markdown 的转换函数从未实现**（`markdown-table.ts` 只有 `extractTableMarkdown` / `parseMarkdownTable` / `tableToCSV`，最后一个是 md→csv 的**导出**方向）；
+- `TableRenderer` 用 `marked.lexer` 只认 markdown 表格 token，喂原始 CSV 会渲染成「未检测到表格内容」；
+- [mcp-contract.md](../agents/mcp-contract.md) 的 resource_link 示例中没有 `text/csv`（表格类产物用 xlsx），现网未触发过，所以这条死链一直没被发现。本 spec 旧文曾称其「应用内 TableRenderer + Excel 导出，成熟」——该表述不成立。
+
+**决定**：`text/csv` 归 `file`（与路径 C 的 `.csv` 一致，也与「原始逗号数据用 Excel/Numbers 打开体验更好」的既有判断一致），**不做任何格式转换**。删除 `TableRenderer`、`extractTableMarkdown`、`parseMarkdownTable`、`tableToCSV` 及全部 `table` 分支。
+
+**原 table 卡独有的「导出 Markdown / 导出 CSV」双格式菜单一并去掉，不迁移到 markdown 卡**：一篇 markdown 可含 N 张表，导出到单个 csv 没有合理语义（xlsx 可多 sheet、csv 不能；拆成多文件是另一个产品决策）。没有站得住的做法就不做，需要时另立需求。
+
+### 1.2 `mindmap` 从类型降为内容形态（2026-07-29，SPEC-INS-026 §4.2）
+
+思维导图是「json 的一种内容形态」，不是独立类型。判定依据从服务端 `business_type` 改为**内容结构**——沿用渲染层已有的 `isMindmapJSON`（`{mindmaps:[…]}` / `{nodes:[…]}` / 顶层带 `children` 的裸树），**不管这份 json 从哪来**，是导图 shape 就渲 markmap，不是就渲 JSON 源。
+
+这么改的原因：`business_type` 定义是「产生该资源的 MCP tool 名」，被当成了「用哪个渲染器」；结果同一个 `.json` 被对话卡判成 `mindmap`、被文件管理判成 `json`，是双开 tab 的成因之一。而**渲染层本来就是内容驱动的**（`TabContent` 只在 `isMindmapJSON` 为真时渲 markmap），`business_type` 实际只影响卡片标签——这次是把已经存在的事实扶正。
+
+一个代价与其解法：出卡那一刻 uri 卡内容还没下载，判不了是不是导图。由产物生命周期承接（[SPEC-INS-026 §3](../infra/insight-artifact-identity.md)）——`pending` 期间按扩展名给 `json` 图标/文案，`ready` 后内容在手，入口卡再升级为「思维导图」。
+
+**图标与文案允许两处不同源，名字不允许**（026 §4.4）：对话入口卡是「这次产出了什么」的语义视图，可按内容升级；文件管理是「磁盘上有什么」的文件视图，按扩展名给 json 图标即可（Finder 也不会因为 json 内容是导图就换图标）。两处**打开后都能出 markmap**，因为渲染由内容决定。
 
 **视图切换(预览/代码) — 单卡内切换,取代旧"双卡"(2026-05-30 调整)**：
 
 > **旧设计**：mindmap 出**两张入口卡**(json + mindmap),各开一个 tab。
-> **新设计**：mindmap 收敛为**单卡**(`type: "mindmap"`),打开后在 ResultViewer 顶部用「预览 / 代码」分段切换——预览=markmap 渲染,代码=原始 JSON(shiki 高亮)。同理 html(渲染↔源码)、table(表格↔markdown 源)、markdown(渲染↔md 源)。
+> **新设计**：mindmap 收敛为**单卡**,打开后在 ResultViewer 顶部用「预览 / 代码」分段切换——预览=markmap 渲染,代码=原始 JSON(shiki 高亮)。同理 html(渲染↔源码)、markdown(渲染↔md 源)。
+> **2026-07-29(SPEC-INS-026)**:`mindmap` 不再是独立类型(§1.2),这一行统一并入 `json` 的条件切换;`table` 已废除(§1.1)。**多视图一律在 tab 内切换,不靠多开 tab**——tab 去重因此不再看 type(见 [insight-result-viewer.md](insight-result-viewer.md))。
 
 | 类型 | 预览态(默认) | 代码态 | 切换 |
 |---|---|---|---|
-| `mindmap` | markmap 思维导图 | 原始 JSON(shiki) | ✅ |
 | `html` | iframe 渲染 | HTML 源(shiki) | ✅ |
-| `table` | 样式化表格(抽 table token) | **表格本体的 Markdown 源**(`extractTableMarkdown`,shiki) | ✅ |
 | `markdown` | 渲染后文档 | Markdown 源(shiki) | ✅ |
-| `json` | **思维导图 shape(树)→ markmap;否则无预览态** | shiki 高亮 JSON | **条件切换(2026-06-24)**:内容是导图 shape(顶层带 `children`)→ 默认 markmap 预览 + 出「预览/代码」切换;普通配置 JSON 单显源、无切换 |
+| `json` | **导图 shape(树)→ markmap;否则无预览态** | shiki 高亮 JSON | **按内容条件切换**:内容是导图 shape → 默认 markmap 预览 + 出「预览/代码」切换;普通配置 JSON 单显源、无切换 |
+| `code` | —(单视图) | shiki 高亮源 | ❌ |
+| `image` | 图片渲染 | —(无源) | ❌ |
 | `file` | —(不在应用内预览) | —(二进制无源) | ❌ 单视图,且 ActionBar 隐藏复制/下载(交给 FileFallback) |
 
-实现:`ResultTab.viewMode: "preview" \| "source"`(缺省 preview),`tab-store.setViewMode` 更新;切换控件可见性 = `isToggleType(type)`(mindmap/html/table/markdown 恒显)**或** `type==="json" && isMindmapJSON(content)`(json 卡按内容判定,见 `action-bar.showToggle`);代码态统一走 `SourceCodeView`(把内容包 ```lang fence 喂上游 `<Markdown>` 获 shiki 高亮)。切换控件在 ActionBar 行左侧,与复制/下载同排。
+实现:`ResultTab.viewMode: "preview" \| "source"`(缺省 preview),`tab-store.setViewMode` 更新;切换控件可见性 = `isToggleType(type)`(html/markdown 恒显)**或** `type==="json" && isMindmapJSON(content)`(json 卡按内容判定,见 `action-bar.showToggle`);代码态统一走 `SourceCodeView`(把内容包 ```lang fence 喂上游 `<Markdown>` 获 shiki 高亮)。切换控件在 ActionBar 行左侧,与复制/下载同排。
 
 > **`json` 卡的条件切换(2026-06-24,选项 C)**:`json` 与 `mindmap` 在 `ResultViewer` 内**共用同一条渲染分支**——预览态且 `isMindmapJSON(content)` 真 → `MindmapRenderer`(markmap),否则 → `SourceCodeView`(json shiki)。差异只在「切换控件是否出」:`mindmap` 卡(路径 A `business_type:"mindmap"`)恒出切换、默认预览;`json` 卡(路径 C `.json` / 路径 A 泛型 `application/json` / 路径 B 嗅探)**按内容**——树形 JSON(如 `{name,type,children}` 组织架构)默认 markmap 预览且可切「代码」,普通配置 JSON 单显源。这样既不在入口卡误标(图标仍是 JSON),又让"能渲染成导图的树"默认就看到可视化,与业界"JSON 为主、可视化是可选 view"(JSON Crack)一致。**注**:markmap 仅取节点 `name`/`children`,`type`/`title` 等额外字段不进图(渲染器现状)。
 
 > ⚠️ **`SourceCodeView` 的 `stripCodeFence` 只对 json/html 生效**(2026-06 修):这两类内容可能被 LLM 整段 ```lang 包裹,需剥壳;但 **markdown / code 源不可 strip** —— md 源里合法含代码围栏,`stripCodeFence` 会把整篇抠成第一个围栏的内容(曾致 markdown「代码」视图只剩一行)。markdown 卡「预览」态自 2026-06 改用 Vditor `MarkdownPreview`(与编辑器同源,见 [insight-markdown-editor §6.3.1](insight-markdown-editor.md))。
 
-> **table 卡四视图一致性**:`table` 卡现在**只来自路径 A `text/csv` resource_link**(2026-06 起路径 B 不再嗅探 md 表格,见 §2.1)。其 `content` 是 csv 转换后的 md 表格,本就是纯表格;但 `TableRenderer` / 导出 / 代码态仍统一走 `extractTableMarkdown` 抽表格本体作防御(若上游 csv 前后混入说明行也只呈现表格),四个动作一致:
+> **~~table 卡四视图一致性~~(2026-07-29 整段作废,`table` 类型已废除,见 §1.1)**——旧文如下,注意其中「`content` 是 csv 转换后的 md 表格」这一前提**从未成立**(转换函数从未实现):`table` 卡**只来自路径 A `text/csv` resource_link**(2026-06 起路径 B 不再嗅探 md 表格,见 §2.1)。其 `content` 是 csv 转换后的 md 表格,本就是纯表格;但 `TableRenderer` / 导出 / 代码态仍统一走 `extractTableMarkdown` 抽表格本体作防御,四个动作一致:
 > - 预览 `TableRenderer` 抽 `marked` 的 table token;
 > - 复制 / 下载(md/CSV/Excel)走 `extractTableMarkdown` / `parseMarkdownTable`;
 > - **代码态** `SourceCodeView` 同样喂 `extractTableMarkdown(content)`,与其余三者一致。
@@ -131,7 +156,7 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 
 实际 type 集合最终以 UXR MCP 服务端返回的内容为准——客户端按内容形态路由，不绑定具体 MCP 工具名。MCP 工具清单见 [mcp-contract.md](../agents/mcp-contract.md)。
 
-**原始文字显示策略**：OutputCard 出现时，对机器可读类型（`mindmap` / `html` / `json`）隐藏 assistant 的原始文字区；对 `markdown` / `table` 保留显示（内容本身对用户有可读价值）。当前实现：`InsightTurn` 在卡片 ready 后挂 `data-suppress-raw` 属性，CSS 规则隐藏文字区（过渡方案，流完才生效）。MCP 联调后将升级为路线 B（tool_call part 到达时即切换 loading 占位，原始内容从不暴露），详见 [ADR-010](../../adr/010-suppress-raw-output.md)。
+**原始文字显示策略**：OutputCard 出现时，对机器可读类型（`html` / `json`）隐藏 assistant 的原始文字区；对 `markdown` 保留显示（内容本身对用户有可读价值）。当前实现：`InsightTurn` 在卡片 ready 后挂 `data-suppress-raw` 属性，CSS 规则隐藏文字区（过渡方案，流完才生效）。MCP 联调后将升级为路线 B（tool_call part 到达时即切换 loading 占位，原始内容从不暴露），详见 [ADR-010](../../adr/010-suppress-raw-output.md)。
 
 ---
 
@@ -168,7 +193,7 @@ OutputCard 入口卡有三条**完全独立**的生成路径,机制 / 可靠性 
 
 ### 2.2 检测实现
 
-> md 表格检测 `isMarkdownTable` 已于 2026-06 移除(路径 B 不再把对话里的 md 表格嗅探成 table 卡)。表格解析/导出函数 `parseMarkdownTable` / `tableToCSV` / `extractTableMarkdown` 保留在 `markdown-table.ts`,供路径 A 的 `text/csv → table` 复用。
+> md 表格检测 `isMarkdownTable` 已于 2026-06 移除(路径 B 不再把对话里的 md 表格嗅探成 table 卡)。**2026-07-29 补**:`table` 类型整体废除后,`markdown-table.ts` 的 `parseMarkdownTable` / `tableToCSV` / `extractTableMarkdown` 已无调用方,连同 `table-renderer.tsx` 一并删除(§1.1)。
 
 ```ts
 // 1. Mindmap JSON：检测 = 渲染。直接复用渲染适配函数,「能渲染成 markmap 才算命中」。
@@ -298,7 +323,7 @@ opencode 将 MCP `CallToolResult.content[]` 中的 `resource_link` 项作为独�
 | `text/html` | `html` | fetch URI → 拿到 HTML → 走 HtmlRenderer 的 iframe sandbox（§5）|
 | `text/markdown` | `markdown` | fetch URI → 走 MarkdownRenderer。**含上游原 docx 文档产物**——2026-06 起 UXR 把原以 docx 返回的文档类产物改为 `text/markdown` 返回(详见 [mcp-contract.md](../agents/mcp-contract.md))，故走 markdown 卡(可应用内预览)而非 file fallback。后续将在此卡支持编辑(见 [insight-markdown-editor.md](insight-markdown-editor.md))|
 | `application/json` | `json` | fetch URI → json 卡。**2026-06-24 起改走 json 卡**(此前误统一走 mindmap):泛型 `application/json` mimeType **不携带"这是导图"语义**,把它当 mindmap 会令普通 JSON 误渲成单根 markmap。思维导图由 `business_type:"mindmap"` 显式声明(在 `linkToOutputType` 中先于 mimeType 拦截),不靠泛型 mimeType 嗅探。json 卡内容若为树形 → 默认 markmap 预览 + 预览/代码切换(选项 C,见 §1);普通 JSON 单显源。与路径 C `.json` 同一套原则(见 §2.6.1)|
-| `text/csv` | `table` | fetch URI → 转 Markdown 表格 → 走 TableRenderer |
+| `text/csv` | `file` | **2026-07-29 改（SPEC-INS-026 §7）**：原为 `table` + 「转 Markdown 表格 → TableRenderer」，但**转换函数从未实现**、TableRenderer 只认 md 表格，是条死链（§1.1）。现与路径 C 的 `.csv` 一致走 file 卡，拉本地 Excel/Numbers，不做格式转换 |
 | Office（xlsx / pptx）/ PDF / 图片 / 二进制 | `file` | 不在 ResultViewer 内渲染，FileFallback 提供**双按钮**：①「用本地应用打开」`download-resource` IPC → 落地临时文件 → `window.api.openPath` 唤起 OS 关联应用（Excel/WPS/Numbers）②「下载到本地」`window.api.saveFilePicker` 用户选目录 → 落地。详见 §5 + [ADR-009](../../adr/009-no-office-preview.md)。**注**：docx 文档产物 2026-06 起改以 `text/markdown` 返回(见上一行)，不再走 file fallback |
 | 其他未识别 | `file` fallback | 同上双按钮 |
 
@@ -418,7 +443,7 @@ Agent 用写文件工具(opencode `write` 新建 / `edit` 修改)把分析结论
 >
 > **为什么 `.json` 走 json 卡而非 mindmap(2026-06-24 修订)**:扩展名 `.json` **不携带语义**——普通配置 JSON 与思维导图 JSON 同扩展名,出卡阶段又只有 path、拿不到内容,无法靠扩展名区分。此前(2026-06)曾让 `.json` 统一走 mindmap 卡 + 渲染时 `isMindmapJSON` 兜底,但因 shape 嗅探过松(光有 `name` 字段即判中),普通配置 JSON(如 `{name,version,...}`)既被误标"思维导图"、又渲成单根 markmap。现一律出 `json` 卡(入口图标=JSON,不误标"思维导图")。**但 json 卡按内容条件可视化(2026-06-24 选项 C)**:打开后若 `isMindmapJSON(content)` 真(顶层带 `children` 的树),默认 markmap 预览 + 出「预览/代码」切换;普通配置 JSON 单显源。即"默认 JSON、能渲染成导图的树按需(且默认)给可视化",与业界"JSON 为主、图是可选 view"一致(见 §1 视图切换)。**强声明的思维导图产物仍走路径 A**(MCP `resource_link` + `business_type:"mindmap"`)→ 恒出 mindmap 卡。
 >
-> **为什么 `.csv` 走 file 而路径 A 的 `text/csv` 走 table**:A/C **唯一的来源差异**(见 §2.6.8)。路径 A 的 csv 是服务端业务分析表格(应用内 TableRenderer + Excel 导出,成熟);路径 C 的 csv 是 Agent 写的原始逗号数据,TableRenderer 渲染不了,用 Excel/Numbers 打开更好。
+> **~~为什么 `.csv` 走 file 而路径 A 的 `text/csv` 走 table~~(2026-07-29 作废)**:旧文称「路径 A 的 csv 是服务端业务分析表格,应用内 TableRenderer + Excel 导出,**成熟**」——该表述不成立,csv→md 的转换函数从未实现,TableRenderer 喂 csv 只会显示「未检测到表格内容」(见 §1.1)。现 A/C 两侧的 csv **统一走 file 卡**,不再有来源差异。
 
 #### 已知边界
 
@@ -544,12 +569,12 @@ write 产物在**本地磁盘**,有 `filePath`——所以"用本地应用打开
 
 | 维度 | 规则 |
 |---|---|
-| 卡类型体系 | 同一组 `OutputCardType`(table/mindmap/markdown/html/json/file/code) |
+| 卡类型体系 | 同一组 `OutputCardType`(markdown/html/json/code/file/image;2026-07-29 起 `table`/`mindmap` 已废除,见 §1.1/§1.2) |
 | html / markdown | text/html ↔ `.html` → html 卡;text/markdown ↔ `.md` → markdown 卡 |
 | json | application/json ↔ `.json` → **json 卡**(shiki + 复制);泛型 json 不当导图(2026-06-24 修)。但内容若为树形(顶层带 `children`)→ 默认 markmap 预览 + 预览/代码切换(选项 C,见 §1) |
-| 思维导图 | **强声明**走 `business_type:"mindmap"`(路径 A 强契约)→ 恒出 mindmap 卡(markmap;内容违约降级 json 源)。**不靠** application/json mimeType / `.json` 扩展名嗅探出"mindmap 卡";但泛型 json 内容是树形时,json 卡仍按内容默认 markmap 预览(同一渲染分支,差别只在切换是否恒显)|
-| 二进制(office/pdf/图片/媒体) | → `file` 卡,FileFallback 本地应用打开 + 文件夹打开 |
-| 视图切换 / 渲染器 | mindmap/html/table/markdown 的「预览/代码」切换、各 renderer 完全共用 |
+| 思维导图 | **按内容判定**(2026-07-29 改,§1.2):任何 `.json` / `application/json` 产物,内容是导图 shape(`isMindmapJSON`)→ markmap 预览 + 预览/代码切换,否则 json 源单视图。**不再看 `business_type`**——旧规则「强声明恒出 mindmap 卡」使同一个 `.json` 在对话卡与文件管理被判成不同类型,是双开 tab 的成因之一 |
+| 二进制(office/pdf/图片/媒体/csv) | → `file` 卡,FileFallback 本地应用打开 + 文件夹打开 |
+| 视图切换 / 渲染器 | html/markdown 恒显「预览/代码」切换,json 按内容条件显示;各 renderer 完全共用 |
 | 出卡并列 | 同 turn A、C 卡并列追加,互不顶替;长任务卡(taskCards)优先接管 |
 
 **差异规则(来源决定,刻意保留):**
@@ -558,7 +583,7 @@ write 产物在**本地磁盘**,有 `filePath`——所以"用本地应用打开
 |---|---|---|
 | 内容位置 | 内网 S3 URI | 本地磁盘 filePath |
 | 取内容 | `fetch(uri)`(http) | `sdk.client.file.read({ path })`(读盘) |
-| **csv** | `text/csv` → **table 卡**(业务分析表格,应用内渲染 + Excel 导出) | `.csv` → **file 卡**(原始数据,拉本地 Excel/Numbers) |
+| **csv** | `text/csv` → **file 卡**(2026-07-29 改,原 table 卡是死链,见 §1.1) | `.csv` → **file 卡**(原始数据,拉本地 Excel/Numbers) —— 两侧现已一致 |
 | **code 类型** | 无(MCP 不返回代码文件) | 有(任意代码/文本 → code 卡 shiki 预览,兜底) |
 | 触发工具 | MCP tool 返回 resource_link | `write`(新建)/ `edit`(修改)tool part;bash/python 产物抓不到 |
 | 用本地应用打开 | 先 `downloadResourceToTemp` 下载再 `openPath` | `openPath(filePath)` 直接 |
@@ -568,9 +593,11 @@ write 产物在**本地磁盘**,有 `filePath`——所以"用本地应用打开
 
 ---
 
-## 3. TableRenderer
+## 3. TableRenderer ~~（2026-07-29 整节作废）~~
 
-### 3.1 现状
+> **本节所述实现已随 `table` 类型一并删除**（§1.1 / [SPEC-INS-026 §7](../infra/insight-artifact-identity.md)）：`table-renderer.tsx`、`markdown-table.ts`（`extractTableMarkdown` / `parseMarkdownTable` / `tableToCSV`）、以及 §3.2 的多格式导出菜单全部移除，`text/csv` 归 `file` 卡。**下文仅作历史追溯，不再是现行实现。**
+
+### 3.1 现状（历史）
 
 `packages/app/octoapp/pages/insight/components/result-viewer/table-renderer.tsx`：
 - 输入：Markdown 表格字符串
@@ -784,7 +811,7 @@ INode 树 → markmap-view 渲染为 SVG
 | 原始格式 | blob 下载原始 JSON（`stripCodeFence(content)` → `<base>.json`） |
 | Octo 白板格式 | 转成 Octo 内网白板导入 JSON 后下载 `<base>_octo.json`（见 §4.7） |
 
-> **下载项统一命名「原始格式」**（2026-07）：各单格式类型（mindmap/html/json/code/markdown、uri 原件的旧「另存为」）的原生下载项标签统一成「原始格式」，不再按扩展名各叫各的（旧标签如「JSON (.json)」「HTML (.html)」）。**唯一例外 `table` 卡**保留 Markdown/CSV/Excel 三项（三种是真有用的不同导出，见 §3.2），不收敛。
+> **下载项统一命名「原始格式」**（2026-07）：各单格式类型（html/json/code/markdown、uri 原件的旧「另存为」）的原生下载项标签统一成「原始格式」，不再按扩展名各叫各的（旧标签如「JSON (.json)」「HTML (.html)」）。~~唯一例外 `table` 卡保留 Markdown/CSV/Excel 三项~~ —— **2026-07-29 起无例外**：`table` 类型废除，其多格式导出菜单一并去掉且**不迁移到 markdown 卡**（一篇 md 可含 N 张表，导出到单个 csv 没有合理语义；xlsx 可多 sheet、csv 不能，拆多文件是另一个产品决策）。需要时另立需求，见 §1.1。
 >
 > 复制沿用（复制原始 JSON 字符串）。SVG/PNG 导出仍为 P2，未实现。
 

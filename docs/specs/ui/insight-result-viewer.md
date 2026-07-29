@@ -52,22 +52,27 @@ InsightPage 中间面板：**多 Tab 并列显示** agent 产出结果。具体�
 
 ### 4.1 Tab 数据模型
 
+> **2026-07-29 修订（[SPEC-INS-026](../infra/insight-artifact-identity.md)）**：**tab 身份 = 磁盘路径**，不是 `card.id`、也不是 `uri`；`id` 退化为列表 key。`type` 收敛为 6 个（`table` / `mindmap` 已废除，见 [output-renderers.md §1.1 / §1.2](output-renderers.md)）。下列声明以实现文件 `tab-store.ts` 为准，此处示意。
+
 ```ts
 type ResultTab = {
-  id: string                // 唯一ID，通常是 card.id
-  title: string             // 显示名称（截断）
-  type: "table" | "mindmap" | "markdown" | "file" | "json"
-  content: string           // 原始内容（markdown 字符串 或 文件路径）
+  id: string                // 列表 key；pending 卡落盘前的临时身份
+  filePath?: string         // 【身份】磁盘绝对路径，ready 后必填
+  title: string             // 显示名 = 磁盘 basename（单一来源，026 §4.3）
+  type: "markdown" | "html" | "json" | "code" | "file" | "image"
+  content?: string          // 读盘后的内容缓存
+  viewMode?: "preview" | "source"
   createdAt: Date
-  dirty?: boolean           // 内容是否修改（P2 编辑功能）
 }
 ```
+
+**内容读取**（026 §5）：已 ready 的产物**一律读磁盘**（IPC `readFileBuffer`，原字节），不读远端原件；**不用 `sdk.client.file.read`**——服务端会对内容 `.trim()`、二进制返回空串，而 markdown 编辑器以 `tab.content` 为初始值并写回磁盘，trim 会静默吃掉文件尾部换行。
 
 ### 4.2 Tab 操作
 
 | 操作 | 行为 |
 |---|---|
-| 点击 OutputCard | `openTab(card)` → 若已有同 id Tab 则 focus，否则新建 |
+| 点击 OutputCard | `openTab(card)` → **按磁盘路径**去重（不比较 type），命中即 focus，否则新建；pending 卡先用临时身份、落盘后合并。详见 [task-card.md §3.5](task-card.md) |
 | 点击 × | 关闭 Tab；若是活跃 Tab 则 focus 上一个 |
 | 拖拽 Tab | 调整顺序（P2） |
 | Tab 数量无上限 | 超过可视区域时横向滚动 |

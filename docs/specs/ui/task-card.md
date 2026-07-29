@@ -183,19 +183,27 @@ turn 3: 用户再次刷新
 
 > **⚠️ 内联卡只出现在真正查到 completed 结果的那一次 turn(2026-07 修复,PR MyHeavenDyf/UXAI#384)**:早期实现只要本 turn 扒到 `task_id` 就经 `resolveTaskLinks` 回填产物卡,而 `readTaskInfo` 对**处理中**的 `get_task_result` 也返回 `task_id`;叠加 `resolveTaskLinks` 跨 turn 聚合「一旦任务完成就恒返回那批产物」,导致每一次「处理中」查询回答下方都被回填了最终产物卡(用户困惑:为什么还没查完的那几次也出卡)。**修复:gate 在本 turn 是否真正观测到该任务 `status === "completed"`** —— 仅 completed 的那次 turn 才 `resolveTaskLinks` 出卡,处理中的查询 turn 不出卡。这样"哪次真正查到结果,卡就出现在哪次",符合直觉。实现:`outputCards` 内 `completedTask = parts.find(readTaskInfo(p)?.status === "completed")`,`taskId` 取自它。
 
-**tab 重复**(禁止):点击两个入口后,ResultViewer 里**同一 URI 被开成两个独立 tab** — 这是 bug,必须避免。
+**tab 重复**(禁止):点击两个入口后,ResultViewer 里**同一份产物被开成两个独立 tab** — 这是 bug,必须避免。
 
-业界对照(VS Code / Cursor / Notion 等):同一文件路径 / document ID 在多个入口被打开时,**激活已有 tab,不新建**。我们的 tab 去重 key 应该是 `uri`,而不是 OutputCard.id(因为任务卡和 SSE 卡的 id 不同,但 uri 相同)。
+业界对照(VS Code / Cursor / Notion 等):同一文件路径 / document ID 在多个入口被打开时,**激活已有 tab,不新建**。
+
+> **2026-07-29 修订（[SPEC-INS-026 §6](../infra/insight-artifact-identity.md)）：去重 key 从 `uri` 改为磁盘路径，且不看 type。**
+>
+> 旧 key `uri` 覆盖不了「对话卡 ↔ 文件管理」这对入口——前者只有 uri、后者只有 filePath，键不相交。后来加的 `(filePath, type)` 复合键又踩了另一个坑：`type` 在两个入口不是同一个函数算出来的（对话卡按 mimeType + `business_type`，文件管理按扩展名），同一个 `.json` 一边判 `mindmap`、一边判 `json`，键照样失配 → **双开**（UXAI PR #445）。
+>
+> 根治是把产物身份统一到磁盘路径：**一个磁盘文件 = 一个 tab**。多视图（预览/代码）由 tab 内 `viewMode` 切换承担，不靠多开 tab；因此去重**不需要也不应该**看 type。
 
 **实现要求**([tab-store.ts](../../../packages/app/octoapp/pages/insight/components/result-viewer/tab-store.ts) 的 `openTab`):
 
 ```
-1. 优先按 uri 匹配现有 tab → 命中即 activate,不新建
-2. URI 不存在(inline 模式卡)→ 按 id 匹配
-3. 都不命中 → 新建 tab
+1. 按磁盘路径匹配现有 tab → 命中即 activate,不新建(不比较 type)
+2. 尚未落盘(pending)的卡 → 按 card.id 临时开;落盘完成后绑定磁盘路径,
+   若届时已存在同路径 tab 则合并(激活已有、关掉临时那个)
+3. inline 卡(无落盘过程)→ 按 id 匹配
+4. 都不命中 → 新建 tab
 ```
 
-去重命中时打 `[octo:tab] dedupe-by-uri` console,便于联调。详见 [output-renderers.md §9.0 V0-F](output-renderers.md#v0-f-tab-去重同一-uri-多入口不重复开-tab) 验证步骤。
+去重命中时打 `[octo:tab] dedupe-by-path` console,便于联调。**验证必须覆盖顺序无关性**:同一文件「先文件管理后对话卡」与「先对话卡后文件管理」两种顺序结果必须一致(见 026 §11 的 V6)。详见 [output-renderers.md §9.0 V0-F](output-renderers.md#v0-f-tab-去重同一-uri-多入口不重复开-tab) 验证步骤。
 
 #### 未来去掉入口冗余的可能(目前不做)
 

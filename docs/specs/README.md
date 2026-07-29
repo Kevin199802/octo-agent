@@ -7,7 +7,7 @@
 
 ---
 
-## 已编号（SPEC-INS-001 ~ 023）
+## 已编号（SPEC-INS-001 ~ 026）
 
 | 编号 | 标题 | 状态 | 领域 | 文件 |
 |---|---|---|---|---|
@@ -36,6 +36,7 @@
 | 023 | Insight 输入框 `@` 引用面板 | 已实现（外网），待内网验证 | ui/insight | [insight-mention-at.md](ui/insight-mention-at.md) |
 | 024 | 输入区草稿保留（per 会话分桶 · 跨模块通用） | v1 已实现（外网，UXAI 分支 `feat/composer-draft-per-session`；insight 已接入，make / pattern / studio 待接） | ui（跨模块） | [composer-draft.md](ui/composer-draft.md) |
 | 025 | Insight question 工具答题 UI（对齐 Claude AskUserQuestion） | 草案（待实现） | ui/insight | [insight-question-dock.md](ui/insight-question-dock.md) |
+| 026 | Insight 产物身份模型（身份 = 磁盘路径 · 命名/类型/去重单一来源） | 草案（入口卡三态已落地 UXAI PR #467，其余待实现） | infra/insight | [insight-artifact-identity.md](infra/insight-artifact-identity.md) |
 
 > **025 编号说明（2026-07-28）**：question 工具答题 UI 起草时取号 023，但同期 `@` 引用面板已用 023 落地并推送、`composer-draft` 已占 024。按下方 019 / 020 确立的"孤儿号改分配新号，不动已发布号"原则，未推送的这份改分配为 025。
 

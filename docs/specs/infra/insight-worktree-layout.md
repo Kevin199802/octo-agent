@@ -10,6 +10,8 @@
 
 > ## 修订记录
 >
+> **2026-07-29：v7.3（命名规则收窄为「只做必要清洗」，§3.1 旧规则废除）**——旧规则把服务端**上传**的 sanitize（空格/括号 → `_`、主名截 100）也用在了**下载落盘**上，导致同一份产物「卡片叫 `林(2).json`、磁盘叫 `林_2_.json`」，用户以为是两份文件（UXAI PR #445 的其中一条根因）。该规则的原始动因是「文件名随 basename 进 S3 URL、特殊字符致 MCP 下载失败」，而**文件名已退出 URL**（上传合同 v2 已落地），约束消失。新规则见 §3.1：只拒绝路径穿越（全平台）+ Windows 非法字符/保留名 + 超长截断，其余逐字保留。上传方向同步废除。本条属 [SPEC-INS-026 产物身份模型](insight-artifact-identity.md) 的一部分，命名规则真相源移至 026 §4.1。
+>
 > **2026-07-24：v7.2（搬迁判据健壮性 —— 布局知识收敛 + refresh 解耦，UXAI PR #424 的后续）**——本条不改布局本身,收敛「布局知识散落导致 v7 迁移漏改」这个类别的脆弱。背景:v7 把预会话落地区 `insight/uploads`→`.octo/tmps`,主进程落盘(ipc.ts)改了、**渲染端搬迁判据 `isPendingUploadPath` 漏改**(只改注释、函数体仍找 `insight`)→ 判据恒假 → 附件搬不进 `.octo/<sessionId>/uploads/`、文件管理面板为空(PR #424 止血)。两处根因收敛:① 判据从 2000+ 行页面组件抽到 [worktree-layout.ts](../../../packages/app/octoapp/pages/insight/utils/worktree-layout.ts)(渲染端布局唯一入口、可单测),布局字面量集中为常量;主进程 [ipc.ts](../../../packages/desktop/src/main/ipc.ts) 落点处加交叉引用注释——两处受进程边界隔离**无法共享常量**(desktop 主进程不 import 渲染端包),故跨进程真相源仍是本 spec §2,改布局须同步三处(见 [§2.1 实现映射](#21-实现映射改布局要同步哪几处))。② 文件管理刷新 `setFilesRefreshKey` 的 gate 从 `movedPaths.size > 0` 解耦为 `localFiles.length > 0`——刷新只依赖「本次有无本地附件」这个可靠事实,不再耦合到搬迁判据是否为真;否则判据一旦再脱节,附件进不去(已是 bug)会连带把可见性刷新也哑掉、放大故障。完整复盘见 learning [stale-path-predicate-after-layout-refactor.md](../../learning/stale-path-predicate-after-layout-refactor.md)。UXAI PR #424(判据止血)+ 后续 refactor PR(本条收敛)。
 >
 > **2026-07-22：v7.1（outputs materialize 幂等**持久化到磁盘清单**，消除重装/重启后同名产物重复 #90）**——旧 `downloadResourceToTemp` 靠桌面主进程**内存表**（`namespace` = 资源 URI → 本地路径）记幂等，落盘走 `collisionFreePath` 撞名加后缀；内存表跨重启/重装清空，重开旧会话再触发 eager 落盘 → 查不到 → 撞名重落 `xxx (2)`，**每装一次多一份**（#90）。**修法：幂等键(仍是资源 URI)从内存表搬到磁盘持久清单** `.octo/<sessionId>/outputs/.materialized.json`（`URI → {file, fetchedAt}`；dotfile，`listFiles` 已过滤不进文件管理；随会话目录生命周期，天然活过重启/重装）。命中且落地文件仍在 → 复用那份（含用户改动）、绝不 re-fetch/覆盖；未命中才 `collisionFreePath` 落盘 + 写回清单。内存表保留为进程内快路径（键加 `outputsDir` 前缀，避免同一 URI 跨会话串场）。**为什么按 URI 记而非按文件名**：文件名 ≠ 身份，两个不同 URI 同名不能 alias 成同一份（故撞名仍 `collisionFreePath` 各留一份）——起草时曾考虑「确定性按名复用」（对齐 Design [artifact-auto-save.ts](../../../packages/app/octoapp/pages/make/utils/artifact-auto-save.ts)），评审指出 filename≠identity 后否掉，改回「按 URI + 持久清单」（业界同款：npm cacache / pip / MCP 缓存代理都用「跨重启存活的 逻辑键→已落地条目 清单」）。**已知边界**：① 首次升级、老会话尚无清单 → 那一次仍可能出一份 `(2)`，之后稳定；② 用户手动改名 → 清单指向的旧名失效 → 再落一份原名副本。UXAI PR #418。
@@ -122,12 +124,23 @@
 ## 3. 文件命名与冲突
 
 ### 3.1 sanitize
-沿用 [file-upload.md §filename sanitize](file-upload.md) 的服务端规则在客户端对齐：保留字母/数字/`-`/`_`/`.`/中文；空格 → `_`；其他 → `_`；主名截 100 字符；空名兜底 `unnamed`。
 
-会话目录名（`sessionId` 作为路径分段）额外做纯 allow-list 清洗（`[A-Za-z0-9_-]`，非法字符替换为 `_`）——渲染进程不是安全边界，防御性拒绝路径穿越。
+> **2026-07-29 修订（SPEC-INS-026）**：旧规则「空格 → `_`；其他 → `_`；主名截 100 字符」**已废除**，改为「只做必要清洗」。真相源移至 [insight-artifact-identity.md](insight-artifact-identity.md) §4.1，本节留摘要。
+
+**必要 = 不清洗就落不了盘、或不安全。** 其余一律保持 MCP 文件名与磁盘名逐字一致（含空格、括号、中文）：
+
+- **全平台拒绝**（不改写，响亮报错）：含 `/`、`\`、`NUL` 的名字，以及名字为 `.` / `..` —— 这不是"清洗文件名"，是拒绝把外部输入当路径用（`resource_link.name` 来自服务端）。
+- **仅 Windows 替换**：`<>:"|?*`、保留名（`CON`/`PRN`/`AUX`/`NUL`/`COM1-9`/`LPT1-9`）、尾部 `.` 与空格 —— 不处理 `fs.writeFile` 直接抛 `EINVAL`，产物丢失。macOS/Linux 这些字符合法，**不动**。
+- **全平台**：超过文件系统上限时按字节截断、保住扩展名。
+
+**为什么废除旧规则**：它源自「文件名随 basename 进 S3 URL、特殊字符致 MCP 下载失败」（见 §3.3 末尾 2026-07-03 注记），而**文件名已退出 URL**（上传合同 v2 已落地），约束消失。旧规则正是 `林(2).json` 在文件管理里显示成 `林_2_.json` 的原因——同一份文件两个名字，用户以为是两份。上传方向（`copy-file-to-worktree`）同步废除。
+
+会话目录名（`sessionId` 作为路径分段）**保持** allow-list 清洗（`[A-Za-z0-9_-]`，非法字符替换为 `_`）——渲染进程不是安全边界，防御性拒绝路径穿越。这条与上面「拒绝路径分隔符」同源，不受本次修订影响。
 
 ### 3.2 outputs 命名
-文件名取 `resource_link.name`（uri 源）或 `basename(filePath)`（path 源），sanitize 后落 `.octo/<sessionId>/outputs/`，**幂等键=资源 URI、落地映射记入持久清单 `.materialized.json`；命中即复用，撞名走 `collisionFreePath` 加后缀（§3.3，v7.1 修订）**。不做 `<id>` 分桶（只按 `sessionId` 分桶，桶内扁平）。
+文件名取 `resource_link.name`（uri 源）或 `basename(filePath)`（path 源），按 §3.1 处理后落 `.octo/<sessionId>/outputs/`，**幂等键=资源 URI、落地映射记入持久清单 `.materialized.json`；命中即复用，撞名走 `collisionFreePath` 加后缀（§3.3，v7.1 修订）**。不做 `<id>` 分桶（只按 `sessionId` 分桶，桶内扁平）。
+
+> **磁盘名即身份、即展示名**（SPEC-INS-026 §4.3）：对话入口卡、tab 标签、文件管理三处显示的都是磁盘 basename，单一来源。**不得**在渲染进程复刻主进程清洗规则去"预测落盘名"——那种做法假设所有产物走同一条落盘路径（write 产物不走），反而制造新的名字分叉；§3.1 消灭转换后预测也不再需要。
 
 ### 3.3 撞名处理
 

@@ -55,7 +55,7 @@
 | `run_usability_analysis` | 产物型 | 可用性测试分析 | 上传的访谈 / 测试材料 | 长任务，调用即提交，返回 task_id |
 | `run_guide_analysis` | 产物型 | 大纲聚类分析（按提纲整理） | 上传的访谈材料 + 提纲 | 长任务，调用即提交，返回 task_id |
 | `key_findings` | 产物型 | 自由解析 — 提取用户观点、场景主体、痛点需求等 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id |
-| `mindmap` | 产物型 | 思维导图生成 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id；完成时 resource_link **必须**标 `business_type: "mindmap"` 触发双卡(原始 JSON + 思维导图可视化) |
+| `mindmap` | 产物型 | 思维导图生成 | 上传的访谈材料 | 长任务，调用即提交，返回 task_id；resource_link 仍按契约填 `business_type: "mindmap"`（**服务端不变**），但客户端 2026-07-29 起**不再依赖该字段渲染**，改按内容结构判定并收敛为**单卡**（详见下方 `business_type` 小节） |
 | `search_reports` | 同步检索 | 基于内网用研知识库的 RAG 检索 | 自然语言 query | 同步返回（< 5s）;**当前按通用产物渲染**（resource_link 填 `business_type: "search_reports"`）;未来如需"引用 chip"形态再走 [insight-references.md](../ui/insight-references.md) 的 business_type 扩展 |
 
 ### 工具入参
@@ -172,6 +172,14 @@
 
 ### resource_link 业务类型声明字段 `business_type`(必填)
 
+> **2026-07-29 修订（[SPEC-INS-026 §8](../infra/insight-artifact-identity.md)）：字段保留必填，但降级为「元数据」——客户端不再用它做类型路由。**
+>
+> **服务端无需任何改动**：继续按本节填写即可（未来要区分业务类型仍会用到它）。变化只在客户端。
+>
+> **为什么降级**：`business_type` 的定义是「产生该资源的 MCP tool 名」，却被客户端当成了「用哪个渲染器」——语义错配。后果是同一份 `.json` 产物，对话卡按 `business_type` 判成 mindmap、文件管理按扩展名判成 json，两个入口对同一个磁盘文件给出不同类型，去重键因此失配，**开出两个 tab**（UXAI PR #445）。
+>
+> **改成什么**：思维导图由**内容结构**判定（`isMindmapJSON`：`{mindmaps:[…]}` / `{nodes:[…]}` / 顶层带 `children` 的裸树）——不管这份 json 从哪来，是导图 shape 就渲 markmap，不是就渲 JSON 源。渲染层本来就是这么做的，这次只是把入口卡的类型判定也统一过去。
+
 > mimeType 只声明**文件格式**(如 `application/json`),无法表达**业务语义**(同一 mimeType 下可能是思维导图数据,也可能是结构化业务数据)。客户端拿到 resource_link 时**取不到产生它的 tool 名**,因此服务端必须在 resource_link 上**显式声明**这份资源的业务类型。
 
 **字段定义**(MUST 填,所有 tool 的 resource_link 都必须包含):
@@ -193,7 +201,7 @@
 | `"run_usability_analysis"` | `run_usability_analysis` | 可用性测试分析产物 | 单卡,按 mimeType 路由 |
 | `"run_guide_analysis"` | `run_guide_analysis` | 大纲聚类分析产物 | 单卡,按 mimeType 路由 |
 | `"key_findings"` | `key_findings` | 用户观点/场景/痛点解析产物 | 单卡,按 mimeType 路由 |
-| `"mindmap"` | `mindmap` | 思维导图数据 | **双卡**(原始 JSON + 思维导图可视化),两卡共享 URI,在 ResultViewer 各开独立 tab |
+| `"mindmap"` | `mindmap` | 思维导图数据 | ~~双卡~~ → **单卡**(2026-07-29)。内容为导图 shape 时打开即 markmap 预览,顶部「预览/代码」切换看原始 JSON;客户端按内容判定,不看本字段 |
 | `"search_reports"` | `search_reports` | 知识库 RAG 引用源 | 单卡,按 mimeType 路由 |
 
 **设计原则**:
@@ -216,9 +224,13 @@
 
 | 场景 | 行为 |
 |---|---|
-| `business_type` 字段缺失(服务端 bug / 旧版兼容) | 视作通用产物按 mimeType 路由;console warn `[octo:resource-link] missing-business-type` |
-| `business_type` 值非已知 enum(未来加了新 tool 但客户端没跟进) | 视作通用产物兜底;console warn `[octo:resource-link] unknown-business-type` |
-| `business_type: "mindmap"` 但实际内容不是 mindmap shape(服务端违反契约) | mindmap tab 渲染时检测失败,显示"该文件不是思维导图格式"占位;json tab 正常 |
+> **2026-07-29 起本表整体弱化**：客户端不再依赖 `business_type` 路由，所以「字段缺失 / 值非已知 enum」都**不影响渲染**（仍按 `resolveOutputType(filename, mimeType?)` 判类型），warn 日志保留作服务端契约体检用。
+
+| 场景 | 行为 |
+|---|---|
+| `business_type` 字段缺失(服务端 bug / 旧版兼容) | 渲染不受影响;console warn `[octo:resource-link] missing-business-type` |
+| `business_type` 值非已知 enum(未来加了新 tool 但客户端没跟进) | 渲染不受影响;console warn `[octo:resource-link] unknown-business-type` |
+| `business_type: "mindmap"` 但实际内容不是 mindmap shape(服务端违反契约) | **不再是异常场景**：类型本就按内容判定，非导图 shape 就正常显示为 JSON 源，无占位、无降级提示 |
 
 ---
 
@@ -273,7 +285,7 @@
 }
 ```
 
-**示例 2:`mindmap` 工具产物**(`business_type: "mindmap"` 触发客户端双卡)
+**示例 2:`mindmap` 工具产物**(`business_type: "mindmap"`;2026-07-29 起客户端**不依赖该字段**,按内容判定出单卡)
 
 ```json
 {
@@ -301,7 +313,7 @@
 约束：
 
 - `text` 摘要 part **只有一个**，位于 `content[0]`，统一概括所有产物
-- `resource_link` part 可有 **1 至 N 个**，每个对应一份独立可下载的文件；客户端按 `business_type` + `mimeType` 路由到对应渲染器(见 [§resource_link 业务类型声明字段 `business_type`](#resource_link-业务类型声明字段-business_type必填) + [output-renderers.md §2.5](../ui/output-renderers.md))
+- `resource_link` part 可有 **1 至 N 个**，每个对应一份独立可下载的文件；客户端按 `resolveOutputType(filename, mimeType?)` 路由到对应渲染器(2026-07-29 起不再看 `business_type`)(见 [§resource_link 业务类型声明字段 `business_type`](#resource_link-业务类型声明字段-business_type必填) + [output-renderers.md §2.5](../ui/output-renderers.md))
 - `business_type` 字段 **MUST 填**(标准字段,非可选);取值 = 产生该资源的 MCP tool 名(见上节 enum 表)
 - 单文件产出仍合法（N=1，最常见情形）
 - 不要把多文件合并成 zip——客户端按 mimeType 分发的能力会失效，业界标准是 N 个独立 resource_link
@@ -454,7 +466,7 @@
 
 - **所有 tool 的 resource_link MUST 填 `business_type` 字段**(标准字段,见 [§resource_link 业务类型声明字段 `business_type`](#resource_link-业务类型声明字段-business_type必填));第一版取值 = tool 名
 - **长任务工具**（`run_usability_analysis` / `run_guide_analysis` / `key_findings` / `mindmap`）：同步返回 task_id（< 5s）,实际结果通过后续 `get_task_result` 查询获取,详见 [§任务管理](#任务管理长任务通用)
-- **`mindmap` 工具**:completed 时 resource_link 的 `business_type: "mindmap"` 触发客户端双卡(原始 JSON + 思维导图可视化)
+- **`mindmap` 工具**:completed 时 resource_link 仍填 `business_type: "mindmap"`(服务端契约不变);客户端 2026-07-29 起按内容结构判定,出**单卡**、tab 内「预览/代码」切换
 - **`search_reports` 同步检索工具**:同步返回回答正文 + N 个 resource_link(`business_type: "search_reports"`),当前按通用产物渲染;未来需要"引用 chip"形态见 [insight-references.md](../ui/insight-references.md) 草案
 
 ---
