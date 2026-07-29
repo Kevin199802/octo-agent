@@ -294,6 +294,8 @@ grep -E "\[octo:(mcp|kb|inject|extract)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 | `[octo:worktree] result-materialize` | log | MCP 产物落地 `insight/outputs`;`reused:true` = 命中本会话内存表/已落地副本(含用户改动),不 re-fetch。 | `filename`、`path`、`reused` |
 | `[octo:worktree] result-materialize-failed` | error(**进 main.log**) | 产物下载失败(`download-resource-to-temp`,`net.fetch` 走 Chromium 栈)。`reason` 是展开的 cause 链(DNS/TLS/代理/连接被拒),同文案回传渲染端错误提示。 | `url`、`filename`、`sessionId`、`reason` 或 `status`+`statusText` |
 | `[octo:worktree] download-resource failed` | error(**进 main.log**) | 「另存为/下载原件」下载失败(`download-resource`),字段语义同上。 | `url`、`reason` 或 `status`+`statusText` |
+| `[octo:worktree] materialize-rejected` | error(**进 main.log**) | **SPEC-INS-026 §4.1**:产物文件名不合法(含 `/` `\` `NUL`、或名为 `.`/`..`),**拒绝落盘且不静默改名**。与 `result-materialize-failed`(网络类,可重试)不同,这条重试无用;渲染端据 message 前缀 `[octo:name-rejected]` 识别并 toast。([desktop/src/main/landing-name.ts](../packages/desktop/src/main/landing-name.ts)) | `url`、`filename`、`sessionId`、`reason` |
+| `[octo:worktree] upload-name-rejected` | error(**进 main.log**) | 同上,发生在**上传方向**(`copy-file-to-worktree`,附件拷进 `.octo/tmps/`)。 | `srcPath`、`filename`、`reason` |
 
 ### 1.7 其他前缀(出场较少)
 

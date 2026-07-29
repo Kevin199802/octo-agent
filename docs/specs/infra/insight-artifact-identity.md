@@ -192,7 +192,11 @@ pending 卡开出的 tab 以 `card.id` 为临时身份；落盘完成后绑定�
 
 全部可在**外网本地**复现，无需内网数据。
 
-### 11.1 单测（`bun test`，`packages/app/octoapp/pages/insight`）
+### 11.1 单测
+
+V1–V3 跑 `cd packages/desktop && bun test src/main/landing-name.test.ts`；V4–V8 跑 `cd packages/app/octoapp/pages/insight && bun test`。
+
+> **为什么 V1–V3 不在 insight 目录**：清洗发生在主进程落盘那一刻，`landingName` 属于 `packages/desktop/src/main/`。主进程不 import 渲染端包（[worktree-layout.ts](../../../packages/app/octoapp/pages/insight/utils/worktree-layout.ts) 文件头的既有边界），而在渲染端另放一份镜像正是 §4.3 禁止的「预测落盘名」反模式。函数在哪，测试就在哪。
 
 | # | 断言 |
 |---|---|
