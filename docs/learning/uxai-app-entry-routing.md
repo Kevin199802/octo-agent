@@ -1,97 +1,114 @@
-# UXAI 前端入口与路由组成 —— 哪个文件是「活」的,改路由别改错
+# UXAI 前端入口与路由组成 —— 两个入口都是活的,别再当"死副本"
 
 > 面向:要在 UXAI 仓(octo-agent 的下游集成仓)改前端路由 / Provider / 壳的人。
-> 一句话:**entry.tsx → `@/app` = `app.tsx` 才是活路由;同目录的 `octo.tsx` 是历史重复副本,死文件,改它白改。**
+> 一句话:**`app.tsx` 与 `octo.tsx` 是两个平行入口 —— 浏览器/Playwright 走 `app.tsx`,Electron 走 `octo.tsx`。改路由通常要改两份。**
 
-UXAI 前端在 `packages/app/octoapp/`。本文把「入口链 → 哪个文件被真正加载 → dev sandbox 路由怎么注册」讲清楚,并复盘一次「改错文件」的踩坑,给出快速诊断法。
+> ⚠️ **本文 2026-07-29 大幅更正。** 旧版断言「`octo.tsx` 是历史重复副本、死文件、改它白改」,**这是错的**,并且直接导致了后续一系列误判(dev 路由被认为"注册在死文件里"、桌面端生产包多带 78KB 预览代码没人发现)。更正依据见 §2 的完整入口链取证。
+
+UXAI 前端在 `packages/app/octoapp/`。本文把「两条入口链各自加载哪个文件 → dev sandbox 路由怎么注册 → 生产怎么摇干净」讲清楚,并复盘那次错误推论。
 
 ---
 
-## 1. 入口链:从 HTML 到路由表
+## 1. 两条入口链
 
 ```
-index.html
-  └─ <script> entry.tsx
-        └─ render(<AppInterface defaultServer=... disableHealthCheck/>, #root)
-              └─ AppInterface 内部:
-                   ServerProvider → ConnectionGate → ServerKey → QueryProvider
-                     → GlobalSDKProvider → GlobalSyncProvider
-                       → <Dynamic component={Router} root={RouterRoot}>
-                            <Route path="/" .../>
-                            <Route path="/insight/:id?" .../>
-                            ...路由表...
+【浏览器 / Playwright】
+packages/app/index.html
+  └─ <script src="/octoapp/entry.tsx">
+        └─ entry.tsx: import { AppInterface } from "@/app"     ← @/ = octoapp/
+              └─ app.tsx                     ★ 活
+                    router = 默认 Router(history 模式,有地址栏)
+
+【Electron 渲染进程】
+packages/desktop/src/renderer/index.tsx
+  └─ import { AppInterface } from "@opencode-ai/app"
+        └─ packages/app/src/index.ts:  export * from "../octoapp"
+              └─ packages/app/octoapp/index.ts:  export { AppInterface } from "./octo"
+                    └─ octo.tsx                ★ 也是活的
+                          router = HashRouter(显式传入,无地址栏)
 ```
 
-关键:`entry.tsx` 顶部
+两条链**互不相交**:`entry.tsx` 只碰 `app.tsx`,desktop renderer 只碰 `octo.tsx`。
 
-```ts
-import { AppBaseProviders, AppInterface } from "@/app"
-```
+Playwright 也走浏览器那条 —— `playwright.config.ts` 的 `webServer.command` 是 `bun run dev`(即 `packages/app` 的 vite dev,:3000),所以 e2e 看到的是 `app.tsx` 的路由表。
 
-`@/` 别名指向 `packages/app/octoapp/`,所以 `@/app` 解析到 **`app.tsx`**。路由表(`<Route>` 列表)、`RouterRoot`、`AppInterface` 全在 `app.tsx`。
-
-## 2. 陷阱:`octo.tsx` 是 `app.tsx` 的死副本
-
-`packages/app/octoapp/` 下同时存在:
-
-| 文件 | 状态 | 说明 |
-|---|---|---|
-| `app.tsx` | **活** | `entry.tsx` 实际导入的就是它,路由在这里生效 |
-| `octo.tsx` | **死** | 与 `app.tsx` 高度重复的历史副本,**没有任何入口 import 它** |
-
-两个文件都有 `export function AppInterface`、都有几乎一样的 `<Route path="/insight/:id?" ...>` 路由块,肉眼极易认错。改 `octo.tsx` 不会有任何运行时效果(连 HMR 都不会触发,因为模块根本没进依赖图)。
-
-### 怎么确认哪个是活的
+## 2. 取证:怎么确认哪个是活的
 
 ```bash
-# 1) 看入口导入的是哪个
-grep -n "from \"@/app\"" packages/app/octoapp/entry.tsx
-#   → @/app === app.tsx
+# 浏览器入口
+grep -n 'from "@/app"' packages/app/octoapp/entry.tsx      # → @/app = app.tsx
 
-# 2) 反查谁 import 了 octo
-grep -rn "pages\|octo" packages/app/octoapp/entry.tsx
-grep -rn "@/octo\|\"./octo\"" packages/app/octoapp   # 一般搜不到 → 死文件
+# Electron 入口(关键:要顺着 package 边界一路查下去,别只在 octoapp/ 里 grep)
+cat packages/app/octoapp/index.ts                          # → export ... from "./octo"
+cat packages/app/src/index.ts                              # → export * from "../octoapp"
+grep -n '@opencode-ai/app' packages/desktop/src/renderer/index.tsx
 ```
 
-> 现状是技术债:理想是删掉 `octo.tsx`,但删除需单独确认(本文只记录,不擅自删)。
+**旧版就是漏了后三条。** 只在 `packages/app/octoapp/` 内部 grep `"./octo"`,搜不到 → 误判死文件。真正的引用发生在**跨 package 的 re-export 链**上(`octoapp/index.ts` → `src/index.ts` → package `exports` 字段 → 另一个 package),单目录 grep 天然看不见。
 
-## 3. 踩坑复盘:dev 路由加进了死文件
+### 两份不是等价副本
 
-迁移 insight dev sandbox(`pages/insight/__dev/*`)时,把路由注册写进了 `octo.tsx`。表现:
+同一天(2026-05-09,commit `0ed6a080e`)一起创建,之后走岔了:
 
-- `/insight/__dev` 不显示 dev 索引页,而是空白的 InsightPage(被 `/insight/:id?` 兜底匹配,`id="__dev"`,无会话 → 空态)。
-- 改 `octo.tsx` 后刷新无变化。
+| | `app.tsx` | `octo.tsx` |
+|---|---|---|
+| 行数 | 437 | 667 |
+| 近 3 个月提交 | 14 | **45** |
+| 独有内容 | — | `ForceLightScheme`、`OnboardingLayer`、`FocusModeResetHandler`、`PatternPage` 路由、`InsightSidebarLayout` / `SkillsSidebarLayout`、`ResponsiveSidebarLayout`、侧栏宽度持久化 |
 
-### 决定性诊断法:模块顶层探针
+即 **`app.tsx` 是一份掉队的分叉**,不是死文件。后果:同一个页面在浏览器里和在 Electron 里壳可能不一样(主题、侧栏、onboarding),**拿浏览器验 UI 会被误导**,这正是"新 UI 验证不了"的根因之一。
 
-在改动的模块顶层加一行:
+> 技术债:理想是合并成单一 app root,平台差异走已有的注入点(`AppInterface` 收 `router` prop、`PlatformProvider` 注入平台能力)—— 这也是 Electron+Web 双端的业界标准形态(VS Code / Linear / Slack 都是单 root + 适配注入)。**本文只记录,合并需单独拍板。**
+
+## 3. 踩坑复盘:一个正确的观测 + 一个错误的推论
+
+迁移 insight dev sandbox(`pages/insight/__dev/*`)时把路由只注册进了 `octo.tsx`。表现:浏览器访问 `/insight/__dev` 不是 dev 索引页,而是空白 InsightPage(被 `/insight/:id?` 兜底,`id="__dev"`,无会话 → 空态)。
+
+当时用了「模块顶层探针」诊断:
 
 ```ts
-console.log("[diag] DEV =", import.meta.env.DEV)
+console.log("[diag] DEV =", import.meta.env.DEV)   // 加在 octo.tsx 顶层
 ```
 
-用 Playwright(或浏览器)抓 console。**这行没打印 = 该模块根本没被加载** → 说明改错了文件。果然:`octo.tsx` 的探针从不打印,而 app 正常工作 → 活的是别的文件(`app.tsx`)。
+浏览器抓不到这行 → 结论「`octo.tsx` 是死文件」。
 
-> 经验:遇到「改了代码却毫无效果」,先证明「我改的模块到底有没有被加载」,再去想逻辑对不对。顶层 `console.log` 是最快的判活探针。
+**观测没错,推论错了。** 顶层探针没打印,只能证明**该模块不在当前这个入口的依赖图里**;要证明它全局是死的,必须把**所有入口**都枚举一遍。这里恰好还有第二个入口(Electron),探针在那边是会打印的。
 
-## 4. dev sandbox 路由的正确注册(在 `app.tsx`)
+> 经验修正:「改了没效果」先判活没问题,但判活的结论要写成 **"它不在 X 入口的图里"**,不能直接写成 **"它是死文件"**。多入口项目里,这两句话差得很远。
+>
+> 判活探针要在**目标运行环境**里抓:Electron 端得开 DevTools 看渲染进程 console,不能只看浏览器。
 
-dev 预览页集中在 `pages/insight/__dev/`,由 `routes.tsx` 聚合导出 `insightDevRoutes()`(返回一组 `<Route>`)。在 **`app.tsx`** 的 `<Router>` children 里挂载:
+## 4. dev sandbox 路由的正确注册(两个入口都要挂)
+
+dev 预览页集中在 `pages/insight/__dev/`,由 `routes.tsx` 聚合导出 `insightDevRoutes()`(返回一组 `<Route>`)。**`app.tsx` 和 `octo.tsx` 都要挂**,否则该端访问不到。
 
 ```tsx
 import { insightDevRoutes } from "@/pages/insight/__dev/routes"
-// ...
+
+// 守卫必须写在 JSX 之外 —— 原因见 solid-jsx-blocks-import-meta-env-treeshaking.md
+const insightDevRoutesOrNone = import.meta.env.DEV ? insightDevRoutes : () => null
+
+// ...路由表内
 <Route path="/cowork" component={() => <Navigate href="/insight" />} />
-{/* DEV-ONLY:静态段 /insight/__dev 优先于 :id?,且仅 dev 注册;生产为死代码 */}
-{import.meta.env.DEV && insightDevRoutes()}
+{insightDevRoutesOrNone()}
 <Route path="/insight/:id?" component={InsightPage} />
 ```
 
 三层隔离:
 
-1. **构建隔离**:`import.meta.env.DEV` 在生产被静态替换为 `false` → 调用成死代码 → `routes.tsx` 及其 lazy chunk 被 Rollup 摇树掉,不进 bundle。
-2. **路径/排序**:solid-router 按 score 选路由,**静态段 > 动态参数段**。两段静态的 `/insight/__dev` 分数高于 `/insight/:id?`(第二段是参数),所以同前缀也能正确胜出——**前提是注册在活文件里**。当初「输给」`:id?` 不是排序问题,纯粹是写进了死文件没注册。
-3. **壳复用**:`app.tsx` 的 `RouterRoot.isOctoPage()` 命中 `/insight/__dev`(`startsWith("/insight/")`)→ dev 页带 `OctoSidebarLayout` 渲染在内容区,复用 UXAI 自己的壳。
+1. **构建隔离**:生产构建里 `insightDevRoutesOrNone` 折叠成 `() => null`,`routes.tsx` 及全部 lazy chunk 被 Rollup 摇掉。
+   ⚠️ 这件事**比看起来难**,`{import.meta.env.DEV && insightDevRoutes()}` 这种直觉写法**不生效**(旧版本文断言它生效,是错的;实测桌面生产包一直带着 78KB 预览代码)。必须同时满足两个条件,机制见
+   [solid-jsx-blocks-import-meta-env-treeshaking.md](solid-jsx-blocks-import-meta-env-treeshaking.md)。
+2. **路径/排序**:solid-router 按 score 选路由,**静态段 > 动态参数段**。两段静态的 `/insight/__dev` 分数高于 `/insight/:id?`,同前缀也能正确胜出 —— 前提是在**该入口**注册了。当初「输给」`:id?` 不是排序问题,是浏览器那份没注册。
+3. **壳复用**:两端都让 dev 页裸渲染(dev 页本身是 `size-full` 自包含容器)。`octo.tsx` 对 insight 页本来就不套侧栏;`app.tsx` 会把 `/insight/*` 套进 `OctoSidebarLayout`,所以用模块级 `isInsightDevPath` 让 `/insight/__dev*` 跳过它 —— 否则浏览器里会多出一条旧侧栏,两端看到的壳不一致。
+
+### Electron 端怎么进 dev 页
+
+Electron 用 `HashRouter` 且没有地址栏,DevTools console 里:
+
+```js
+location.hash = "#/insight/__dev"
+```
 
 ## 5. 与 octo-agent `_dev` 决策的关系
 
@@ -99,13 +116,14 @@ octo-agent 仓的 `pages/insight/_dev/`:走自带的 `LocalShell` + 顶级 `/_de
 
 UXAI 这套是**迁移副本**,按既定决策:
 
-- **不搬 `LocalShell` / topbar**——UXAI 用自己的壳(`app.tsx` 的 `RouterRoot` / `OctoSidebarLayout`)。
+- **不搬 `LocalShell` / topbar** —— UXAI 用自己的壳。
 - 路由收敛到 `/insight/__dev/*` 命名空间(而非顶级 `/_dev`)。
 - `file-fallback-preview` 原本 `import multi-agent.md?raw` 做「另存为」内容,UXAI 无此文件 → 改为内联示例文本。
 
 ## 6. checklist:在 UXAI 改前端前
 
-- [ ] 改路由 / Provider / 壳 → 认准 **`app.tsx`**(不是 `octo.tsx`)。
-- [ ] 「改了没效果」→ 先加顶层 `console.log` 判活,别急着 debug 逻辑。
-- [ ] dev-only 代码 → `import.meta.env.DEV` 守卫 + 独立模块,确保生产摇树。
-- [ ] insight 相关尽量自包含在 `pages/insight/`;只有路由注册这类必须落中心文件(`app.tsx`),与 octo-agent 在 `app.tsx` 注册 `devRoutes()` 的做法一致。
+- [ ] 改路由 / Provider / 壳 → **两个入口都要看**(`app.tsx` 浏览器 · `octo.tsx` Electron),别默认只改一份。
+- [ ] 判活结论只写"不在 X 入口的图里";要断言"死文件",先枚举全部入口 + 跨 package re-export 链。
+- [ ] Electron 端判活/调试要在 Electron DevTools 里抓,浏览器 console 看不到。
+- [ ] dev-only 代码 → 守卫写在 JSX 之外 + lazy 写在函数体内,**改完必须跑一次生产构建数 chunk**,别信"应该会摇掉"。
+- [ ] insight 相关尽量自包含在 `pages/insight/`;只有路由注册这类必须落中心文件。
