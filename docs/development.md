@@ -109,10 +109,13 @@ bun run dev:desktop          # = bun run --cwd packages/desktop dev = electron-v
 bun run dev:web              # = bun --cwd packages/app dev = vite，端口 3000
 ```
 
-浏览器开 `http://localhost:3000`,HMR 实时。web 入口是 `octoapp/entry.tsx → app.tsx`,**不连壳能力**(IPC、文件对话框、`window.api` 相关按钮在此不可用,只能 3.1 验证)。
+浏览器开 `http://localhost:3000`,HMR 实时。web 入口是 `octoapp/entry.tsx → @/octo`,**不连壳能力**(IPC、文件对话框、`window.api` 相关按钮在此不可用,只能 3.1 验证)。
 
-> 注:dev 预览沙箱页(`/insight/__dev/*`,见 §7)**两个入口都已挂载**,浏览器和 Electron 都能访问(2026-07-29 起)。
-> 但两个入口用的是**两份不同的 root 组件**,壳不完全一样 —— 见 §3.6,验 UI 前必读。
+> **web 端和 Electron 端跑的是同一个 root**(§3.6,2026-07-29 归一),所以:
+> **纯 UI / 样式 / 布局在这里验就够了,而且更快**;**碰到壳能力的功能仍然只能去 §3.1 Electron 验**。
+> 唯一的其他差异是 Router 模式(这里是 history,Electron 是 Hash),只影响 URL 形态、不影响渲染。
+>
+> dev 预览沙箱页(`/insight/__dev/*`,见 §7)两端都能访问。
 
 ### 3.3 `predev` 钩子
 
@@ -167,51 +170,49 @@ opencode 源没改时第一次跑过即可(后续 dev 仍重复)。
 2. **残留 sidecar 进程**:`utilityProcess.fork` 的子进程未必随窗口退出,旧进程还占着。彻底退出 Electron 后 `pkill -f sidecar`(或按服务名找)再重起 `dev:desktop`。
 3. 只想快速验证 **server 逻辑本身**(不重启整壳):照 [learning/hono-vs-effect-httpapi-routing.md](learning/hono-vs-effect-httpapi-routing.md) 直接源码跑 server + curl,绕开 dist 构建/fork 这一整条链。
 
-### 3.6 ⚠️ 两份 app root(`app.tsx` / `octo.tsx`)—— 已知技术债,暂不改
+### 3.6 app root 已归一到 `octo.tsx`(别再新增第二个)
 
-`packages/app/octoapp/` 下有**两个平行的 root 组件,都是活的**,分别服务两条入口链:
+**唯一 root 是 `packages/app/octoapp/octo.tsx`**,浏览器 / Playwright / Electron 三边共用:
 
-| root | 谁加载它 | Router | 状态 |
-|---|---|---|---|
-| `octo.tsx` | Electron 渲染进程<br>`desktop/src/renderer/index.tsx` → `@opencode-ai/app` → `packages/app/src/index.ts` → `octoapp/index.ts` → `./octo` | **HashRouter**(无地址栏) | **我们实际交付/日常用的就是这份**,维护最勤 |
-| `app.tsx` | 浏览器 / Playwright<br>`packages/app/index.html` → `octoapp/entry.tsx` → `@/app` | 默认 Router(history) | **掉队的分叉** |
+| 入口 | 链路 | Router |
+|---|---|---|
+| 浏览器 / Playwright | `packages/app/index.html` → `octoapp/entry.tsx` → `@/octo` | 默认 Router(history,有地址栏) |
+| Electron 渲染进程 | `desktop/src/renderer/index.tsx` → `@opencode-ai/app` → `packages/app/src/index.ts` → `octoapp/index.ts` → `./octo` | **HashRouter**(显式传 `router` prop,无地址栏) |
 
-两份同一天(2026-05-09,`0ed6a080e`)创建后走岔。`app.tsx`(437 行)相对 `octo.tsx`(667 行)**缺少**:
-`ForceLightScheme`、`OnboardingLayer`、`FocusModeResetHandler`、`PatternPage` 路由、
-`InsightSidebarLayout` / `SkillsSidebarLayout`、`ResponsiveSidebarLayout`、侧栏宽度持久化。
+平台差异全部走注入点,**不要为此再复制一个 root**:
 
-**实践影响(这是记这一节的原因)**:
+- **路由模式**:`AppInterface` 的 `router` prop(不传 = history)
+- **壳能力**(IPC / 文件对话框 / 存储 / 剪贴板):`PlatformProvider`
 
-1. **改路由 / Provider / 壳,通常要改两份**。只改一份 = 另一端行为不一致。
-2. **浏览器(§3.2)和 Electron(§3.1)看到的壳不完全相同** —— 主题、侧栏、onboarding 都可能有差。
-   `/insight/__dev/*` 那些预览页是自包含容器,受影响小;**验主应用 UI 请以 §3.1 Electron 为准**。
-3. **Playwright e2e 跑的是 `app.tsx`** —— `playwright.config.ts` 的 `webServer.command` 是 `bun run dev`(vite :3000)。
-   即 **e2e 测的是掉队的那份,不是交付的那份**,读 e2e 结论时要意识到这一点。
+> **上游那份不在 `octoapp/` 里。** 真正的上游 root 是 `packages/app/src/app.tsx`(330 行,原封未动),
+> 隔离上游靠的是 `src/` 与 `octoapp/` 的**目录分离**。所以改 `octoapp/` 下的东西碰不到上游 ——
+> 「为了不动上游所以要留两份 root」这个说法不成立。
 
-> **不要再把 `octo.tsx` 当"死副本"。** 曾有文档如此断言并据此做决策,是错的 ——
-> 它的引用发生在**跨 package 的 re-export 链**上,只在 `octoapp/` 里 grep `"./octo"` 搜不到。
-> 完整取证与误判复盘见 [learning/uxai-app-entry-routing.md](learning/uxai-app-entry-routing.md)。
+#### 历史:曾经有两份,漂移了两个多月
 
-**现状决定:先不合并**(2026-07-29)。理想形态是单一 app root、平台差异走已有注入点(`AppInterface` 的 `router` prop + `PlatformProvider`),
-这也是 Electron+Web 双端的业界标准做法;但合并涉及全局,需单独拍板。
+`octoapp/app.tsx`(浏览器)与 `octo.tsx`(Electron)同日创建(2026-05-09,`0ed6a080e`)后走岔,
+到归一前 `app.tsx` 已落后 230 行,缺 `ForceLightScheme`、`OnboardingLayer`、`FocusModeResetHandler`、
+`PatternPage` 路由、`InsightSidebarLayout` / `ResponsiveSidebarLayout`、侧栏宽度持久化,
+insight 页还多套一层 `OctoSidebarLayout`。后果是**在浏览器里验 UI 看到的不是交付形态**,e2e 同理。
 
-#### 临时缓解:让浏览器 / e2e 也跑交付的那份 root
+2026-07-29 归一(UXAI PR #474):`entry.tsx` 改指 `@/octo`,删除 `octoapp/app.tsx`。
 
-不合并的前提下,想在浏览器或 Playwright 里验**交付版**的 UI,把 web 入口临时指过去即可:
+留两条教训:
 
-```diff
-  // packages/app/octoapp/entry.tsx
-- import { AppBaseProviders, AppInterface } from "@/app"
-+ import { AppBaseProviders, AppInterface } from "@/octo"
-```
+1. **判活结论只写"它不在 X 入口的图里"**,别写"死文件"。曾有文档断言 `octo.tsx` 是死副本并据此做决策,
+   是错的 —— 它的引用发生在**跨 package 的 re-export 链**上,只在 `octoapp/` 里 grep `"./octo"` 搜不到。
+   完整取证见 [learning/uxai-app-entry-routing.md](learning/uxai-app-entry-routing.md)。
+2. **平台差异优先找现成注入点**,复制 root 是最贵的解法。
 
-**已实测可行**(2026-07-29):`octo.tsx` 在浏览器里能正常跑 —— `entry.tsx` 不传 `router` prop,
-所以它用默认的 history Router(不是 Electron 那套 HashRouter),地址栏直接输路径就能命中,
-`/insight/__dev/*` 也正常。唯一报错是连不上 opencode server(没起后端时的预期现象)。
+#### 归一带来的行为变更(仅 opencode CLI 内嵌 web UI)
 
-用法:跑 e2e 前改这一行,跑完还原。**别提交这行改动** —— 它会把浏览器 dev(§3.2)一起切走。
+Electron 端无变化(本就是 `octo.tsx`)。变的是 `packages/opencode/script/build.ts` 嵌进 CLI 二进制的那个 web UI:
 
-> 长期解法还是合并成单一 root;这里只是在不动全局代码的前提下,让 e2e 能验到真实交付形态。
+- `/` 由 `HomeRoute` 改为重定向到 `/make`
+- 新增 onboarding 弹窗、`ForceLightScheme` 强制浅色、`/pattern` 路由
+
+即那个内嵌 UI 从旧版**跟上了**交付版。归一时完整跑过 `script/build.ts --single`(CI publish 用的同一条链)
+并用 Playwright 打真实二进制的 web UI 验过三条路由,无 pageerror。
 
 ---
 
@@ -268,7 +269,7 @@ insight 的卡片(任务卡 / 文件结果卡等)依赖 MCP 工具调用才有�
 
 ### 7.1 现有 dev 预览页
 
-路由集中在 `packages/app/octoapp/pages/insight/__dev/routes.tsx` 的 `PAGES` 数组,由 `octo.tsx`(Electron)和 `app.tsx`(浏览器)**各自挂载一次**(§3.6 说明为什么有两份),生产构建摇树掉:
+路由集中在 `packages/app/octoapp/pages/insight/__dev/routes.tsx` 的 `PAGES` 数组,在**唯一 root `octo.tsx` 里挂载一次**(§3.6),浏览器与 Electron 两端都生效;生产构建摇树掉:
 
 | 路由 | 内容 |
 |---|---|
@@ -323,7 +324,7 @@ bun run dev:desktop          # 根目录;electron-vite 起 vite + Electron
 | 层 | 机制 | 效果 |
 |---|---|---|
 | **构建隔离** | 调用点是模块级常量 `insightDevRoutesOrNone`,**且** `lazy()` 写在函数体内 | 生产构建折叠成 `() => null`,Rollup 摇掉整棵 `__dev/` 子树 |
-| **壳复用** | 两端都让 dev 页裸渲染(`octo.tsx` 本就不给 insight 页套侧栏;`app.tsx` 用 `isInsightDevPath` 跳过 `OctoSidebarLayout`) | 两端同壳;dev 页 size-full 自包含 |
+| **壳复用** | `/insight/__dev` 命中 `octo.tsx` 的 `isInsightPage()`,裸渲染(insight 页本就不套侧栏) | dev 页 size-full 自包含;归一后两端天然同壳 |
 | **路径隔离** | 显式静态段 `/insight/__dev` 优先于通配 `/insight/:id?` | 不会被当 session id 落进 InsightPage |
 
 > **⚠️ 构建隔离这一层比看起来难,别照直觉写。**
@@ -453,8 +454,10 @@ cd packages/app && bunx playwright screenshot \
 ### 8.4 现状与限制(动手前先读)
 
 - **`e2e/` 目前只有 `todo.spec.ts` 占位**(`test.fixme()`,跑起来是 skipped)。insight 还没有自己的用例,要写是从零起。
-- **dev 预览页(§7)Playwright 已经能访问**(2026-07-29 起,web 入口 `app.tsx` 补挂了 `insightDevRoutes()`,且 `/insight/__dev*` 跳过 `OctoSidebarLayout`,与桌面端同壳)。直接 `page.goto("/insight/__dev/question-dock")` 即可。
-- **但 Playwright 默认跑的是 `app.tsx`,不是交付的 `octo.tsx`**(见 §3.6)。`__dev/` 预览页自包含、两端一致,这点影响小;**验主应用 UI 时,跑 e2e 前先按 §3.6「临时缓解」把 `entry.tsx` 指向 `@/octo`**(已实测可行),跑完还原、别提交。
+- **dev 预览页(§7)Playwright 能直接访问**:`page.goto("/insight/__dev/question-dock")`。
+- **Playwright 跑的就是交付的那个 root**(`octo.tsx`,见 §3.6 归一)。差异只剩 Router 模式(history vs Hash)和壳能力(`window.api` 在浏览器里没有),
+  所以**纯 UI 断言可信**;涉及 IPC / 文件对话框 / 存储的功能仍然只能在 Electron 手验。
+- `waitUntil: "networkidle"` 会超时 —— 应用常驻 SSE 事件流,网络永远不空闲。用 `domcontentloaded` + 显式等待。
 - **e2e 会被 CI 跑**。`.github/workflows/test.yml` 的 `e2e` job 在 Linux / Windows 上跑 `packages/app/e2e` 全量,新增用例请确认不依赖本机环境(内网 / MCP / 特定 provider),否则会把 CI 跑红。
 
 ---

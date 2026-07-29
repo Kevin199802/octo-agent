@@ -99,7 +99,7 @@ export function insightDevRoutes(): JSX.Element {
 ## 6. 最终形态
 
 ```tsx
-// 调用点(app.tsx / octo.tsx):守卫写在 JSX 之外
+// 调用点(octo.tsx,唯一 root):守卫写在 JSX 之外
 const insightDevRoutesOrNone = import.meta.env.DEV ? insightDevRoutes : () => null
 // ...
 {insightDevRoutesOrNone()}
@@ -131,4 +131,4 @@ grep -oh "/insight/__dev" dist/assets/*.js | wc -l   # → 0
 
 ## 8. 关联
 
-- [uxai-app-entry-routing.md](uxai-app-entry-routing.md) — 两个入口都要挂 dev 路由;那篇还更正了「`octo.tsx` 是死文件」的错误结论
+- [uxai-app-entry-routing.md](uxai-app-entry-routing.md) — 两条入口链共用唯一 root `octo.tsx`(dev 路由只挂一处);那篇还复盘了「`octo.tsx` 是死文件」的误判与随之而来的两份 root 漂移
