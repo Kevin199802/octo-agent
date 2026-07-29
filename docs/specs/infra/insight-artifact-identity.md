@@ -218,3 +218,64 @@ V1–V3 跑 `cd packages/desktop && bun test src/main/landing-name.test.ts`；V4
 | V11 | 任意本地会话：`write` 一个名字带空格括号的 md，对话卡与文件管理对照 | 两处显示**同一个名字**，且与 Finder 里看到的一致 |
 | V12 | 同一文件先从文件管理打开、再点对话卡（及反序） | 只有一个 tab，两次顺序表现一致 |
 | V13 | 在磁盘上改这份文件，关掉 tab 重开 | 内容为改后的；文件尾部空行不被吃掉 |
+
+### 11.3 按 PR 分组的验收清单
+
+实现拆成 4 个 PR，**串行叠加，合入顺序必须是 1 → 2 → 3 → 4**（后一个的分支基于前一个）。
+
+自动化每个 PR 都要跑：
+
+```bash
+cd packages/desktop && bun test src/main/landing-name.test.ts   # PR 1 起
+cd packages/app/octoapp/pages/insight && bun test               # 全部
+bun run typecheck                                               # 仓库根，全量
+```
+
+> insight 目录有 **36 个既有失败**（`debug-observer` / `error-beacon`，缺 happydom preload，报 `window is not defined`），与本改造无关。判据是**失败数不增加、且没有 `error:` 开头的模块加载失败**。
+
+#### PR 1 —— 命名只做必要清洗（§4.1）
+
+| # | 步骤 | 期望 |
+|---|---|---|
+| P1-1 | `write` 一个名为 `我的 报告(2).md` 的产物，对照 Finder | 磁盘名逐字一致，不再是 `我的_报告_2_.md` |
+| P1-2 | 上传一个名字带空格括号的附件，看 `.octo/tmps/` | 磁盘名逐字保留（上传方向同废旧规则） |
+| P1-3 | 产出一个主名超长（>255 字节）的文件 | 能落盘、扩展名保住、不报 `ENAMETOOLONG` |
+| P1-4 | 构造一个 `name` 含 `/` 的 resource_link（需 mock） | toast「产物无法保存到本地」；卡片仍可打开、可下载原件；`main.log` 有 `[octo:worktree] materialize-rejected` |
+| P1-5 | 回归：任意产物的「下载 / 另存为」 | 保存对话框默认名正常，不含路径分隔符 |
+
+自动化：V1–V3（`landing-name.test.ts`，21 例）。
+
+#### PR 2 —— 类型判定收敛 + mindmap 退役（§4.2 §8）
+
+| # | 步骤 | 期望 |
+|---|---|---|
+| P2-1 | 打开一个 `.csv` 产物 | 走 FileFallback（本地打开 / 文件夹 / 下载），**不再**进应用内表格渲染 |
+| P2-2 | 打开思维导图 json 产物 | 仍是 markmap 预览、仍有「预览/代码」切换、下载菜单仍有「Octo 白板格式」 |
+| P2-3 | 文件管理看 `.rtf` 与未知扩展名文件 | `.rtf` 归「Word 文档」；未知扩展名归「文本」（原「其他」） |
+| P2-4 | `/insight/__dev/insight-cards` | 卡片区有一张 `type: json（内容为导图 shape）`，显示思维导图图标 + 「思维导图」文案 |
+| P2-5 | 回归：xlsx / docx / pdf 产物卡 | 图标与打开行为不变 |
+
+自动化：V4、V5（`output-type.test.ts`）+ `insight-file-api.test.ts`（kind 必须由 `resolveOutputType` 派生）。
+
+#### PR 3 —— `table` 退役（§7）
+
+| # | 步骤 | 期望 |
+|---|---|---|
+| P3-1 | 任意产物 tab 的「下载」菜单 | 不再出现「Markdown / CSV / Excel」三选一；单格式类型只有「原始格式」 |
+| P3-2 | 任意产物 tab 的「复制」 | 复制整份内容（不再抽表格本体） |
+| P3-3 | 对话里 LLM 直出 markdown 表格 | 由上游 `<Markdown>` 原样渲染，不出卡（与改造前一致） |
+
+自动化：V8（`table-retired.test.ts`，扫全目录断言模块已删、活代码无 `"table"` 类型字面量、无退役函数引用）。
+
+#### PR 4 —— 身份与去重（§5 §6）
+
+| # | 步骤 | 期望 |
+|---|---|---|
+| P4-1 | = V12 | 只有一个 tab，两种顺序表现一致 |
+| P4-2 | = V13，**重点验尾部换行** | 在编辑器里给 md 末尾加两个空行 → 关 tab 重开 → 进编辑器再关闭（触发写盘）→ `tail -c 4 <file> \| xxd` 末尾字节仍在 |
+| P4-3 | 大文件（几十 MB）下载期间点开卡片，再从文件管理打开同一文件 | 期间会短暂双开；落盘完成后**自动合并为一个 tab**，激活态不丢（右栏不空白） |
+| P4-4 | markdown 卡编辑 → 保存 → 关闭编辑器 | 预览显示编辑后内容（重新读的磁盘，不是内存回写值） |
+| P4-5 | agent 用 `write` 覆盖一个已打开的产物 | 文件管理刷新后，该 tab 预览自动更新为新内容 |
+| P4-6 | = V9 / V10（入口卡三态回归，PR #467 已合入） | 三态与重试链路不受本次改造影响 |
+
+自动化：V6、V7（`tab-store.test.ts`，16 例，含顺序无关与三种合并情形）。
