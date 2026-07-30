@@ -10,6 +10,8 @@
 
 > ## 修订记录
 >
+> **2026-07-30：v8（去掉预览面板第四栏，回归 §10 原始决定「点击以 tab 打开」）**——本条**不是反转决定，而是清掉一次未登记的实现漂移**。§10（v2）原文就写着「只读列表 + **点击以 tab 打开**」且「**不做 `/content`**（复用现有 `source:"path"` tab 机制读文件）」；2026-07-18 `dc02357d8` 引入 `PreviewPane`（单击文件行 → 右侧第四栏，内容走 `/artifact/content` + base64 data URL 自渲染），该改动未登记进本 spec（§10.1 对照表与落地文件清单里都没有它），系统里因此并存了两套预览实现。症状：md 产物从文件管理打开白屏、office/PDF 在面板里全空白（详见新增 §10.2）。**决定：删 PreviewPane，单击文件行直接开 tab，打开后的分流交给 [SPEC-INS-026](insight-artifact-identity.md) §4.2 的唯一入口 `resolveOutputType`** —— 不是新增白名单，是删掉一套重复实现。音视频预览（用研素材大头）拆为独立第二步，且**明确不沿用 Design 的 base64 方案**，理由与正确做法见 §10.2。
+
 > **2026-07-29：v7.3（命名规则收窄为「只做必要清洗」，§3.1 旧规则废除）**——旧规则把服务端**上传**的 sanitize（空格/括号 → `_`、主名截 100）也用在了**下载落盘**上，导致同一份产物「卡片叫 `林(2).json`、磁盘叫 `林_2_.json`」，用户以为是两份文件（UXAI PR #445 的其中一条根因）。该规则的原始动因是「文件名随 basename 进 S3 URL、特殊字符致 MCP 下载失败」，而**文件名已退出 URL**（上传合同 v2 已落地），约束消失。新规则见 §3.1：只拒绝路径穿越（全平台）+ Windows 非法字符/保留名 + 超长截断，其余逐字保留。上传方向同步废除。本条属 [SPEC-INS-026 产物身份模型](insight-artifact-identity.md) 的一部分，命名规则真相源移至 026 §4.1。
 >
 > **2026-07-24：v7.2（搬迁判据健壮性 —— 布局知识收敛 + refresh 解耦，UXAI PR #424 的后续）**——本条不改布局本身,收敛「布局知识散落导致 v7 迁移漏改」这个类别的脆弱。背景:v7 把预会话落地区 `insight/uploads`→`.octo/tmps`,主进程落盘(ipc.ts)改了、**渲染端搬迁判据 `isPendingUploadPath` 漏改**(只改注释、函数体仍找 `insight`)→ 判据恒假 → 附件搬不进 `.octo/<sessionId>/uploads/`、文件管理面板为空(PR #424 止血)。两处根因收敛:① 判据从 2000+ 行页面组件抽到 [worktree-layout.ts](../../../packages/app/octoapp/pages/insight/utils/worktree-layout.ts)(渲染端布局唯一入口、可单测),布局字面量集中为常量;主进程 [ipc.ts](../../../packages/desktop/src/main/ipc.ts) 落点处加交叉引用注释——两处受进程边界隔离**无法共享常量**(desktop 主进程不 import 渲染端包),故跨进程真相源仍是本 spec §2,改布局须同步三处(见 [§2.1 实现映射](#21-实现映射改布局要同步哪几处))。② 文件管理刷新 `setFilesRefreshKey` 的 gate 从 `movedPaths.size > 0` 解耦为 `localFiles.length > 0`——刷新只依赖「本次有无本地附件」这个可靠事实,不再耦合到搬迁判据是否为真;否则判据一旦再脱节,附件进不去(已是 bug)会连带把可见性刷新也哑掉、放大故障。完整复盘见 learning [stale-path-predicate-after-layout-refactor.md](../../learning/stale-path-predicate-after-layout-refactor.md)。UXAI PR #424(判据止血)+ 后续 refactor PR(本条收敛)。
@@ -319,7 +321,9 @@ SPEC-INS-014（本 spec，地基）
 
 与 Make 的关键差异：Insight 的 worktree 是**扁平**的（无子文件夹），文件管理面板不需要 Make 那套文件夹导航（breadcrumb/navigateToFolder）。v2 直接是"已上传 / 已生成"两段平铺列表；**v3（§10.1）已升级为表格视图**（多选/表头排序/分组/类型筛选），两段作为可折叠顶层分区保留。
 
-**服务端接口（重要：不是普通 Hono 路由）**：`GET /insight/files?sessionId&category=uploads|outputs`，列 `.octo/<sessionId>/<category>/`；不做 `/content`（复用现有 `source:"path"` tab 机制读文件）、不做 kind/mime 分类（复用客户端已有的 `extToOutputType()`/`fileTypeIconUrl()`）。
+**服务端接口（重要：不是普通 Hono 路由）**：`GET /insight/files?sessionId&category=uploads|outputs`，列 `.octo/<sessionId>/<category>/`；不做 `/content`（复用现有 `source:"path"` tab 机制读文件）、不做 kind/mime 分类（复用客户端已有的 `resolveOutputType()`/`fileTypeIconUrl()`；v8 前此处写的是 `extToOutputType()`，该函数已随 SPEC-INS-026 §4.2 收敛进 `resolveOutputType`）。
+
+> **「不做 `/content`」这条 v2 决定在 v8 重新生效**：7-18 引入的预览面板曾用 `/artifact/content` 读内容，v8 删掉它之后，产物内容的读取重回单一路径 —— IPC `readFileBuffer` 读原字节（[SPEC-INS-026](insight-artifact-identity.md) §5）。这不只是洁癖：该端点底层是 `File.read`，会对文本 `.trim()`，实测原文 `内容A\n` 经它返回成 `内容A`，**文件尾部换行被静默吃掉**。
 
 > **实现踩坑记录**：本仓开发/预览渠道默认启用 `OPENCODE_EXPERIMENTAL_HTTPAPI`（`packages/opencode/src/core/flag/flag.ts`），启用后请求走的是**另一套基于 Effect 的类型化 HttpApi 系统**（`server/routes/instance/httpapi/groups/*.ts` 定义 endpoint schema + `handlers/*.ts` 实现），普通 Hono 路由文件（`server/routes/instance/*.ts`，如 `artifact.ts`）在这个后端模式下**完全不会被调用**——首版实现照抄 `artifact.ts` 的写法新写了一个 Hono 文件，排查了很久才发现整条代码路径是死的。正确做法：接口应加进已有的类型化 `insight` 分组（`httpapi/groups/insight.ts` 定义 `InsightFileListQuery`/`InsightFileListResult`/`listFiles` endpoint + `httpapi/handlers/insight.ts` 实现 `listFiles` handler，用 `InstanceState.context` 拿 `instance.directory`，不是普通 Hono 里的 `Instance.directory` 静态导入）。这个机制的详细说明见 learning 笔记 [hono-vs-effect-httpapi-routing.md](../../learning/hono-vs-effect-httpapi-routing.md)。
 
@@ -354,3 +358,81 @@ v2 本期范围：只读列表 + 点击以 tab 打开 + 本地打开/显示文�
 - `icons/index.tsx` — 加 `IconRefresh`
 
 **连带修的一个 §10 回归**（viewMode 引入后暴露）：点对话里的产物卡片会 `openTab` 但不切 viewMode，`viewMode` 停在 `"files"`（文件管理）时 tab 虽已加入却不显示（用户停在文件管理空态、看不到内容）。修法：index.tsx 抽 `focusResultTabs()`（= `setResultViewMode("tabs")` + 展开面板），凡"打开+激活 tab"的入口（`handleOpenResult` / `handleTaskOpenResult` / pendingOpen effect / auto-open effect / `openFileFromManager`）统一走它。见 §10 viewMode 机制补充。
+
+---
+
+### §10.2 去掉预览面板第四栏，回归「点击以 tab 打开」（v8，待实施）
+
+#### 起因：一次未登记的实现漂移
+
+§10（v2）的原始决定是「只读列表 + **点击以 tab 打开** + 本地打开/显示文件夹」，并明确「**不做 `/content`**」。2026-07-18 `dc02357d8`「文件管理预览面板 + image 类型渲染支持」引入 `components/file-manager/preview-pane.tsx`：单击文件行不再开 tab，而是打开右侧第四栏，面板内容自己走 `/artifact/content` + base64 data URL 渲染。这一改动**没进 §10.1 的对照表，也没进落地文件清单**，于是同一个「预览产物」的需求在系统里有了两套实现。
+
+产品侧已确认回归原始逻辑（2026-07-30）。
+
+#### 症状与根因（内网实测 + 本地取证）
+
+| 现象 | 根因 |
+|---|---|
+| md 产物从文件管理打开白屏，**再点一次才正常** | 单击 = 开预览面板（不是 tab）。面板 md 分支只把 markdown **源文本**塞进 `<div class="prose prose-sm max-w-none">`，而仓库**未装 `@tailwindcss/typography`**（`prose` 是空 class）、该 div 也**未设 `color`**（紧邻的 code 分支显式设了 `color: var(--octo-text-primary)`）。面板顶上还盖着一层 `absolute inset-0 z-10` 的透明蒙层（`cursor:pointer`，onClick = `onOpen`）——所谓「点击后就正常预览了」，是点中蒙层触发了 `openTab`，用户看到的是 **tab 的**渲染结果，面板始终是白的 |
+| pdf / docx / pptx / xlsx / csv / zip / psd 在面板里**全空白** | 面板的 `Switch` 只覆盖 image/video/audio/html/markdown/code，**没有 default 分支**。实测枚举各扩展名的落点，上述七类均「无 Match」→ 渲染空 |
+| 「聚焦项还在文件管理上、没聚焦到新 tab」 | 单击只开面板、`viewMode` 仍是 `files` —— **属既有设计，不是 bug** |
+| 下载文本文件后尾部换行丢失 | `handleDownload` 直接走 `/artifact/content`（没走 IPC），底层 `File.read` 会 `.trim()` |
+
+> 已排除的两个假设，避免下一个人重走：① **不是文件名的问题** —— 起源码 server curl 实测 `/artifact/content`，普通名与 `我的 报告(2).md`（v7.3 放开空格括号后的新形态）都返回 HTTP 200 + 完整内容；② **不是 SPEC-INS-026 那批改动引入的** —— `components/file-manager/` 在那四个 PR 里零改动，且 `fileKind("a.md")` 前后都是 `markdown`、稳定落 markdown 分支。
+
+#### 决定
+
+**删掉 `PreviewPane`（第四栏），单击文件行直接 `openTab` + `focusResultTabs()`。** 打开后的分流交给已有的唯一入口 `resolveOutputType`（[SPEC-INS-026](insight-artifact-identity.md) §4.2）：
+
+| `resolveOutputType` | 打开后 | 说明 |
+|---|---|---|
+| `markdown` / `html` / `json` / `code` | 应用内渲染 | 代码类与纯文本类，即产品所说的「支持本地预览」 |
+| `image` | 应用内 `ImageRenderer` | 已有能力，`local://` 协议读盘 |
+| `file` | **FileFallback 中间页** | office / PDF / 压缩包 / 设计源文件 / **音视频**：本地打开 · 文件夹打开 · 下载 |
+
+**这不是新增白名单，是删掉一套重复实现。** 收益是两个缺陷同时消失：md 从「白屏」变成与对话卡片同源的渲染；office/PDF 从「空白」变成「可用本地应用打开」——后者比改造前更好，不是妥协。
+
+配套动作：
+
+- 删 `components/file-manager/preview-pane.tsx`；删 `utils/insight-file-store.ts` 里的 `previewFile`/`setPreviewFile` 及其联动（删文件时清预览目标）。
+- 行尾 `…` 菜单的「在标签页中打开」**保留**（产品确认）：单击已是该行为，菜单项冗余但不冲突，熟悉旧交互的用户仍能从菜单走。
+- `handleDownload` 改为 **IPC `readFileBuffer` 优先、`/artifact/content` 兜底**，与旁边归档那处已有的写法对齐 —— 顺带修掉上表最后一行的 trim。
+- `fetchInsightContent` 保留（归档与下载的非桌面端兜底仍要用），但产物**内容读取**不再经它。
+
+#### 音视频预览：第二步，且不沿用 base64
+
+用研素材里音视频占比很高，要做。但**不复用 Design 那套 base64 data URL**：内容要先过 `/artifact/content`（会 `.trim()`、二进制走 base64）再在渲染端拼成 data URL，体积膨胀 33%、整份进内存，一段几百 MB 的访谈录像直接不可行。
+
+正确做法是走 `local://` 协议（`ImageRenderer` / `HtmlRenderer` 已在用），但**当前实现还不够**，第二步要先补：
+
+1. **`local://` 支持 Range 请求**。现状 [windows.ts](../../../packages/desktop/src/main/windows.ts) 的 handler 是 `await readFile(absolutePath)` —— 一次性读全文件、返回完整 Response，不解析 `Range`、不回 `Accept-Ranges`/206。后果是大文件全量进内存，且拖进度条体验差。改法：解析 `Range` 头，用 `createReadStream(path, { start, end })` 返回 206 + `Content-Range`（`protocol.handle` 支持返回 `ReadableStream`）。
+2. **补 mime 表**。现状只有 `mp4/webm/mp3/wav`，**`.mov` 不在其中**（iPhone/相机录像最常见），会落到 `application/octet-stream`、`<video>` 直接播不了。至少补 `mov/m4v/mkv/m4a/aac/flac/ogg`。
+3. **类型集扩展**。SPEC-INS-026 §4.2 刚把 `OutputCardType` 收敛为 6 个并写明「收敛后不再增减」，加音视频需要在 026 里显式修订那句话并给出理由，不能默默加第 7 个。倾向新增单一 `media` 类型（渲染层按 mime 决定 `<video>` 还是 `<audio>`），而不是 `video` + `audio` 两个。
+4. **验证面**：几百 MB 大文件的内存占用、seek 是否可用、`.mov`/`.m4a` 能否解码（Electron 的 Chromium 不含全部专利编解码器，**H.265/HEVC 很可能播不了** —— 这条要先验，若不支持则该格式仍回落中间页）。
+
+在第二步落地之前，音视频走中间页用系统播放器打开 —— 这也不算纯粹的降级：研究员看录像本来就要拖进度条、变速、看波形，系统播放器在这些事上比应用内 `<video>` 强。
+
+> **Design 侧同款问题**（`pages/make/components/design-files/preview-pane.tsx` 有一模一样的 `prose` + base64 写法）**不在本 spec 范围**，此处仅作事实记录，不代表 insight 侧要去改 make。
+
+#### 验证（全部可在外网本地复现，无需内网数据）
+
+自动化：
+
+| # | 断言 |
+|---|---|
+| W1 | 全仓 `grep -rn "PreviewPane\|previewFile" pages/insight` 无残留（`preview-pane.tsx` 已删、store 字段已清） |
+| W2 | 表驱动断言「文件管理单击 → 打开后走哪条渲染」：`.md/.html/.json/.txt/.py` → 应用内渲染；`.png/.svg` → `image`；`.pdf/.docx/.pptx/.xlsx/.csv/.zip/.mp4/.mp3/.mov` → `file`（中间页）。**没有任何扩展名落到「无分支」** —— 这条正是原面板 Switch 缺 default 的回归防线 |
+| W3 | `resolveOutputType` 是唯一分类依据：文件管理入口与对话卡片入口对同一文件名得出相同结论 |
+
+手工（`bun run dev:desktop`，打开步骤见 [development.md](../../development.md) §7.1）：
+
+| # | 步骤 | 期望 |
+|---|---|---|
+| W4 | 上传一个 md，在文件管理**单击文件行** | **一次点击**直接开 tab 并聚焦（不再是「白屏 + 再点一次」）；内容与从对话卡片打开时**完全一致**（同一个渲染器） |
+| W5 | 单击一个 docx / pdf / xlsx | 开 tab 进中间页，「本地打开 / 文件夹打开 / 下载」三按钮可用（改造前这里是空白面板） |
+| W6 | 单击一个 mp4 / mp3 | 开 tab 进中间页，「本地打开」能唤起系统播放器 |
+| W7 | 单击一个 png | 应用内直接显示图片 |
+| W8 | 单击文件夹 | 仍是进入下一层（不受本次影响） |
+| W9 | 行尾 `…` → 「在标签页中打开」 | 与单击同效，且不会开出第二个 tab（走 SPEC-INS-026 §6.1 的路径去重） |
+| W10 | 一个末尾带空行的 md，用行尾 `…` → 「下载」，`tail -c 4 <file> \| xxd` | **尾部换行仍在**（下载改走 IPC 后不再被 `File.read` 的 `.trim()` 吃掉） |
+| W11 | 同一个文件先单击打开、关掉 tab、再单击打开 | 每次都正常显示内容，不出现白屏 |
