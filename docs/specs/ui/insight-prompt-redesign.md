@@ -296,6 +296,8 @@ textarea 的视觉 disabled 样式(灰色文字)也一并去掉。
 
 #### 3.3.3 FIFO 多容量 queue(内存、无 dock、无持久化)
 
+> ⚠️ **修订(2026-07-30)——drain 触发器架构已迁出页面,见 [SPEC-INS-027 会话排队 drain 运行器](session-queue-runner.md)**：本节下面的 `createEffect(on(isBusy, …, {defer}))` in-page flush 触发器是**已知缺陷来源**——切到 `/skills` 路由页或相邻 agent tab 时 insight 页面卸载,该 effect 被 dispose,会话后台跑完的 busy→idle 边沿没人听 → 排队死等。**队列语义(FIFO、入队追加、逐条 flush、一条一回合)仍以本节为事实层**;drain 触发器改为「应用根常驻、UI 无关、level-triggered + in-flight 守卫」的全局 runner,详见 027。下方代码保留作历史设计记录。
+
 > **修订(2026-06-09)**:原方案为「单容量、第二次 submit 覆盖上一次」。上线后用户反馈「busy 时连发 3 条,只有最后一条生效」——正是 §6 风险表与 §9 后续预留的升级触发条件(「被反馈丢消息」/「经常排 3+ 条」)。本节据此升级为 **FIFO 多容量队列**。仍**不做** dock / 持久化(reload 丢失),那两项触发条件未到。
 
 `queuedText: string | null` 升级为 `queue: string[]`。入队 **push 追加**;busy→idle 时**逐条 flush**(每次只发队首一条,该条发出后 session 重新进入 busy,下次 idle 再 flush 下一条)——这样既保持发送顺序,又让每条各占一个独立 turn(对齐 chat「一条一回合」体感)。
