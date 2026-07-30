@@ -361,7 +361,7 @@ v2 本期范围：只读列表 + 点击以 tab 打开 + 本地打开/显示文�
 
 ---
 
-### §10.2 去掉预览面板第四栏，回归「点击以 tab 打开」（v8，待实施）
+### §10.2 去掉预览面板第四栏，回归「点击以 tab 打开」（v8，已实施）
 
 #### 起因：一次未登记的实现漂移
 
@@ -399,6 +399,18 @@ v2 本期范围：只读列表 + 点击以 tab 打开 + 本地打开/显示文�
 - `handleDownload` 改为 **IPC `readFileBuffer` 优先、`/artifact/content` 兜底**，与旁边归档那处已有的写法对齐 —— 顺带修掉上表最后一行的 trim。
 - `fetchInsightContent` 保留（归档与下载的非桌面端兜底仍要用），但产物**内容读取**不再经它。
 
+**落地文件清单**（2026-07-30 实施，UXAI 分支 `refactor/insight-drop-preview-pane`）：
+
+- 删 `components/file-manager/preview-pane.tsx`（204 行，含它自带的那套无 default 的 `Switch`）
+- `components/file-manager/index.tsx` — 删 `PreviewPane` import 与第四栏渲染块；删 `handlePreview` 及埋点 `files-preview-file`；`onPreview` prop 从 `FileTable`/`GroupedRows`/`FileRow` 三处签名与 5 处透传清掉；`FileRow.handleClick` 的文件分支改走 `onOpen`（文件夹分支不变）；抽 `readFileBlob()`（IPC `readFileBuffer` 优先、`fetchInsightContent` 兜底）供 `handleDownload` 用；连带合并只为容纳第四栏而存在的横向 flex 外层容器
+- `utils/insight-file-store.ts` — 删 `previewFile`/`setPreviewFile` 信号、返回对象里的两处导出、`deleteFile()` 与切路径 effect 里的「清预览目标」联动
+- `components/file-manager/open-in-tab.test.ts` — 新增，W1–W3 共 27 个用例
+- `pages/insight/docs/tracking.md` · `tracking-plan.md` — 删 `files-preview-file` 条目；`files-open-in-tab` 的触发时机补注「单击文件行 / 行尾菜单」
+
+> **实施时与本节字面的一处出入**：本次基于 `dev` 落地，而 `dev` 上的分类入口当时仍叫 `extToOutputType()`（在 `utils/write-output.ts`）—— 它就是 [SPEC-INS-026](insight-artifact-identity.md) §4.2 收敛后 `resolveOutputType()`（`utils/output-type.ts`）的前身，同一个函数体、同一份扩展名白名单。页面级 `openFileFromManager` 本来就在调它，**本次未改分类逻辑一行**，只是把单击事件接到了这条既有链路上；026 那条链进 dev 后该调用点随改名一起变。W1–W3 用例起初断言 `extToOutputType`，随改名迁移。
+>
+> **为什么 026 当时不在 dev 上**（值得记一笔，属实施期发现的仓库状态问题）：026 的四个 PR 串行叠加在底座分支 `fix/insight-landing-name` 上，合并时顺序反了 —— 底座 #482 于 12:37:49 先合进 `dev`，#483/#484/#485 在 12:38–12:39 才合进那个底座分支。四个 PR 在 GitHub 上都显示 MERGED、界面全绿，**但后三个（`resolveOutputType` 单一入口收敛、table 退役、产物身份改磁盘路径）的内容从未进入主干**。核对方式：`git grep -l resolveOutputType origin/dev -- packages/app` 零命中、`git rev-list --left-right --count origin/dev...origin/fix/insight-landing-name` = `103 6`。补救见 UXAI PR #505（把那 6 个 commit 带进 dev；文本零冲突，仅一处语义冲突——dev 侧新增的归档链路 `action-bar.tsx` 还留着已退役的 `case "mindmap"`/`case "table"`）。**教训**：串行叠加的 PR 链，底座合进主干那一刻上层若还没落到底座上，上层就会静默留在原地，而 PR 状态不会提示这一点。
+
 #### 音视频预览：第二步，且不沿用 base64
 
 用研素材里音视频占比很高，要做。但**不复用 Design 那套 base64 data URL**：内容要先过 `/artifact/content`（会 `.trim()`、二进制走 base64）再在渲染端拼成 data URL，体积膨胀 33%、整份进内存，一段几百 MB 的访谈录像直接不可行。
@@ -423,6 +435,8 @@ v2 本期范围：只读列表 + 点击以 tab 打开 + 本地打开/显示文�
 | W1 | 全仓 `grep -rn "PreviewPane\|previewFile" pages/insight` 无残留（`preview-pane.tsx` 已删、store 字段已清） |
 | W2 | 表驱动断言「文件管理单击 → 打开后走哪条渲染」：`.md/.html/.json/.txt/.py` → 应用内渲染；`.png/.svg` → `image`；`.pdf/.docx/.pptx/.xlsx/.csv/.zip/.mp4/.mp3/.mov` → `file`（中间页）。**没有任何扩展名落到「无分支」** —— 这条正是原面板 Switch 缺 default 的回归防线 |
 | W3 | `resolveOutputType` 是唯一分类依据：文件管理入口与对话卡片入口对同一文件名得出相同结论 |
+
+W1–W3 已实现于 `components/file-manager/open-in-tab.test.ts`（27 用例全过）。实测基线：`cd packages/app/octoapp/pages/insight && bun test` → 149 pass / 36 fail，失败数与改动前持平（36 个既有失败是 `debug-observer`/`error-beacon` 缺 happydom preload 报 `window is not defined`，与本次无关），无 `error:` 开头的模块加载失败。另：仓库根 `bun run typecheck` 12/12 过、`packages/app` 的 `vite build` 过。W4–W11 需在真实会话的文件管理面板里点击，**尚未跑**。
 
 手工（`bun run dev:desktop`，打开步骤见 [development.md](../../development.md) §7.1）：
 
