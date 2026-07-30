@@ -235,14 +235,21 @@ grep -E "\[octo:(mcp|kb|inject|extract)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 
 ### 1.4 `[octo:queue]` — busy 期间排队
 
+> **SPEC-INS-027(2026-07-30)**:drain(flush)触发器已从 insight 页面组件迁到应用根常驻的全局 runner（`octoapp/utils/session-queue-runner.ts` + `pages/insight/queue-runner.tsx`）。**入队仍在页面**（`index.tsx` handleSubmit），**发送改由 runner 发起**。原 `[octo:queue] flushing`(页面内)已被 runner 的 `drain-send` 取代。
+
 #### `[octo:queue] enqueued`
-- **时机**:busy 时用户再次发送,文本入队(单容量,第二次覆盖)。([index.tsx:634](../packages/app/octoapp/pages/insight/index.tsx#L634))
-- **字段**:`sessionID`、`len`。
-#### `[octo:queue] flushing`
-- **时机**:busy→idle 时自动把队列里的文本发出。([index.tsx:656](../packages/app/octoapp/pages/insight/index.tsx#L656))
-- **字段**:`sessionID`、`len`。正常后面紧跟一组 `[octo:prompt] send`。
-#### `[octo:queue] canceled, restored to input`
-- **时机**:用户取消排队 / abort 前清队,文本回填输入框。([index.tsx:665](../packages/app/octoapp/pages/insight/index.tsx#L665))
+- **时机**:busy/retry 时用户再次发送,文本入队(FIFO 多容量,push 追加;SPEC-INS-027 起入队即固化 directory/model/chip)。页面 `handleSubmit`。
+- **字段**:`sessionID`、`len`、`depth`、`hasChip`。
+#### `[octo:queue] drain-send`
+- **时机**:全局 runner 观测到某会话 idle 且队列非空,发出队首一条(页面无关发送 `sendQueuedItem`)。取代旧的页面内 `flushing`。
+- **字段**:`sessionID`、`directory`、`messageID`、`model`、`skills`、`files`、`chip`。正常后面紧跟一组 `[octo:prompt]`/服务端回传(注意:后台 drain 不写 insight optimistic,气泡经 SSE 落库后显示)。
+#### `[octo:queue] drain send failed`
+- **时机**:runner 发送 reject(网络/服务端异常)。释放 per-session in-flight 守卫,失败项已消费不自动重试。
+- **字段**:`sid`、`err`。
+#### `[octo:queue] removed`
+- **时机**:用户从队列条单条移除;输入框为空时回填便于编辑。页面 `removeQueued`。
+- **字段**:`index`、`remaining`。
+- **相关**:abort 时 `handleAbort` 先 `clearSessionQueue` 清整桶(避免 idle 后 runner 续发),不单独打日志。
 
 ### 1.5 `[octo:task]` — 长任务卡片
 
