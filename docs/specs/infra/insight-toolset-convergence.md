@@ -36,19 +36,20 @@ extract_document 代码上**从不限制路径**(只做 access 存在性检查),
 
 ## 1. 工具白名单(实现位:agent.ts 权限层)
 
-octo_insight 常驻可见集收敛为(2026-07-11 修订:webfetch/websearch 自 deny 撤回):
+octo_insight 常驻可见集收敛为(2026-07-11 修订:webfetch/websearch 自 deny 撤回;2026-07-30 修订:bash/edit/todowrite 自 deny 撤回——供 interview-analysis skill 对接与编辑 md 交付物,见下):
 
-- **保留**:`extract_document` / `read` / `grep` / `glob` / `write` / `task` / `skill` / `webfetch` / `websearch`(+ MCP `get_task_result` / `stop_task`,+ `invalid` 基础设施)
-- **deny**:`bash`(shell)/ `edit` / `apply_patch` / `todowrite` / `jimeng_image_generate` / `internel_image_generate`
+- **保留**:`extract_document` / `read` / `grep` / `glob` / `write` / `edit` / `task` / `skill` / `webfetch` / `websearch` / `bash`(shell)/ `todowrite`(+ MCP `get_task_result` / `stop_task`,+ `invalid` 基础设施)
+- **deny**:`apply_patch` / `jimeng_image_generate` / `internel_image_generate`
 - 已被 defaults deny 的不动:question / plan_enter / plan_exit / load_components_docs
 
 理由对照:
-- `write` 保留给 018 产物落盘;`edit` 归 ROADMAP D(二次生成),v1 不放。
+- `write` 保留给 018 产物落盘;`edit` **2026-07-30 放开**(原归 ROADMAP D 二次生成、v1 不放):用户要编辑已生成的 md 交付物。edit 与 write 同用 `filePath`,outputs 重定向插件(`agent/octo-outputs-redirect.ts`)已同步把 edit 的相对文件名解析进会话 outputs——判据是「以 filePath 落盘产物」,write/edit 归同一集合。
 - `task` 权限层保留 allow(018 多文档分治的编排原语),但 **turn 级默认关**(2026-07-13 追加,与用户对齐):task 是内部编排原语、不是用户能力入口——用户 turn 里模型自发起子代理对用研场景零收益(token/时延/弱模型跑偏),子会话还会被点成「侧栏没有记录的对话」的观感 bug。buildToolGate 对**所有**用户 turn 下发 `task=false`;018 那类**我们编排的 turn** 由构造方显式放行。配套 UI 面:insight 内**子会话导航全拦截**(task 卡片点击 / href / 刷新保路由恢复,均校验 parentID),过程仍由 turn 内联 task 卡片透明展示(§4),不 fork 第二个对话入口——业界同类(Claude Code subagent / Manus 执行流)子任务均为内联过程块,不开独立对话;上游"点进子会话"是开发者调试入口,不该漏给研究员。
-- chip turn 的 gate 另**在关 bash 基础上增关 webfetch**(与 shell 同属 chip 轮模拟 MCP 调用的通道;webfetch 非 chip turn 不受影响)。gate 与本白名单双保险、互不替代(gate 管 turn 级动态,白名单管常驻底线)。
+- `bash`(shell)**2026-07-30 放开**:interview-analysis skill 的执行步骤需要 shell。原为 2026-07-07 事故(弱模型 MCP 断连时用 shell 裸调 MCP HTTP、编造 task_id,见 §0.1)后常驻 deny;权衡后为 skill 放开**普通轮次**的 bash,接受「非 chip 轮次那条逃生口在弱模型上重新暴露」的代价(不收窄到「仅 skill 轮次」)。产物落盘错位单独靠提示词「只给文件名」硬规则收敛,不靠关 bash。
+- chip turn 的 gate 另**在关 bash 基础上增关 webfetch**(与 shell 同属 chip 轮模拟 MCP 调用的通道;webfetch 非 chip turn 不受影响)。gate 与本白名单双保险、互不替代(gate 管 turn 级动态,白名单管常驻底线)。**注**:bash 2026-07-30 放开后,chip turn 关 bash 已从「权限层已 deny 之上的冗余」升为**唯一守卫**——删 buildToolGate 那行会让研究工具轮次重新暴露 shell(mcp-trigger.ts 注释已同步)。
 - `webfetch` / `websearch` 保留(2026-07-11 与用户对齐):竞品分析是能力线既定方向,工具面按能力本体划、不按 v1 单一场景裁。可用性实测(2026-07-11 用户验证):webfetch 内网代理配置后已验证可通(setGlobalProxyFromEnv 链路);websearch 亦实测可用(注册表 gate——registry.ts ~L310 仅 opencode provider 或 `OPENCODE_ENABLE_EXA` flag——在其环境已满足)。遗留约束:内网网关对部分域名 TLS 层掐断,覆盖面问题在竞品检索正式立项时再评估数据源。
 - `skill` 保留:octo_insight 绑定 interview-analysis skill,且 ROADMAP E 体裁 skill 依赖它。
-- `todowrite` deny:v1 编排走提示词模板,弱模型场景 todo 是噪音;后续多文档编排若需要再放。
+- `todowrite` **2026-07-30 放开**(原 deny 理由:v1 编排走提示词模板,弱模型场景 todo 是噪音):作 interview-analysis skill 多步执行的进度载体;权限层无耦合。若实测弱模型 todo 噪音明显,一行可撤回。
 - 生图两件(`jimeng_image_generate`=即梦 / `internel_image_generate`=内网生图)deny:octo_studio 的创作类工具,用研场景无用途;思维导图类可视化产物走文本渲染,不是文生图。
 - ⚠️ 已知取舍:registry 对 gpt 系模型用 apply_patch 替代 edit/write(registry.ts ~L324)。deny apply_patch 后 gpt 系模型在 insight 无落盘通道——当前内网 GLM / 外网 Claude 均不受影响,若将来接 gpt 系再单独处理。
 
@@ -56,9 +57,9 @@ octo_insight 常驻可见集收敛为(2026-07-11 修订:webfetch/websearch 自 d
 
 Permission deny 的语义(llm.ts resolveTools + Permission.disabled):**既从模型工具列表隐藏,也阻断执行**,一处配置两层效果。
 
-**落地记录(2026-07-11,实施中发现的上游耦合)**:`edit` / `apply_patch` 的摘除**不能**走权限层——上游 `Permission.disabled` 把 edit/write/apply_patch 三个工具都映射到同一个 `edit` 权限键(permission/index.ts `EDIT_TOOLS`),且三者执行时也都以 `edit` 键问权限;在权限层 deny edit 会**连带隐藏并阻断要保留的 write**。故实际落地为两层分工:
-- 权限层(agent.ts)deny:`bash` / `todowrite` / `jimeng_image_generate` / `internel_image_generate`(权限键与工具 id 一一对应的部分);
-- registry 层(registry.ts tools())按 agent 裁剪:octo_insight 不给 `edit` / `apply_patch`(与「extract_document 只给 insight」同款既有模式;不在模型工具列表即无从调用,无需再阻断)。
+**落地记录(2026-07-11,实施中发现的上游耦合;2026-07-30 随 bash/edit/todowrite 放开更新)**:编辑类工具的裁剪**不能**走权限层——上游 `Permission.disabled` 把 edit/write/apply_patch 三个工具都映射到同一个 `edit` 权限键(permission/index.ts `EDIT_TOOLS`),且三者执行时也都以 `edit` 键问权限;在权限层动 edit 会**连带隐藏并阻断要保留的 write**。故实际落地为两层分工:
+- 权限层(agent.ts)deny:`jimeng_image_generate` / `internel_image_generate`(权限键与工具 id 一一对应的部分;`bash` / `todowrite` 2026-07-30 已从此处撤回 deny,改为 allow);
+- registry 层(registry.ts tools())按 agent 裁剪:octo_insight 不给 `apply_patch`(`edit` 2026-07-30 放开;与「extract_document 只给 insight」同款既有模式;不在模型工具列表即无从调用,无需再阻断)。
 
 回归锁定:`test/agent/agent.test.ts`(deny/保留集 + external_directory=ask)+ `test/tool/registry.test.ts`(edit/apply_patch 摘除、write/extract 保留)。
 
@@ -132,8 +133,9 @@ Permission deny 的语义(llm.ts resolveTools + Permission.disabled):**既从模
 
 **B. 工具面收敛**
 
-1. 问模型「列出你当前可用的工具」→ 期望只有:extract_document / read / grep / glob / write / skill / webfetch / websearch(+ get_task_result / stop_task);**没有** shell/bash、edit、apply_patch、todowrite、生图两件,**也没有 task**(权限层 allow 但 turn 级 gate 默认关,见 §1)。
-2. 让它「用 shell 执行 ls」→ 期望回复没有该工具/换可用方式,而非执行成功。
+1. 问模型「列出你当前可用的工具」→ 期望:extract_document / read / grep / glob / write / edit / skill / webfetch / websearch / bash / todowrite(+ get_task_result / stop_task);**没有** apply_patch、生图两件,**也没有 task**(权限层 allow 但 turn 级 gate 默认关,见 §1)。（bash/edit/todowrite 2026-07-30 放开,见 §1。）
+2. 让它「用 shell 执行 ls」→ **普通轮次可执行**(bash 已放开供 skill);**chip turn(研究工具那轮)不可用**(见 D:toolGate 里 bash=false)。
+3. 让它「编辑刚生成的某个 md 产物的某行」→ edit 成功,且改动落在**会话 outputs 里的那份**(outputs 重定向插件已覆盖 edit;若落到别处即回归失败)。
 
 **C. extract_document 入口 + 过程展示**
 
