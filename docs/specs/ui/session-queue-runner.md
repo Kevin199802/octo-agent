@@ -172,21 +172,41 @@ export async function sendQueuedItem(
 ### 3.5 实现点（起草期标注，实现时坐实）
 
 1. **队列项自包含**：`enqueue` 时把 chip 选择态一并存进 `QueuedSend`（现网 flush 时才 `mcpSelection()` 读**当前**输入框态，后台发送没有输入框；改为入队即固化）。`QueuedSend` 增 `chip?: { selection: McpSelection }`。
-2. **会话 directory 查找**：runner 的 `send` 需要 scoped client，按会话 directory 建。确认全局 sync/session-cache 能按 sid 反查 directory（`context/global-sync/types.ts` 有 `directory` 字段）；若拿不到 directory 则跳过该次 drain（保留队列，回 insight 页由页面态兜底发送）。
-3. **model 解析**：脱离页面拿不到 `local.model.current()` 的会话级选择；后台发送 `model` 不传 → 服务端按 agent 默认。若需精确沿用会话级模型，从全局会话模型态读（实现时评估）。
+2. **会话 directory**：runner 的 `send` 需要 scoped client，按会话 directory 建。**directory 入队即固化进 `QueuedSend`**（页面此刻知道 `projectDir()`），`sendQueuedItem` 用它 `globalSDK.createClient({directory})`；缺则跳过该次 drain（保留队列可见）。runner 另用组件稳定 owner `pin` 有排队的目录，使其 `session_status` 经 SSE 常驻、不被 TTL 驱逐。
+3. **model**：`local.model.current()` 的会话级选择也**入队即固化**进 `QueuedSend.model`，保住用户选的模型；缺则服务端按 agent 默认。
 4. **移除 in-page 触发器**：删掉 `index.tsx` 两处 flush effect（§1.2 A、B），drain 归 runner 独占，避免双发（runner 的 in-flight 守卫 + 单一 owner 已足够）。页面保留 enqueue / cancel / removeQueued / 队列条 UI。
 5. **abort/cancel 语义不变**：`clearSessionQueue(sid)` 清桶后 runner 因 `buckets` 变化自然不再 drain 该 sid。
 
+### 3.7 排队项的附件快照（修内网回归：排队上传文件丢失）
+
+**内网实测回归**：排队时「上传文件 + 写提示词」，前一 turn 完成后**只有提示词发出、文件没跟着发**；改前版本文件会随第一条排队消息发出。
+
+**根因**：上传的**附件**（`attachments()`，页面组件的共享附件栏）**从来就不在队列模型里**。改前老代码 flush 走 `doSendPrompt(consumeAttachments: true)`，在 flush 那一刻**读实时附件栏**把文件顺手挂上——文件不是「跟着队列项」走的，是「从共享栏抓的」。这本身是**错的语义**：多条排队时所有文件都绑到第一条、绑错；只是单条时碰巧对。改后 drain 走**页面无关**的 `sendQueuedItem`（页面可能已卸载，读不到附件栏），我们又漏了把附件快照进队列项 → 文件丢失。
+
+**业界做法**：一条消息 = 文本 + **它自己的附件** + 元数据的原子单位；排队即入队整体，附件在**撰写/入队那一刻绑定到那条消息**（快照），只跟这条走、不外溢（ChatGPT / Claude / Slack 草稿 / opencode followup 一致）。**没有「共享附件托盘、下一次发送谁先谁抓」的模型。**
+
+**改法**（对齐业界，且顺带修好老版本多条排队绑错）：附件在**入队时快照进 `QueuedSend`**，`sendQueuedItem` 从快照重建附件 parts；入队后清空共享附件栏。
+
+- `QueuedSend` 增 `uploads?: {filename,path}[]`（非图片，已 done、已搬进会话 `uploads/` 的最终 path）与 `images?: {filename,url,mime?}[]`（图片 S3 url）。附件入队时必为 `done`（`handleSubmit` 有 `hasUploadingAttachments()` 拦截，上传中不让入队），故快照稳定。
+- 入队时 `snapshotAttachmentsForQueue`：done 分流（非图片 / 图片）+ 把还在 `.octo/tmps` 的 pending 上传 **rename 进会话 `uploads/`**（sid 入队已知）；随后**清空附件栏**（`revokeAllPreviews` + `filesById.clear` + `setAttachments([])`，与正常发送 consume 同款）+ 有本地附件则 `filesRefreshKey++`（文件管理刷新）。**镜像 `doSendPrompt` 的附件解析但自包含，不碰 `doSendPrompt`。**
+- **组 parts 走公共骨架**（防两套漂移）：新增 `insight/utils/build-prompt-parts.ts` 的 `assembleInsightParts`（集中「cleanText → synthetic 文本 → txt/md FilePart → 图片 FilePart」的顺序 + FilePart 映射）。`doSendPrompt`（正常发送）与 `sendQueuedItem`（排队）**共用**它——`doSendPrompt` 只把最后组 parts 那几段换成调用它，**附件解析 / 搬迁 / skill 读取 / optimistic / 日志全部不动**（行为等价，用组装器单测锁死）。
+- **取消排队** `removeQueued`：把快照附件**还原回附件栏**（栏为空才还原，不覆盖用户正在选的），使取消编辑后可原样重发；文件本就在会话目录、不会丢，还原只是补回可见 chip。
+
+> **对正常发送零影响**：本节只把「组 parts」这一段抽成公共件共用，`doSendPrompt` 的附件解析 / 上传 / optimistic 核心逻辑一行未动;组装器有单测、`doSendPrompt` 改动经 typecheck + 静态逐项等价核对。
+
 ---
 
-## 4. insight 接入改动面
+## 4. insight 接入改动面（实际落地）
 
-- `packages/app/octoapp/pages/insight/utils/send-queue.ts`：`QueuedSend` 增 `chip?`；新增/迁入页面无关 `sendQueuedItem`（或拆 `queue-drain.ts`）。
-- 新增 `packages/app/octoapp/utils/session-queue-runner.ts`：跨模块 runner 内核（§3.2）。
-- 新增 headless `<InsightQueueRunner/>`（可放 `insight/` 或 `octoapp/components/`），装配 insight adapter（§3.2 契约）。
+- 新增 `packages/app/octoapp/utils/session-queue-runner.ts`：跨模块 runner 内核（§3.2）+ `runDrainPass` 纯函数（便于单测）。
+- 新增 `packages/app/octoapp/utils/session-queue-runner.test.ts`：runner 单测 6 例。
+- 新增 `packages/app/octoapp/pages/insight/queue-runner.tsx`：headless `<InsightQueueRunner/>`，装配 insight adapter。
+- 新增 `packages/app/octoapp/pages/insight/utils/queue-drain.ts`：页面无关 `sendQueuedItem` + `snapshotAttachmentsForQueue`（§3.7）。
+- 新增 `packages/app/octoapp/pages/insight/utils/build-prompt-parts.ts` + `.test.ts`：`assembleInsightParts` 组 parts 公共骨架（正常发送 + 排队共用，§3.7）+ 单测 6 例。
+- `packages/app/octoapp/pages/insight/utils/send-queue.ts`：`QueuedSend` 增 `directory`/`model`/`chip`/`uploads`/`images`；`allQueues()` 导出（runner 遍历）。
 - `packages/app/octoapp/octo.tsx`：`GlobalSyncProvider` 内挂 `<InsightQueueRunner/>`。
-- `packages/app/octoapp/pages/insight/index.tsx`：删两处 in-page flush effect；`enqueue` 固化 chip 进 `QueuedSend`；`flushQueueHead` 退役（逻辑迁 runner/`sendQueuedItem`）。
-- [`docs/insight-debugging.md`](../../insight-debugging.md)：`[octo:queue]` 段补 runner 的 `drain send failed` 日志、说明 flush 现由全局 runner 发起（§1.4 日志字典同步）。
+- `packages/app/octoapp/pages/insight/index.tsx`：删两处 in-page flush effect + `flushQueueHead`；`enqueue` 固化 directory/model/chip + 附件快照 + 清栏；`removeQueued` 还原附件；`doSendPrompt` 组 parts 改调 `assembleInsightParts`（其余不动）。
+- [`docs/insight-debugging.md`](../../insight-debugging.md)：`[octo:queue]` 段同步（`drain-send`/`drain send failed`/`enqueued` 字段，§1.4）。
 
 ---
 
@@ -221,25 +241,24 @@ export async function sendQueuedItem(
 ### 6.1 自动化
 
 - **typecheck**：`bun run typecheck`（app 包；push 前 pre-push hook 亦跑）。
-- **runner 单测**（新增 `session-queue-runner.test.ts`）：用假 adapter（内存 `buckets` signal + 可控 `isBusy` + 记录 `send` 调用）验证——
-  - V1 idle + 非空队列 → drain 一条、`shift` 被调、`send` 收到队首；
-  - V2 busy 时不 drain；busy→idle 后 drain 下一条（链式）；
-  - V3 in-flight 守卫：dispatch 后未转 busy 前，队列/状态再变化不重复发同一条；
-  - V4 多 sid 并存：各自独立 drain，互不串场（隔离）；
-  - V5 `send` reject → 释放 in-flight、不吞后续、不死循环。
-- 现网 `send-queue.ts` 既有单测（若有）随 `QueuedSend` 加 `chip?` 一并更新。
+- **runner 单测**（`session-queue-runner.test.ts`，6 例）：用假 adapter（内存 `buckets` + 可控 `isBusy` + 记录 `send`）验证——V1 idle+非空→drain 队首；V2 busy 不 drain，busy→idle 后链式 drain；V3 in-flight 守卫不重复发；V4 多 sid 隔离；V5 `send` reject 释放守卫、不死循环；空桶不触发。
+- **组装器单测**（`build-prompt-parts.test.ts`，6 例，§3.7）：锁死 parts 顺序契约（cleanText → synthetic → txt/md FilePart → 图片 FilePart）+ FilePart 映射（txt/md file://、office 过滤、图片 mime 缺省）+ 空 synthetic 跳过。**这条同时是正常发送不回归的护栏**——`doSendPrompt` 与 `sendQueuedItem` 共用它。
+- **doSendPrompt 等价性**：改动仅把「组 parts」段换成 `assembleInsightParts`，附件解析 / 搬迁 / optimistic / 日志一行未动；经 typecheck + 静态逐项等价核对（synthetic 顺序、txt/md、图片、optimistic 引用均不变）。
 
-### 6.2 手动驱动（本地 Electron / web 预览，复现原 bug 三场景）
+### 6.2 手动驱动（本地 Electron / web 预览）
 
-前置：本地起 insight，选一个会答较久的模型，排 2~3 条。
+前置：本地起 insight，选一个会答较久的模型。
 
-1. **原 bug 场景 A（切路由页）**：会话 busy 时排队 → 切到「技能库」`/skills` → 等原会话后台跑完 →**预期：排队在后台继续逐条发出**（切回 insight 时队列已减少 / 清空，对应消息已在对话流）。回归前此处死等。
-2. **原 bug 场景 B（切 agent tab）**：busy 时排队 → 切到 chat/design tab → 等跑完 → 切回 insight →**预期：排队已推进**。
-3. **对照（切对话，本就正常）**：busy 时排队 → 切别的 insight 会话 → 回来 →**预期：仍正常推进，且不误发到别的会话**（隔离）。
-4. **abort**：排队中点停止 → 队列清空、不再 drain。
-5. **一条一回合**：排 3 条 → 逐条串行发出（不并发、不乱序）。
+1. **原 bug 场景 A（切路由页）**：会话 busy 时排队 → 切「技能库」`/skills` → 等原会话后台跑完 →**预期：排队在后台继续逐条发出**（切回队列已减少、消息已在对话流）。回归前此处死等。
+2. **原 bug 场景 B（切 agent tab）**：busy 排队 → 切 chat/design tab → 等跑完 → 切回 insight →**预期：排队已推进**。
+3. **对照（切对话）**：busy 排队 → 切别的 insight 会话 → 回来 →**预期：仍推进，且不误发到别的会话**（隔离）。
+4. **附件回归（§3.7，内网测出的那条）**：busy 时**上传文件 + 写提示词**排队 → 前一 turn 完成 →**预期：文件随该条消息一起发出**（对话流出现文件卡片 + 模型能读到）;排 msg1(带文件A) + msg2(带文件B) →**预期：A 跟 msg1、B 跟 msg2，不绑错**。
+5. **正常发送不回归（重点)**：**非排队**状态直接发「文本 + 附件（txt/md + 图片 + office）」→**预期：与改前完全一致**（[附件]卡片、txt/md 内联、图片 vision、optimistic 即时气泡都在）。
+6. **取消排队**：排一条带附件的 → 点 × 移除 →**预期：文本 + 附件 chip 还原到输入区**，可编辑后重发。
+7. **abort**：排队中点停止 → 队列清空、不再 drain。
+8. **一条一回合**：排 3 条 → 逐条串行发出（不并发、不乱序）。
 
-观测点：console `[octo:queue] enqueued / flushing / drain send failed`（`docs/insight-debugging.md` §1.4）。
+观测点：console `[octo:queue] enqueued / drain-send / drain send failed`（`docs/insight-debugging.md` §1.4）。
 
 ---
 
