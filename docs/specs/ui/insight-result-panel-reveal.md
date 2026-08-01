@@ -61,7 +61,7 @@ Claude 是**流式**写 artifact，边写边滑入。我们的产物走 [mcp-con
 | 工具秒回 task_id（进行中） | ❌ 不弹（无产物，对话内任务卡承担进度） |
 | 用户点对话内产物卡 / task 卡「打开结果」 | ✅ 建 tab + `panelCollapsed=false` → 滑入并聚焦该 tab |
 | `get_task_result` completed（面板当前为空） | ✅ **全部**产物建 tab、`panelCollapsed=false`、**聚焦第一项**（沿用 [index.tsx:677-696](../../../packages/app/octoapp/pages/insight/index.tsx#L677-L696) auto-open effect，扩展为同时清 collapsed） |
-| 用户点面板「收起」 | `panelCollapsed=true`，**保留 tab**，聊天回居中全宽，浮「产出 (N)」唤回标 |
+| 用户点 ConversationHeader「文件管理」收起 | `panelCollapsed=true`，**保留 tab**，聊天回居中全宽，浮「产出 (N)」唤回标 |
 | 用户点浮标「产出 (N)」 | `panelCollapsed=false` → 重新滑入 |
 | 用户 × 关掉最后一个 tab | `tabs.length` 归 0 → 面板消失（自然收起）；同时 `panelCollapsed=false` 复位 |
 | 切 session | `tabStore.reset()`（tabs 清空）+ `panelCollapsed=false` 复位 → 收起态 |
@@ -98,7 +98,7 @@ completed 自动弹**不加配置开关**。理由：自动弹只发生在用户
 
 ### 3.3 收起按钮 + 唤回浮标
 
-- **收起按钮**：放 ResultViewer 顶部 TabBar 右侧（`»` 收起图标），点击 `panelCollapsed=true`。
+- **收起按钮**：放对话面板顶部 ConversationHeader 右端的「文件管理」按钮（`IconNotepad` 图标），点击 toggle `panelCollapsed`。窄屏抽屉态（`rightCollapsed`）下该按钮改为 toggle 抽屉开合；抽屉内 ResultViewer TabBar 仍保留独立收起按钮（关抽屉），inline 态 TabBar 不渲染收起按钮（`onCollapse` prop 仅抽屉态传入）。
 - **唤回浮标**：收起态且 `tabs.length>0` 时，聊天区右上角浮「产出 (N)」胶囊按钮，N = `tabs().length`，点击 `panelCollapsed=false`。
 
 ---
@@ -116,7 +116,7 @@ completed 自动弹**不加配置开关**。理由：自动弹只发生在用户
    - 左列 style：`panelVisible() ? { width: chatWidth()px, flex: "0 0 auto" } : { flex: "1" }`。
    - 左列内容补居中 max-width 包裹（收起态生效；展开态可保持当前撑满或同样居中，二选一，建议两态都居中 reading-width 以减少跳动）。
    - 分隔线 + ResultViewer：`<Show when={panelVisible()}>`。
-7. **收起按钮**：TabBar 加 prop / slot（[tab-bar.tsx](../../../packages/app/octoapp/pages/insight/components/result-viewer/tab-bar.tsx)），或在 ResultViewer 容器顶部叠一个按钮，回调 `setPanelCollapsed(true)`。
+7. **收起按钮**：放 ConversationHeader 右端「文件管理」按钮（[index.tsx](../../../packages/app/octoapp/pages/insight/index.tsx) `panelToggle` 槽），点击 toggle `panelCollapsed`。TabBar 的 `onCollapse` prop 仅窄屏抽屉态传入（关抽屉）；inline 态不传 → TabBar 用 `<Show when={props.onCollapse}>` 不渲染收起按钮（[tab-bar.tsx](../../../packages/app/octoapp/pages/insight/components/result-viewer/tab-bar.tsx)）。
 8. **唤回浮标**：左列内 `<Show when={tabStore.tabs().length>0 && panelCollapsed()}>` 渲染浮标。
 
 ---
