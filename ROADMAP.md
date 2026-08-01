@@ -29,6 +29,7 @@
 | `[M]` | **learning 笔记补全** | SQLite / Drizzle / Effect / Solid 响应式 / IPC / SDK 生成机制等,沉淀给未来 |
 | `[S]` | **ADR 体系梳理** | 已落地但未立 ADR 的决策补全(session.agent 字段化、useProjectDir 全栈抽象等);交叉引用清理 |
 | `[S]` | **specs 现役 / 历史分层** | 运行一段时间后看是否需要按"现役 / 历史"分子目录 |
+| ✅ `[S]` | **SPEC-INS-009 收起入口迁移同步** | [insight-result-panel-reveal.md](docs/specs/ui/insight-result-panel-reveal.md) §3.3 / §4：收起按钮由 TabBar 右侧迁至 ConversationHeader「文件管理」按钮（inline 不传 `onCollapse` → TabBar 不渲染收起按钮；窄屏抽屉态 TabBar 保留关抽屉按钮）。代码见 UXAI `feat/insight-icons`（PR #523） |
 
 ---
 
