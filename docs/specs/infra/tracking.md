@@ -39,7 +39,7 @@ POST /record/logger/interaction
   project: "octo-agent"     // 固定值
   module: string            // 调用时传入
   account: string           // 从 localStorage userInfo 读取
-  uid?: string              // 从 localStorage userInfo 读取
+  uid?: string              // 从 localStorage userInfo.userId 读取(上报字段名是 uid,来源字段名是 userId)
   userAgent: string         // navigator.userAgent
   platform: number          // 动态映射：1=Windows 2=macOS 3=Linux 4=iOS 5=Android
   os: string                // 解析自 userAgent
@@ -123,7 +123,8 @@ tracker.interaction({ module: "insight", name: "send-message", subType: "click",
 
 | 字段 | 来源 |
 |------|------|
-| `account` / `uid` | `localStorage.userInfo` JSON.parse |
+| `account` | `localStorage.userInfo.account` |
+| `uid` | `localStorage.userInfo.userId`（注意：**不是** `userInfo.uid`，来源字段名与上报字段名不一致，现状如此） |
 | `browserName` | 解析 `navigator.userAgent`，小写 |
 | `browserVersion` | 解析 `navigator.userAgent`，完整版本 |
 | `os` | 解析 `navigator.userAgent` |
