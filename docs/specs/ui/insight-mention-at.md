@@ -107,10 +107,15 @@ insight 输入框支持 `@` 唤起面板，**只做两类引用**：
 ## 6. 交互
 
 - **触发**：`mention-trigger` 插件检测光标前 `@query` → 弹面板；`@` 首次唤起惰性加载技能。
-- **插入**：选中 → 把触发区间的 `@query` 替换成 mention 原子节点（灰胶囊）；`mentionSelections` 由 syncPlugin 从 doc 派生。
-- **取消**：面板里再点一次 → 删对应 mention 节点 + 光标前残留 `@query`。
+- **插入**（技能 = 单选 / 文件 = 多选）：
+  - 技能：选中 → 把触发区间的 `@query` 替换成 mention 原子节点（灰胶囊），关闭浮窗。
+  - 文件：选中 → 在 `@query` 后（光标处）插入胶囊，**保留 `@query` 与浮窗**以继续选下一项（checkbox 多选语义）；维护递增插入位点让胶囊按选择顺序正排，胶囊间补一个空格分隔（否则发给模型的文本粘连）；`mentionSelections` 由 syncPlugin 从 doc 派生。
+- **取消**：
+  - 技能：删对应 mention 节点 + 光标前残留 `@query`，关闭浮窗。
+  - 文件：只删对应 mention 节点（按 `name+path` 精确匹配，倒序删除避免累积 delete 致位置漂移；同名不同目录是两个引用，不会被一起删），保留 `@query` 与浮窗；光标用 `tr.mapping.map(trigger.to)` 映射到删胶囊后的新位置。
 - **键盘 / 输入法**：Enter 发送、Shift-Enter 换行（编辑器 keymap）；退格删整块胶囊（`atom-keymap`）；中文输入法合成由 ProseMirror 原生处理（合成期 Enter 不误发）。
-- **关闭**：Esc / 点面板外 `mousedown` 关闭。
+- **关闭**：Esc / 点面板外 `mousedown` 关闭；**仅本轮插入过胶囊才删 `@query`**（纯手打 `@文字` 视为正文保留，对齐 `openReported` 注释的老行为）。
+- **位置计算守卫**：`mention-trigger` 插件的 `from/to` 不随文档位移 map（`@query` 之前有删除/插入时坐标会失效），凡拿这对坐标做 delete/insert 前都过 `validTrigger(doc, t)` 守卫（`t.to ≤ doc.content.size` 且 `textBetween(from,to) === \`@${t.query}\``），位置漂移时返回 null 不删，防越界与误删。
 - **挂载**：welcome 态与对话态两处 composer 各一个 `<ProseMirrorEditor>`。
 - **弹层定位（Portal + fixed，对齐 Design a919045a2）**：`@` 面板用 `<Portal>` 挂到 `document.body`、`position: fixed`，坐标由编辑器容器 `getBoundingClientRect()` 实时算（面板每次 query 变化重算）。这样弹层**脱离胶囊的 `overflow` 与堆叠上下文**，永不被裁切/遮挡 → 胶囊容器**保留 `overflow-hidden`**（圆角完整）。z-index 用 `1000/1001`。（早期方案曾靠「去掉胶囊 overflow-hidden」绕过裁剪，Portal 方案更彻底，已回退。）
 
