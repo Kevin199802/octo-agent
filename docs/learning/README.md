@@ -62,6 +62,8 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 
 38. [agent-output-path-and-provenance.md](agent-output-path-and-provenance.md) — agent 产物落点约束 与「路径出处」不可判定:产物该落哪是**运行时策略、不进模型上下文**,模型只给文件名(业界标配=Code Interpreter `/mnt/data`·沙箱根)/ 从"提示词塞绝对路径"(泄漏,见 #33)迁到"插件重定向"方向就对 / 难在**自找的错位**——默认落点(outputs)比工作目录窄,标准的"写工作目录外才弹权限"对工作目录根的写不触发 / 残留长尾:弱模型/skill 拼 `cwd+文件名` 成绝对路径绕过重定向(DB 取证:agent 对但 filePath=`D:\...`)/ 三条打架指令(上游 write schema「must be absolute」·上下文暴露 cwd·提示词「只给文件名」)/ **出处无法从工具参数判定**——能判的是模型(看得见 user 消息)故规则进 prompt·插件只机械搬运 / 硬保证不可兼得的证明 / 落法:提示词消矛盾·skill 位置无关·插件按「以 filePath 落盘产物」扩 `{write,edit}`(锚点:SPEC-INS-021 · UXAI PR #488)
 
+39. [relative-path-base-per-tool.md](relative-path-base-per-tool.md) — 相对路径的「基准」为什么要逐工具指定,以及它跟「能读写哪里」不是一回事:**基准**(`a.md` 等于哪个绝对路径,我们的插件)≠ **允许区**(那个绝对路径准不准碰,上游 `external_directory`)——插件对绝对路径完全不介入,不会让模型「读不到某目录」/ 必须逐工具是因为上游没有会话级 cwd 抽象、每个工具各自 join `instance.directory`,而改 `Instance.directory` 自指 / 基准表(write·edit·read·bash → 产物目录;glob·grep → **会话根**)与三处刻意的不对称(搜索范围≠落点,否则「在材料里找 X」搜不到 uploads;read 不拦越界因 `../uploads/` 合法;bash 只能靠 workdir——skill 脚本不读系统提示词)/ **三层心智模型**:声明层(改字符串)·基准层(改参数)·权限层(改判定),①② 缺一不可——只改声明,`write.ts` 的 `path.join(instance.directory,…)` 一字未动(锚点:SPEC-INS-028 · `octo-session-workdir.ts`)
+
 > 后续可能补:
 >
 > - `electron-vite-build.md` — main/preload/renderer 三段构建模型(暂不重要)
