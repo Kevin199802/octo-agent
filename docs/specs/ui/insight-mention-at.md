@@ -108,10 +108,10 @@ insight 输入框支持 `@` 唤起面板，**只做两类引用**：
 
 - **触发**：`mention-trigger` 插件检测光标前 `@query` → 弹面板；`@` 首次唤起惰性加载技能。
 - **插入**（技能 = 单选 / 文件 = 多选）：
-  - 技能：选中 → 把触发区间的 `@query` 替换成 mention 原子节点（灰胶囊），关闭浮窗。
+  - 技能：选中 → 把触发区间的 `@query` 替换成 mention 原子节点（灰胶囊），**胶囊后补一个配对空格、光标落到空格之后**（与文件分支同一口径；不补则接着打字发给模型的文本粘连成 `@分析帮我看看`），关闭浮窗。
   - 文件：选中 → 在 `@query` 后（光标处）插入胶囊，**保留 `@query` 与浮窗**以继续选下一项（checkbox 多选语义）；维护递增插入位点让胶囊按选择顺序正排，胶囊间补一个空格分隔（否则发给模型的文本粘连）；`mentionSelections` 由 syncPlugin 从 doc 派生。
 - **取消**：
-  - 技能：删对应 mention 节点 + 光标前残留 `@query`，关闭浮窗。
+  - 技能：删对应 mention 节点 + 光标前残留 `@query`，关闭浮窗。删胶囊时连同其后的配对空格一并删（技能 / 文件两分支共用同一段收集逻辑：只看紧邻文本的首字符、只吃 1 个空格），避免残留空格致 `nextInsertPos` 扫描位点错乱。
   - 文件：只删对应 mention 节点（按 `name+path` 精确匹配，倒序删除避免累积 delete 致位置漂移；同名不同目录是两个引用，不会被一起删），保留 `@query` 与浮窗；光标用 `tr.mapping.map(trigger.to)` 映射到删胶囊后的新位置。
 - **键盘 / 输入法**：Enter 发送、Shift-Enter 换行（编辑器 keymap）；退格删整块胶囊（`atom-keymap`）；中文输入法合成由 ProseMirror 原生处理（合成期 Enter 不误发）。
 - **关闭**：Esc / 点面板外 `mousedown` 关闭；**仅本轮插入过胶囊才删 `@query`**（纯手打 `@文字` 视为正文保留，对齐 `openReported` 注释的老行为）。
@@ -194,6 +194,8 @@ insight 输入框支持 `@` 唤起面板，**只做两类引用**：
 - SKILL.md 过大 → 上下文膨胀：v1 不截断，后续可加长度保护。
 - 换控件回归面：中文输入法、Enter 发送、退格删胶囊、附件粘贴——均收敛在 insight 输入框内，不影响其他 tab。
 - 排队项回填时 `@名` 退化为纯文本（不重建胶囊）。
+- **`insertedThisRound` 会跨轮残留（已知，未修）**：面板是 tab 切换，同一次 `@` 内可先在文件 tab 多选（置 `insertedThisRound = true`）再切技能 tab 选中；技能分支只置空本地 `triggerState`、不 `resetRound()` → 标志位带到下一轮，下一轮**纯手打** `@文字` 再关闭时被 `closeMention` 误判成「本轮插过胶囊」而删掉正文里的 `@query`。修法：技能选中分支补 `resetRound()`。
+- **句中插入会出双空格（已知，未修）**：`trigger.to` 之后已是空格时仍补一个，`请@fen 看看` → `请@分析  看看`（技能 / 文件两分支同病）。只多一个可见空格，不影响引用解析。修法：两分支统一加「后一字符已是空格则跳过」的守卫。
 
 ---
 
@@ -212,7 +214,8 @@ insight 输入框支持 `@` 唤起面板，**只做两类引用**：
 ## 13. 落地记录
 
 - **已实现（外网，UXAI 分支 `feat/insight-at-mention`）**，`packages/app` typecheck + pre-push turbo typecheck（12/12）全绿。
-- 实现 PR：UXAI [#432](https://github.com/MyHeavenDyf/UXAI/pull/432)（`feat/insight-at-mention` → dev，待评审）。
+- 实现 PR：UXAI [#432](https://github.com/MyHeavenDyf/UXAI/pull/432)（`feat/insight-at-mention` → dev，**已合**）；后续修复 [#481](https://github.com/MyHeavenDyf/UXAI/pull/481)（同步并修正 Design 侧 `@` 面板修复，已合）。
 - spec / ROADMAP：octo-agent dev（PR #15 + #16 + #17 重写）。
 - **弹层定位改 Portal + fixed（2026-07-25，见 §6）**：对齐 Design a919045a2，恢复胶囊 `overflow-hidden` 圆角、z-index 抬到 1000/1001；文件管理一级项文案「会话文件」→「用研资产」。随 UXAI PR #432 追加提交 `383c6f5`。
+- **技能胶囊补配对空格（2026-08-04，见 §6）**：技能单选分支此前只把 `@query` 替换成胶囊、不补空格，接着打字发给模型的可见文本粘连成 `@分析帮我看看`；改为插入胶囊后补一个空格、光标落其后，与文件分支口径一致（deselect 侧本就会一并吃掉配对空格，无需改）。UXAI PR [#562](https://github.com/MyHeavenDyf/UXAI/pull/562)，已合入 dev。外网验证：本地复刻 `handleMentionSelect` 事务跑真实 ProseMirror（句尾选中 / 前置正文 / 先文件多选再选技能 / deselect 吃空格 / 旧行为粘连对照），断言全过；现有 `utils/mention.test.ts` 29 条通过。同轮记录两条已知未修问题见 §11。
 - **待**：内网真机验证（技能确定性激活 / 文件 `extract_document` 读取 / 排队带引用 / 中文输入法 + 胶囊交互回归 / 文件管理实时同步 / 打点上报），补内网验证结论。
