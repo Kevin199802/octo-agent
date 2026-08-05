@@ -7,7 +7,7 @@
 
 ---
 
-## 已编号（SPEC-INS-001 ~ 027）
+## 已编号（SPEC-INS-001 ~ 029）
 
 | 编号 | 标题 | 状态 | 领域 | 文件 |
 |---|---|---|---|---|
@@ -39,6 +39,7 @@
 | 026 | Insight 产物身份模型（身份 = 磁盘路径 · 命名/类型/去重单一来源） | 草案（入口卡三态已落地 UXAI PR #467，其余待实现） | infra/insight | [insight-artifact-identity.md](infra/insight-artifact-identity.md) |
 | 027 | 会话排队 drain 运行器（UI 无关 · 跨模块通用） | 草案（待实现） | ui（跨模块） | [session-queue-runner.md](ui/session-queue-runner.md) |
 | 028 | 会话工作目录声明对齐 — 修「skill 产物散落在选中目录根」：把模型看到的 `Working directory` 从选中目录改成会话产物目录，bash / read / write 三个通道的相对基准一并对齐；含产物子目录放开 | 草案（待实现） | infra/insight | [insight-workdir-declaration.md](infra/insight-workdir-declaration.md) |
+| 029 | @技能激活的服务端事件上报（`extra.skills` → `skill.used`）— 补 023 §2.2 明确接受的「不发 SkillUsed 事件」那项代价 | 草案（待实现） | infra/insight | [insight-skill-activation-event.md](infra/insight-skill-activation-event.md) |
 
 > **025 编号说明（2026-07-28）**：question 工具答题 UI 起草时取号 023，但同期 `@` 引用面板已用 023 落地并推送、`composer-draft` 已占 024。按下方 019 / 020 确立的"孤儿号改分配新号，不动已发布号"原则，未推送的这份改分配为 025。
 

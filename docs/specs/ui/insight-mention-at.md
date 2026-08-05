@@ -59,6 +59,7 @@ insight 输入框支持 `@` 唤起面板，**只做两类引用**：
 - ✅ 气泡天然干净（可见文本是唯一非 synthetic text part）
 - ✅ queue / chip / 附件 / 乐观渲染几乎不用动
 - ⚠️ 代价（接受）：不发 `SkillUsed` 事件、不做 `$ARGUMENTS` 占位 / 技能级 tool-gating —— interview-analysis 这类「分析指引型」技能用不到
+  - 其中「不发 `SkillUsed` 事件」这一条在 2026-08-05 因内网全局打点需求被补上，见 [SPEC-INS-029](../infra/insight-skill-activation-event.md)：前端随 `promptAsync` 传 `extra.skills`，服务端在权威侧发事件。**3b 本身不变**（仍是 synthetic 注入，气泡不受影响）。同期否掉的 3a 回归修法见 029 §2.1
 
 ---
 
@@ -168,7 +169,7 @@ insight 输入框支持 `@` 唤起面板，**只做两类引用**：
 | `mention-open` | `@` 面板由关到开那一次 | — | 编辑器 `onMentionOpen` → `trackMentionOpen` |
 | `mention-select` | 选中一项 | `{ type: "skill" \| "file" }` | 编辑器 `onMentionSelect` → `trackMentionSelect` |
 
-纯 tab 切换 / hover / 取消勾选不打点。**注意**：@技能走 synthetic 注入（不调 skill 工具），§九 `server-skill-used` **不覆盖** @技能 —— `mention-select{type:skill}` 是 @技能 唯一的用户侧口径。
+纯 tab 切换 / hover / 取消勾选不打点。**注意**：@技能走 synthetic 注入（不调 skill 工具），§九 `server-skill-used` **不覆盖** @技能 —— `mention-select{type:skill}` 是 @技能 唯一的**埋点侧**口径。服务端事件流侧的口径由 [SPEC-INS-029](../infra/insight-skill-activation-event.md) 补齐（`skill.used`），两者受众不同（埋点系统 vs 跨模块监听器），不互相替代。
 
 ---
 
