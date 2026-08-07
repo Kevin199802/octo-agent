@@ -57,6 +57,7 @@
 | MCP 接口合同 — UXR 服务团队交付物 | 唯一接口真相源 | agents | [mcp-contract.md](agents/mcp-contract.md) |
 | `question` 工具 — skill 作者须知 | 对外交付（发给 skill 开发者；刻意不写 schema，理由见 §0） | agents | [question-tool-for-skills.md](agents/question-tool-for-skills.md) |
 | 产物落盘 — skill 作者须知 | 对外交付（发给 skill 开发者；三条规则 + 自查清单，宿主侧机制见 SPEC-INS-028） | agents | [artifact-output-for-skills.md](agents/artifact-output-for-skills.md) |
+| 文档解析结果 — skill 作者须知 | 对外交付（发给 skill 开发者；不自己解析 / 路径当参数接 / 别把行当段 / 容错，宿主侧机制见 SPEC-INS-016） | agents | [extracted-documents-for-skills.md](agents/extracted-documents-for-skills.md) |
 | MCP 集成（重点：内网数据访问） | 草案 | agents | [mcp-integration.md](agents/mcp-integration.md) |
 | 多 Agent 协作 | 草案 | agents | [multi-agent.md](agents/multi-agent.md) |
 | Skill 系统 | 草案 | agents | [skill-system.md](agents/skill-system.md) |
