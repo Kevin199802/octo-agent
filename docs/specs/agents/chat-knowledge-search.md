@@ -1,5 +1,10 @@
 # SPEC — chat 内网知识库检索工具(knowledge_search)
 
+> **⚠️ 已被 SPEC-INS-030 SUPERSEDE(2026-07-27)** —— chat 模块与 insight 合并、chat 下线,本能力迁入 insight。
+> - **产品定位作废**:本 spec「chat 通用助手顺带能力」的定位随 chat 下线失效;合并范围/新接口/迁移/归属 insight 后的定位见 [insight-knowledge-search.md（SPEC-INS-030）](insight-knowledge-search.md)。
+> - **实现细节仍有效**:本 spec 的接口契约(§3)、检索整形(§5 `parseDocs`)、account 注入分析(§6)、影响面(§12)等实现级内容照旧,SPEC-INS-030 不重抄、用到时点回本文。
+> - 一句话:**本文 = 工具怎么实现(旧接口);SPEC-INS-030 = 合并怎么做 + 新接口 + 迁移**。
+>
 > **上游已实现 ✗** —— opencode 无此能力,octo 自加的原生 in-process 工具。
 >
 > 背景与选型推导见 learning:[rag-chat-integration.md](../../learning/rag-chat-integration.md)(尤其 §8 v1 方案 + 扩展阶梯)。
