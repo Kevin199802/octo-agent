@@ -54,7 +54,7 @@
 | `[octo:inject]` | [packages/opencode/src/agent/octo-upload-inject.ts](../packages/opencode/src/agent/octo-upload-inject.ts) | **server 端插件**:MCP 工具执行前读 `[附件]` 清单的本地路径、**按需上传 S3**、把模型填的文件名/路径换成精确 URL([SPEC-INS-015 文件传参](specs/infra/insight-file-passing.md) ④);**chip turn 另走声明强制对齐**(`chip-declaration enforced`,[SPEC-INS-017 §2.1](specs/infra/insight-mcp-explicit-entry.md))。地址由 `OCTO_UPLOAD_ENDPOINT` 控制 |
 | `[octo:session-workdir]` | [packages/opencode/src/agent/octo-session-workdir.ts](../packages/opencode/src/agent/octo-session-workdir.ts) | **server 端插件**：insight 会话工作目录对齐（[SPEC-INS-028](specs/infra/insight-workdir-declaration.md)）。四条消息：`声明改写`（带 `before`/`after`，`Working directory` 从选中目录改成会话产物目录——**排查产物散落先看它有没有出现**）；`落点重定向`（write/edit/read 的相对 `filePath` → 产物目录，带 `tool`/`before`/`after`）；`默认目录补齐`（bash 的 `workdir` → 产物目录，glob/grep 的 `path` → 会话根，带 `key`/`value`）；三条 error：`Working directory 锚点未命中`（上游 env 模板变更的唯一信号）、`产物路径越界,拒绝改写`、`session.get 失败,保持原值`。非 insight 会话应当**一条都不出现** |
 | `[octo:extract]` | [packages/opencode/src/tool/extract_document.ts](../packages/opencode/src/tool/extract_document.ts) | **server 端工具**:文档→文本抽取(docx=mammoth / pdf=unpdf / xlsx=exceljs / pptx=jszip 直抽,[SPEC-INS-016](specs/infra/insight-extract-document.md);**SPEC-INS-021 §3 起支持 txt/md 直读**,过程条 title 中文「提取文档正文:xx」),gate 到 octo_insight。`ok`:path/format/chars/tokenEstimate/ms/**saved**(落盘的解析件路径,空 = 没落上)/**inlined**(是否把全文一并回灌)/pages·sheets·slides;`failed`:path/reason(`not-found`·`unsupported`·`parse-error`)/format/err;**`persist-failed`**:path/dir/err(SPEC-INS-016 v2 全量落盘写盘失败,**已降级为整篇返回**,功能不中断)。**「模型说文档内容不全 / 反复重读同一份文档」先看这三条**:`inlined:false` 说明正文只在 `saved` 那个文件里(设计如此,模型应 grep/read 取用);`saved:""` + `persist-failed` 才是真出问题(退回 v1 的字节截断行为) |
-| `[octo:kb]` | [packages/opencode/src/tool/knowledge_search.ts](../packages/opencode/src/tool/knowledge_search.ts) | **server 端工具**:chat 内网知识库检索(getKnowledgeVector)。spec 见 [specs/agents/chat-knowledge-search.md](docs/specs/agents/chat-knowledge-search.md) |
+| `[octo:kb]` | [packages/opencode/src/tool/knowledge_search.ts](../packages/opencode/src/tool/knowledge_search.ts) · [pages/insight/utils/account.ts](../packages/app/octoapp/pages/insight/utils/account.ts) | **server 端工具**:内网知识库检索(getKnowledgeVector),**SPEC-INS-030 起 gate 到 octo_insight**(原 chat 的 octo_ai)。另有一条 `account missing` 出在客户端 DevTools(发送时取不到工号)。spec 见 [specs/agents/insight-knowledge-search.md](specs/agents/insight-knowledge-search.md),旧接口细节见 [chat-knowledge-search.md](specs/agents/chat-knowledge-search.md) |
 | `[octo:mcp]` | [config/config.ts](../packages/opencode/src/config/config.ts) · [mcp/index.ts](../packages/opencode/src/mcp/index.ts) | **server 端**:内建 MCP(uxr-tool)生效配置 + 连接过程参数。地址由 `OCTO_UXR_MCP_URL` 控制(见 [config/builtin-mcp.ts](../packages/opencode/src/config/builtin-mcp.ts) + [specs/agents/mcp-contract.md §MCP server 地址配置](docs/specs/agents/mcp-contract.md)) |
 
 ### 0.3 server 端日志怎么读取
@@ -87,7 +87,8 @@ grep -E "\[octo:(mcp|kb|inject|extract)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 >
 > **注意上传在 sidecar(Node 进程)、不在渲染 DevTools**:渲染器 Network 看不到这个上传请求。**`[octo:inject]` / `[octo:extract]` 是裸 `console.log`,跟随 sidecar stdout——成品包被主进程 pipe 进 `main.log`(2026-07-08 内网实证,不在 opencode 的 log 目录!),run dev 打在外部 server 终端**;opencode log 目录里的是 `service=` 结构化日志(`[octo:mcp]` 连接、`toolsForAgent` 等)。落点定位细节见 [find-local-logs.md](./find-local-logs.md) ③。桌面 sidecar 是 Node 运行时(Electron utilityProcess.fork),插件与 extract_document 用 `node:fs`、不能用 `Bun.*`(会 `Bun is not defined`)。
 >
-> `[octo:kb]` 四条(出在 server 进程,不在客户端 DevTools):
+> `[octo:kb]` 五条(除 `account missing` 的客户端那条外,都出在 server 进程,不在客户端 DevTools):
+> - `account missing`:**两处同名、含义互补**(SPEC-INS-030 §5)。客户端 DevTools 那条(warn,发送时打、**每次页面加载只打一次**)= renderer 的 `localStorage.userInfo.account` 取不到工号,请求 `extra` 里就没带 account;server 那条(error,工具里打,带 `sessionID`/`query`)= 工具执行时 `ctx.extra.account` 为空,**直接不打内网接口**、回一句"未能获取当前登录账号"让模型如实告知。两条一起出现 = 登录态问题;只有 server 那条 = 前端传了但没到工具(查 `extra` 链路:promptAsync → sessionExtras → ctx.extra)。**接口按 account 限流,故这里不做兜底工号**。
 > - `config`:**排查 env/域名首选**。`envBaseUrl`(server 读到的 `OCTO_KB_BASE_URL`,由 `.env.<channel>` 经 electron.vite define + createSidecarEnv 注入)/ `usingMockDefault`(true=没读到 base、回落 localhost:8787 mock,内网出现这个=没在对的 .env 里设 `OCTO_KB_BASE_URL`)/ `resolvedBase` / `url`(**实际请求的完整地址,拿它和 Insomnia 能跑通的 URL 逐字对比**)。
 > - `response`:`status`/`ok`/`bodyHead`。**404 = host 不对**(beta/prod 仅 host 不同、路径固定;非服务问题);在对应 `.env.<channel>` 改 `OCTO_KB_BASE_URL` 重打包即可。
 > - `parsed`:`totalDocs`/`topScores`/`titles`——检索成功但答非所问时看命中文档。
@@ -99,7 +100,7 @@ grep -E "\[octo:(mcp|kb|inject|extract)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 > - `transport-try`:每个传输各一条(先 `StreamableHTTP` 后 `SSE`),带 `url` / `timeout`。
 > - `connected`:连上了,带 `transport`(实际生效的传输)/ `url`。
 > - `transport-failed`(warn):某传输失败的 info/warn 级镜像(debug 级 `transport connection failed` 生产可能被过滤),带 `url` / `proxyMode` / `error`——判代理问题看 `proxyMode`。
-> - **完全无 `[octo:kb]` 日志** = 模型没调用该工具(检查是否 octo_ai agent、问题是否被识别为内网问题)。
+> - **完全无 `[octo:kb]` 日志** = 模型没调用该工具(检查是否 octo_insight agent、是否 chip turn——研究工具那轮 `buildToolGate` 会关掉 knowledge_search、问题是否被识别为内网问题)。
 
 ---
 

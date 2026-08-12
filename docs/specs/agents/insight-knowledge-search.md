@@ -119,9 +119,14 @@
 **定性：生产必修。** account **确有按账号限流**。现状工具里 `ACCOUNT = ""` 常量、不传，后端兜底成开发者单一工号（截图里 `c60050492`）—— 规模化后**全体用户共用一个限流桶，一个人用满全员被限**，是真 bug。"现在能用"只是兜底的恰好是自己工号的开发态假象。
 
 - **取值来源**：`localStorage.userInfo.account`，**纯工号、不拼名字**（后端只要工号；旧 spec §3.1 的"姓名 工号"格式作废）。
-- **机制**：工具跑在 sidecar（无 localStorage），需 renderer → sidecar 的**请求/session 注入**把工号递进去（旧 spec [§6](chat-knowledge-search.md) 已分析过通道：renderer 发送时注入 synthetic part 携带 account，工具读 `ctx.messages`，同 [octo-upload-inject.ts](../../../UXAI/packages/opencode/src/agent/octo-upload-inject.ts)）。
+- **机制（2026-08-12 落地时定，与旧 spec 的设想不同）**：走 **`promptAsync` 的 `extra` 字段**，不注入 synthetic part。
+  - 旧 spec §6 设计 synthetic part，是因为当时 `submit.ts` 不传 `extra`、`ctx.extra` 只是内部袋子；**SPEC-INS-029 之后这条管道已经通了**：`session/prompt.ts` 把 `input.extra` 按 sessionID 存进 `sessionExtras`，再原样铺进工具的 `ctx.extra`。
+  - 相比 synthetic part：工号**不进模型上下文**、不污染会话、不必改 parts 组装（只在即时发送与排队 drain 两处各加一个字段）。
+  - 落点：renderer [utils/account.ts](../../../UXAI/packages/app/octoapp/pages/insight/utils/account.ts) 读工号 → `extra.account` → 工具 `readAccount(ctx)`。
 - **不接受后端静默兜底**（那是"启发式修补"）—— 拿不到工号要么显式失败要么明确降级，不靠隐式默认掩盖。
-- **独立性**：account 注入动的是共享 `submit.ts` / session（agent 无关），**不依赖 Q3**，可拆独立小 PR；但与合并捆一起做省二次测试。
+  - 已实现的行为：拿不到工号时**不发请求**，工具直接返回"未能获取当前登录账号，本次检索已取消，请如实告知用户重新登录"，并打 `[octo:kb] account missing`（renderer warn + server error 各一条）。
+  - **外网自测**：外网无登录态 → 每次都会走这条拒答分支。要跑通链路，在 DevTools 执行 `localStorage.setItem("userInfo", JSON.stringify({ account: "c60050492" }))` 后重发。**不为此加 env 兜底旋钮**（env 只有 `OCTO_KB_BASE_URL` 一个）。
+- **独立性**：account 注入动的是 insight 自己的发送路径（agent 无关的共享层只多带一个 extra 字段），**不依赖 Q3**，可拆独立小 PR；但与合并捆一起做省二次测试。
 
 ---
 
@@ -142,9 +147,16 @@
 | 路径 | 做法 | 取舍 |
 |---|---|---|
 | A 数据迁移 | 回填 chat 会话 `agent` 字段 `octo_ai`→`octo_insight` | 终态干净；偏不可逆 |
-| B 读时合并 | insight 列表过滤放宽为 `agent IN (octo_insight, octo_ai)` | 不写数据、可回退；把两个 agent 身份带进未来 |
+| **B 读时合并（已选，2026-08-12）** | insight 列表过滤放宽为 `agent IN (octo_insight, octo_ai)` | 不写数据、可回退；把两个 agent 身份带进未来 |
 
 > 决策因子：chat 真实历史量 + 是否需回看。两路的**渲染兼容工作量相同**（都靠上面的底线验证）。
+
+**B 的落地点（三处同源）**：
+- 权威过滤：`session/session-insight-query.ts` 的 `LISTED_AGENTS`（改回单值即回退）。
+- 前端回退分支（端点未部署时才走）：`constants/agent.ts` 的 `INSIGHT_LISTED_AGENTS`，被 `_shell/sidebar.tsx` 与 `insight/components/session-list` 共用。
+- 旧链接落地：`/:dir/chat/:id` 与 `/:dir/session/:id` 路由改为重定向到 `/insight/:id`（站内通知深链、fork、文件搜索跳转都还在生成 chat 链接，留重定向比删路由安全）。
+
+> **新建会话仍一律 `octo_insight`**：B 只放宽"看得见什么"，不放宽"写成什么"。
 
 ---
 
@@ -162,12 +174,17 @@
 
 ## 8. 执行拆分建议
 
-| 批次 | 内容 | 依赖 Q3 | 备注 |
+| 批次 | 内容 | 依赖 Q3 | 状态 |
 |---|---|---|---|
-| PR-A（可先行） | `octo_ai.txt` 弃用 + `octo_insight` 提示词补 `knowledge_search` 段（§3） | 否 | 纯提示词 |
-| PR-B（可先行） | account 请求/session 注入，传 `localStorage.userInfo.account` 纯工号（§5） | 否 | 动共享 submit.ts |
-| PR-C（合并主体） | 工具网关 `octo_ai`→`octo_insight` + insight-turn 引用 UI 重建 + chat 页面/路由下线（§2）+ 历史迁移（§6） | 否（先落旧接口） | 需底线验证 |
-| PR-D（Q3 后） | 切新接口 + 多库路由 + 内外网路由（§4.2 / §7） | 是 | additive |
+| PR-A | `octo_ai.txt` 弃用 + `octo_insight` 提示词补 `knowledge_search` 段（§3） | 否 | **已实现 2026-08-12**（`octo_ai` agent 保留、去掉 prompt 字段回落上游 provider 默认；`.txt`/`.md` 两份镜像同步） |
+| PR-B | account 走 `extra` 传纯工号（§5） | 否 | **已实现 2026-08-12**（即时发送 + 排队 drain 两条路径；无工号显式拒答） |
+| PR-C（合并主体） | 工具网关 `octo_ai`→`octo_insight` + insight-turn 引用 UI 重建 + chat 页面/路由下线（§2）+ 历史迁移（§6） | 否（先落旧接口） | **已实现 2026-08-12，待内网验证**（底线验证见 §6，须在内网拿真实 chat 会话跑一遍） |
+| PR-D（Q3 后） | 切新接口 + 多库路由 + 内外网路由（§4.2 / §7） | 是 | 未开始（additive） |
+
+**PR-C 实际改动落点**（超出原列举的两处，记此备查）：
+- chip turn 的 `buildToolGate` 追加 `knowledge_search: false` —— 与既有 `bash`/`webfetch` 同理：研究工具那轮只该直调所选 MCP 工具，知识库检索是弱模型在 MCP 缺失时的又一个"模拟通道"。
+- chat 下线连带删除其渲染主体 `pages/session.tsx`（chat.tsx 只是它的薄壳）、`pages/chat/` 的 followup 排队 runner、以及 chat 侧引用 UI `pages/session/knowledge-references.tsx` 与 message-timeline 里的注入（insight 侧已重建，避免两份漂移）。`pages/session/**` 其余模块仍被 insight 引用，保留。
+- 首屏 Welcome 页移除 Chat 介绍卡；顶栏 Tab 移除 Chat（`TabType` 仍保留 `"chat"` 字面量，兜住重定向落地前的路径判定）。
 
 ---
 
@@ -183,9 +200,50 @@
 
 ---
 
+## 9.1 验证
+
+> PR-A/B/C 一起验（三者拆 PR 只为评审粒度，**合入与打包验证是同一次**）。`[octo:kb]` 日志释义见 [insight-debugging.md](../../insight-debugging.md)。
+
+### 9.1.1 外网可复现（本地 mock，不需要内网）
+
+前置：
+1. 起 KB mock：`bun run packages/opencode/script/kb-mock-server.ts`（默认 `:8787`，fixture 结构对齐真实返回）。
+2. 起 server：`OCTO_KB_BASE_URL=http://localhost:8787 bun run --cwd packages/opencode --conditions=browser src/index.ts serve --port <n>`。
+   （**改了 prompt / registry / 路由必须重起进程**，否则看到的是旧行为。）
+3. 前端起 insight 会话；DevTools 执行 `localStorage.setItem("userInfo", JSON.stringify({ account: "c60050492" }))` 模拟登录态。
+
+| # | 场景 | 步骤 | 通过判据 |
+|---|---|---|---|
+| V1 | 工具可见且会被调用 | insight 里问「内网怎么申请访谈酬金」 | server 日志出现 `[octo:kb] config` + `response` + `parsed`；模型基于片段作答 |
+| V2 | account 真的传出去了 | 同 V1，看 `[octo:kb] config` 的 `account` 字段 | 等于 localStorage 里那个工号，**不是空串** |
+| V3 | **无工号显式拒答**（§5 底线） | DevTools 执行 `localStorage.removeItem("userInfo")` 后重发 V1 的问题 | 客户端一条 `[octo:kb] account missing`（每次加载只打一次）；server 一条同名 error；**不发出 HTTP 请求**（mock 侧无新请求）；模型如实说需重新登录，不编答案 |
+| V4 | 行内引用可点 | V1 的回答里点 `[1]` 角标 | 系统浏览器打开该来源 URL（不在 Electron 内导航） |
+| V5 | 底部引用列表 | 看回答下方 | 出现「引用 N 篇资料作为参考」，展开后条目数/标题/顺序与 `[octo:kb] parsed` 的 `titles` 一致，点击外跳 |
+| V6 | 空结果不编造 | 问一个 fixture 里必然没有的词 | 回复「内网知识库未找到相关内容」，无引用列表 |
+| V7 | **边界不混**（§3 歧义） | 上传一份访谈 txt，问「我这份材料里用户提到了什么问题」 | 走 `extract_document`/读材料，**不出现** `[octo:kb]` 日志 |
+| V8 | 网关未泄漏 | 在 Design / Prototype / Studio 各问一次内网问题 | 无 `[octo:kb]` 日志；模型不声称有知识库工具 |
+| V9 | chip turn 不放行 | 输入框选「研究工具」，那一轮问内网问题 | 无 `[octo:kb]` 日志（`buildToolGate` 关掉了它） |
+| V10 | chat 入口不可达 | 顶栏、Welcome 首屏 | 无 Chat tab、无 Chat 介绍卡 |
+| V11 | 旧链接优雅落地 | 地址栏依次访问 `/<dir>/chat`、`/<dir>/chat/<某会话id>`、`/<dir>/session/<某会话id>`、`/<dir>` | 分别跳到 `/insight`、`/insight/<id>`、`/insight/<id>`、`/insight`；不出 404、不白屏 |
+| V12 | 排队发送同样带工号 | 会话 busy 时再发一条（进排队），等它 drain 后问内网问题 | 该轮 `[octo:kb] config` 的 `account` 仍是真实工号（覆盖 `queue-drain` 那条路径） |
+| V13 | 单测 | `bun test ./octoapp/pages/insight/components/knowledge-references.test.ts`（cwd=`packages/app`） | 全过。注：`packages/app` 的 `bunfig.toml` 限定 `root=./src`，octoapp 用例**默认 `bun test` 跑不到**，须显式给路径 |
+
+### 9.1.2 内网验证（真实 KB + 真实历史，外网无法覆盖）
+
+| # | 场景 | 通过判据 |
+|---|---|---|
+| N1 | 真实 KB 通路 | `.env.<channel>` 设对 `OCTO_KB_BASE_URL` 后打包；`[octo:kb] config` 的 `url` 与 Insomnia 能跑通的地址逐字一致，`usingMockDefault:false`；能基于真实片段作答 |
+| N2 | **限流按人头分桶**（§5 的目的） | `[octo:kb] config` 的 `account` = 当前登录者工号；换一个账号登录后该字段随之变化（不再是开发者那个兜底工号） |
+| N3 | **底线验证**（§6，必做） | 找一条**真实 chat 历史会话**（agent=`octo_ai`，含 bash/edit/write 调用）在 insight 侧列表里打开：不报错、不白屏、原对话文本一字不丢；工具调用走兜底渲染（"调用了 xxx"）。底部引用列表丢失属可接受降级 |
+| N3.1 | 外来会话可继续对话 | 在 N3 那条会话里再发一条消息：正常回复（该会话 agent 仍是 `octo_ai`，故**不会**有 knowledge_search——这是预期，不是 bug；新对话请在新建会话里验） |
+| N4 | 列表口径 | insight 会话列表同时出现历史 chat 会话与 insight 会话，按更新时间倒序；「加载更多」计数正确；**新建的会话 agent 仍是 `octo_insight`** |
+| N5 | 弱模型引用格式 | 内网模型（GLM 等）连问 5 个内网问题，统计 `[[n]](url)` 格式正确率与排版是否被挤成一段；明显跑偏则回 §3 调提示词，不改渲染 |
+
+---
+
 ## 10. 待确认清单
 
 1. ~~新接口 URL path~~ **已确认（2026-07-27）**：`{OCTO_KB_BASE_URL}/main/rest.root/ucdAgent/thirdParty/queryKnowledge`，host 与旧接口同源（§4.2）。
-2. **新接口响应排序**：无 `_score`，返回顺序是否已按相关性降序？跨库合并重排是否有分数可用？（Q3 依赖项）
-3. **历史迁移路径 A/B**（§6）：取决于 chat 真实历史量 + 是否需回看。
-4. **`octo_ai` agent 去留**：chat 下线后 `octo_ai` agent 是否保留（backward-compat 里 `build`→`octo_ai` 映射，见 agent.ts）——下线前需确认无其它依赖。
+2. **新接口响应排序**：无 `_score`，返回顺序是否已按相关性降序？跨库合并重排是否有分数可用？（Q3 依赖项，**仍待确认**）
+3. ~~历史迁移路径 A/B~~ **已定（2026-08-12）**：走 **B 读时合并**，落地点见 §6。
+4. ~~`octo_ai` agent 去留~~ **已定（2026-08-12）**：**保留 agent 注册，只丢 prompt**。理由：它同时是 `build` 的向后兼容目标（agent.ts 两处映射）、TUI 默认 agent、`plan.ts` 的退出目标，且上游 `packages/ui/message-part.tsx` 有两处 `agent === 'octo_ai'` 判断（本仓约定不动上游）。去掉 `prompt` 字段后由 `session/llm.ts` 回落 `SystemPrompt.provider`，正是上游 build agent 的原始行为。
