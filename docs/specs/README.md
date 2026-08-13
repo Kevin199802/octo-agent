@@ -7,7 +7,7 @@
 
 ---
 
-## 已编号（SPEC-INS-001 ~ 029）
+## 已编号（SPEC-INS-001 ~ 031）
 
 | 编号 | 标题 | 状态 | 领域 | 文件 |
 |---|---|---|---|---|
@@ -40,7 +40,8 @@
 | 027 | 会话排队 drain 运行器（UI 无关 · 跨模块通用） | 草案（待实现） | ui（跨模块） | [session-queue-runner.md](ui/session-queue-runner.md) |
 | 028 | 会话工作目录声明对齐 — 修「skill 产物散落在选中目录根」：把模型看到的 `Working directory` 从选中目录改成会话产物目录，bash / read / write 三个通道的相对基准一并对齐；含产物子目录放开 | 草案（待实现） | infra/insight | [insight-workdir-declaration.md](infra/insight-workdir-declaration.md) |
 | 029 | @技能激活的服务端事件上报（`extra.skills` → `skill.used`）— 补 023 §2.2 明确接受的「不发 SkillUsed 事件」那项代价 | 草案（待实现） | infra/insight | [insight-skill-activation-event.md](infra/insight-skill-activation-event.md) |
-| 030 | Insight 吸收内网知识库问答 + chat 模块下线（chat→insight 合并）— supersede 旧 chat-knowledge-search；含新接口契约 / 历史迁移 / account 限流必修 | 草案（待实现；Q3 多库路由另议） | agents / infra/ui/insight | [insight-knowledge-search.md](agents/insight-knowledge-search.md) |
+| 030 | Insight 吸收内网知识库问答 + chat 模块下线（chat→insight 合并）— supersede 旧 chat-knowledge-search；含新接口契约 / 历史迁移 / account 限流必修 | PR-A/B/C 已实现待内网验证（UXAI #633 / #634）；PR-D 多库路由待 Q3 | agents / infra/ui/insight | [insight-knowledge-search.md](agents/insight-knowledge-search.md) |
+| 031 | Chat 历史会话迁移 — 设置里一次性把 chat 老会话（agent=octo_ai）改归属到 insight：回填 agent + directory + project_id，用户选目标目录；备份即记录、可重新迁移、不做还原按钮；**临时功能，后续版本整体下掉** | 草案（待实现） | infra/insight | [insight-chat-session-migration.md](infra/insight-chat-session-migration.md) |
 
 > **025 编号说明（2026-07-28）**：question 工具答题 UI 起草时取号 023，但同期 `@` 引用面板已用 023 落地并推送、`composer-draft` 已占 024。按下方 019 / 020 确立的"孤儿号改分配新号，不动已发布号"原则，未推送的这份改分配为 025。
 
