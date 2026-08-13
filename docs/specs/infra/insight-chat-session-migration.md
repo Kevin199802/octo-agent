@@ -62,9 +62,11 @@ Chat 历史会话迁移
 - **文件夹选择器**：默认填当前全局选中的目录（`useProjectDir()`），可二次修改。走现成的 `platform.openDirectoryPickerDialog`（同文件 line 348 已在用，无需新增 IPC）。
 - **迁移按钮**：点击即执行，执行中禁用并显示进行态（对齐同页 `proxyConfiguring` 的写法）。
 - **结果反馈全部走全局 toast**，不新增结果面板：
-  - 成功：`已迁移 N 条 Chat 历史会话到 <目录名>`
+  - 成功：标题 `已迁移 N 条 Chat 历史会话到 <目录名>`，附带一行 `迁移前的数据已备份到 <备份路径>，确认无误后可自行删除`
   - 无可迁移数据：`没有需要迁移的 Chat 历史会话`
   - 失败：`迁移失败：<原因>`（事务已回滚，数据未变）
+
+> **为什么成功提示里要报出备份路径**：备份是**整库副本**、体积等同当前数据库，且按 §5.2.2 永不自动清理。不告诉用户它在哪，「清理交给用户」（§5.4）就是一句空话——用户既不知道有这么个文件，也无从判断能不能删。放 description 不放 title：路径很长，标题要保持可读。
 - **重新迁移**：备份存在且其中有 `octo_ai` 记录时，按钮文案变为「重新迁移」，语义见 §5.2。
 
 > 文案按「这段话会被真实用户看到」来写，不用「脚本」「回填」「UPDATE」这类内部词。
@@ -102,6 +104,18 @@ WHERE agent = 'octo_ai'
 - **只迁 `agent = 'octo_ai'`** —— 即 chat 当年明确会显示出来的那批（chat 侧栏正是 `data.filter(s => s.agent === "octo_ai")`）。
 - **不迁 `agent IS NULL`**：那是更早的老数据，chat 自己也没显示过，迁进来等于凭空冒出一批用户不认识的会话。
 - 不迁子会话？—— **迁**。`parent_id` 非空的 task 子会话跟着父会话走（insight 列表本就不加 roots 过滤，见 SPEC-INS-013）；但它们的 agent 通常不是 `octo_ai`，因此实际上不会被上面的条件选中，无需特殊处理。
+
+#### 3.2.1 `octo_ai` 仍是 TUI 默认 agent —— 但两边的库是分开的（2026-08-13 实证）
+
+`octo_ai` 至今仍是 opencode TUI 的默认 agent（`agent/agent.ts`），所以「用命令行 opencode 建的会话会不会被一并扫走」是个合理担心。答案是**不会，因为库文件根本不是同一个**：
+
+- 库文件名由 `InstallationChannel` 决定（`storage/db.ts` `getChannelPath`）：非 latest/beta/prod 渠道是 `opencode-<渠道>.db`。
+- 而 `InstallationChannel` 读的是编译期常量 **`OPENCODE_CHANNEL`**（`core/src/installation/version.ts`），octo 的构建脚本注入的却是 **`OCTO_CHANNEL`**（`opencode/script/build.ts`）——两个名字**没有映射**，所以 octo 的渠道值恒为 `local` → 库是 `opencode-local.db`。
+- 官方 opencode CLI 是正式渠道 → `opencode.db`。本机实测三个库文件并存（`opencode.db` / `opencode-dev.db` / `opencode-local.db`），octo 只动自己那个。
+
+⚠️ 这层隔离是**名字对不上意外得来的，不是设计**。如果哪天把 `OCTO_CHANNEL` 接到 `OPENCODE_CHANNEL` 上（看起来像个"修 bug"的改动），beta/prod 包会立刻改用 `opencode.db`，与官方 CLI 同库 —— 那时本迁移的范围就会**扫到 TUI 建的会话**。真要动这个映射，先回来看这一节。
+
+剩下的重叠只有一种：直接跑本仓源码（`bun run dev`）或把 sidecar 二进制当 CLI 用，那也是 `local` 渠道、同一个库。**不为此加排除条件**：TUI 建的 `octo_ai` 与 chat 建的 `octo_ai` 在库里完全一样，任何区分（比如按 directory 猜）都是启发式；后果也只是"多出几条不认识的会话"，在列表里删掉即可，不丢数据。
 
 ### 3.3 执行顺序、事务与幂等
 
@@ -198,7 +212,7 @@ VACUUM INTO '<Global.Path.data>/opencode.db.chat-migrate-bak-<时间戳>'
 
 - **不新建表、不加 schema**：备份库里 `agent = 'octo_ai'` 的那批 id，天然就是「哪些会话是迁过来的」这份记录。
 - **只在首次迁移时备份**：备份文件已存在就跳过（不再新建、**永不覆盖**）。这样「唯一一份」就是「迁移前那份快照」，是唯一的原始数据源，规则无歧义。
-- **永不自动删除**备份文件。清理交给用户，退场版本的发布说明里告知路径（§7）。
+- **永不自动删除**备份文件。清理交给用户 —— 因此**迁移成功的 toast 里必须报出备份路径**（§2），否则用户根本不知道有这个文件；退场版本的发布说明里再说一次（§7）。
 
 #### 5.2.3 重新迁移的语义（写死，避免歧义）
 
@@ -220,6 +234,7 @@ VACUUM INTO '<Global.Path.data>/opencode.db.chat-migrate-bak-<时间戳>'
 
 - **目录选错** → 直接「重新迁移」，选对目录再点一次。按 §5.2.3 会话是整批挪走的，**旧目录不留残余，无需手动清理**。
 - **压根不想要这批历史** → 在 insight 列表里自行删除。本功能不提供批量撤销（原始数据仍在备份库里）。
+- **备份文件占地方想删** → 迁移成功的 toast 已报出路径（§2），确认迁移结果无误后可自行删除。删掉之后「重新迁移」就没有 id 集合可依据了（§5.2.3），要再挪目录只能在列表里逐个处理。
 
 ---
 
