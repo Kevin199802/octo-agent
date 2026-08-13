@@ -160,7 +160,9 @@
 
 **最终方案**：由用户在设置里**显式触发一次性迁移**（回填 `agent` + `directory` + `project_id`），迁完即为正常的 insight 会话，列表侧不需要任何特例。即路径 A 的加强版（多回填 directory / project_id，且由用户选目标目录、而非脚本静默改）。详见 **[SPEC-INS-031 chat 历史会话迁移](../infra/insight-chat-session-migration.md)**。
 
-**因此 PR-C 合入后 chat 历史在 insight 列表里不可见**，要等迁移功能落地。当前处于测试阶段、未面向真实用户，**不设过渡态**（这是用户明确要求：功能齐了才给真实用户）。
+**目标态**：chat 历史在 insight 列表里不可见，要等迁移功能落地。当前处于测试阶段、未面向真实用户，**不设过渡态**（用户明确要求：功能齐了才给真实用户）。
+
+> ⚠️ **实际状态（2026-08-13）**：[UXAI #634](https://github.com/MyHeavenDyf/UXAI/pull/634) 合入的是**撤销前**的版本（`a6b2581e5`；撤销版 `ba509cddf` 未被合入），故 **dev 上路径 B 仍在**，表现为「chat 历史在当初创建它的那个目录下可见」的半可见状态。撤销动作并入 [SPEC-INS-031](../infra/insight-chat-session-migration.md) §1.1 一起做（先撤后做会有一段"历史彻底不可见"的中间态，比现状更差）。
 
 保留下来的一处兼容：`/:dir/chat/:id` 与 `/:dir/session/:id` 路由改为重定向到 `/insight/:id`（站内通知深链、fork、文件搜索跳转都还在生成 chat 链接，留重定向比删路由安全）。迁移完成后这些旧链接会自然落到正确的会话上。
 

@@ -25,6 +25,21 @@ chat 模块已下线（SPEC-INS-030 PR-C），其历史会话（`agent = 'octo_a
 
 **目标**：给用户一个显式动作，把这批历史搬进 insight，搬完就是正常的 insight 会话——列表能列出、能打开回看，列表侧不需要任何特例。
 
+### 1.1 ⚠️ 前置：dev 上还留着「路径 B 读时合并」，本 PR 要一并撤掉
+
+[SPEC-INS-030 §6.1](../agents/insight-knowledge-search.md) 已定不做读时合并，但 **UXAI #634 实际合入的是撤销前的版本**（`a6b2581e5`，撤销版 `ba509cddf` 未被合入）。故 dev 当前仍是「chat 历史在当初创建它的那个目录下可见」的半可见状态。
+
+**本 PR 的第一件事就是撤掉它**（四处，撤完与 `dev` 之前的行为一致）：
+
+| 文件 | 撤什么 |
+|---|---|
+| `packages/opencode/src/session/session-insight-query.ts` | `LISTED_AGENTS` + `inArray(...)` → 恢复 `eq(SessionTable.agent, "octo_insight")`；保留说明「为什么不开这个口子」的注释 |
+| `packages/app/octoapp/constants/agent.ts` | 删 `INSIGHT_LISTED_AGENTS` |
+| `packages/app/octoapp/pages/_shell/sidebar.tsx` | 过滤恢复 `s.agent === INSIGHT_AGENT` |
+| `packages/app/octoapp/pages/insight/components/session-list/index.tsx` | 同上 |
+
+**不单独提 PR 撤**：先撤后做会有一段「chat 历史彻底不可见」的中间态，比现状更差；撤 B 与上迁移本就是同一件事的两面。
+
 **非目标**：
 - 不搬文件。chat 会话没有 insight 的 `.octo/<sessionId>/{uploads,outputs}` 布局，迁移后文件管理面板是空的——**这是本来就没有**，不是迁丢了。文件管理有现成空态，UI 上不额外提示。
 - 不改写入口径：新建会话永远是 `octo_insight`。
@@ -88,10 +103,23 @@ WHERE agent = 'octo_ai'
 - **不迁 `agent IS NULL`**：那是更早的老数据，chat 自己也没显示过，迁进来等于凭空冒出一批用户不认识的会话。
 - 不迁子会话？—— **迁**。`parent_id` 非空的 task 子会话跟着父会话走（insight 列表本就不加 roots 过滤，见 SPEC-INS-013）；但它们的 agent 通常不是 `octo_ai`，因此实际上不会被上面的条件选中，无需特殊处理。
 
-### 3.3 事务与幂等
+### 3.3 执行顺序、事务与幂等
 
-- 整个迁移（备份 → UPDATE）跑在**单个事务**里，任一步失败整体回滚，数据保持迁移前状态。
-- 幂等：迁完再点，`WHERE agent = 'octo_ai'` 命中 0 条 → toast「没有需要迁移的 Chat 历史会话」，不报错。
+**最高原则（用户明确要求）：对用户数据的操作务求稳妥，宁可中断也绝不造成不可逆的数据丢失。** 任何一步不确定就**中止并明确报错**，不静默继续、不"尽力而为"。
+
+执行顺序（**备份不能与 UPDATE 同处一个事务**，见 §5.2：`VACUUM INTO` 不允许在事务内执行）：
+
+1. **解析目标 project**（目录 → project_id）。失败 → 中止，未动任何数据。
+2. **备份**（`VACUUM INTO`）→ **校验备份**（§5.2.1）。任一失败 → 中止，未动任何数据。
+3. **开事务 → UPDATE → 提交**。失败 → 回滚，数据保持迁移前状态，备份文件留着无害。
+
+**本迁移天然不具备"丢数据"的能力，这是最强的一层保障，实现时不要破坏它**：
+
+- 只有 `UPDATE`，**没有任何 `DELETE` / `DROP`**；
+- 只写 `agent` / `directory` / `project_id` 三列，**不碰 `title` / `time_*` / 消息表 / parts 表**；
+- 即使三列全写错，对话内容仍完整躺在库里，最坏情况是"在列表里找不到"，可以再迁一次修正。
+
+幂等：迁完再点，`WHERE agent = 'octo_ai'` 命中 0 条 → toast「没有需要迁移的 Chat 历史会话」，不报错、不写库。
 
 ---
 
@@ -122,9 +150,12 @@ WHERE agent = 'octo_ai'
 统一前缀 `[octo:chat-migrate]`（新增前缀要同步 [insight-debugging.md](../../insight-debugging.md) 的日志字典）：
 
 - `preview`：`{ pending, migratable, directory }`
-- `backup`：`{ from, to, bytes }`
+- `backup`：`{ to, bytes, skipped }`（`skipped:true` = 备份已存在、按 §5.2.2 跳过）
+- `backup-verified`：`{ to, octoAiCount, expected }`（§5.2.1 三条校验的结论，**这条没出现就不该有 `run`**）
 - `run`：`{ directory, projectID, matched, migrated }`
-- `failed`（error）：`{ stage, error }`，`stage ∈ backup | resolve-project | update`
+- `failed`（error）：`{ stage, error }`，`stage ∈ resolve-project | backup | verify-backup | update`
+
+> 排查口诀：**看到 `failed` 就一定没动过数据**（`update` 阶段失败已回滚）；`backup-verified` 与 `run` 必须成对出现，只有 `backup` 没有 `backup-verified` 却出现了 `run` = 实现把校验漏了，属严重缺陷。
 
 ---
 
@@ -138,15 +169,45 @@ WHERE agent = 'octo_ai'
 
 而这次迁移的语义损失本来就极小：只改归属三字段，对话内容一字不动，chat 又本来没有目录归属（§0）。用户唯一现实的后悔场景是**目录选错了**——而这个场景的正解不是「还原」，是**再迁一次**。
 
-### 5.2 备份文件即迁移记录
+### 5.2 备份怎么做（⚠️ 不是 `copyFile`）
 
-- **迁移前把 db 文件整体复制一份**：`opencode.db` → `opencode.db.chat-migrate-bak-<时间戳>`（渠道库同理，文件名见 `storage/db.ts` 的 `getChannelPath`）。**静默执行、不暴露成 UI**，只作灾难恢复。
+**库是 WAL 模式**（`storage/db.ts`：`PRAGMA journal_mode = WAL`），所以**裸复制 `opencode.db` 是错的**：最近的写入还在 `opencode.db-wal` 里，只复制主文件会得到一份缺最新数据的快照；复制期间若有写入，产出的文件还可能内部撕裂。
+
+**用一条 SQL 即可**：
+
+```sql
+VACUUM INTO '<Global.Path.data>/opencode.db.chat-migrate-bak-<时间戳>'
+```
+
+它产出一个完整、一致、已整理的独立库文件，不必管 `-wal` / `-shm` 三件套，也不必先 checkpoint。
+**注意：`VACUUM INTO` 不能在事务内执行**，故顺序按 §3.3 —— 先备份、校验通过，再开事务 UPDATE。
+
+（渠道库文件名见 `storage/db.ts` 的 `getChannelPath`：非 latest/beta/prod 渠道是 `opencode-<渠道>.db`，备份名相应带上。）
+
+#### 5.2.1 备份校验（通过才允许往下走）
+
+「备份成功」不能只看命令没抛错。至少校验三条，任一不过就**中止迁移并明确报错**：
+
+1. 目标文件存在且大小 > 0；
+2. 能作为 SQLite 库打开；
+3. 在备份库里查 `SELECT COUNT(*) FROM session WHERE agent = 'octo_ai'`，**条数等于迁移前在当前库里数到的条数**。
+
+第 3 条同时兼作「这份备份确实含有我们要保护的那批数据」的证明。
+
+#### 5.2.2 备份文件即迁移记录
+
 - **不新建表、不加 schema**：备份库里 `agent = 'octo_ai'` 的那批 id，天然就是「哪些会话是迁过来的」这份记录。
-- **重新迁移** = 从备份库读出该 id 集合 → 在当前库里按这批 id 再写一次 `directory` + `project_id`（`agent` 已是 `octo_insight`，保持不变）。
-- **确定性规则（避免二次备份把记录冲掉）**：
-  - 备份文件名带时间戳，**不覆盖**；
-  - 「可重迁的来源」固定取**最早的那份** `chat-migrate-bak-*`（它才含 `octo_ai` 记录；第二次迁移时当前库里已经没有 `octo_ai` 了，那时的备份是空记录）。
-  - 实现上更稳的写法：**只在首次迁移时备份**（备份文件已存在就跳过），这样「最早一份」和「唯一一份」是同一个，规则无歧义。**推荐这条**。
+- **只在首次迁移时备份**：备份文件已存在就跳过（不再新建、**永不覆盖**）。这样「唯一一份」就是「迁移前那份快照」，是唯一的原始数据源，规则无歧义。
+- **永不自动删除**备份文件。清理交给用户，退场版本的发布说明里告知路径（§7）。
+
+#### 5.2.3 重新迁移的语义（写死，避免歧义）
+
+**重迁 = 按备份里的 id 集合，`UPDATE` 当前库中的同一批行**（改 `directory` + `project_id`；`agent` 已是 `octo_insight`，不变）。
+
+**不是**「从备份库把数据再导入一遍」—— 那会产生重复会话。两者结果差别很大，实现时别选错：
+
+- 按本 spec 的做法，那批会话是**整批挪走**：新目录出现，旧目录随之干净，用户**不需要手动删任何东西**。
+- 用户在错误目录下**新建的** insight 会话不在备份的 `octo_ai` 集合里，重迁**不会碰它们**（正确行为）。
 
 ### 5.3 磁盘代价（要在实现时确认）
 
@@ -157,8 +218,8 @@ WHERE agent = 'octo_ai'
 
 ### 5.4 迁错了怎么办（给用户的答案）
 
-- **目录选错** → 直接「重新迁移」，选对目录再点一次。
-- **压根不想要这批历史** → 在 insight 列表里手动删除。本功能不提供批量撤销。
+- **目录选错** → 直接「重新迁移」，选对目录再点一次。按 §5.2.3 会话是整批挪走的，**旧目录不留残余，无需手动清理**。
+- **压根不想要这批历史** → 在 insight 列表里自行删除。本功能不提供批量撤销（原始数据仍在备份库里）。
 
 ---
 
@@ -170,7 +231,8 @@ WHERE agent = 'octo_ai'
 
 | # | 场景 | 步骤 | 通过判据 |
 |---|---|---|---|
-| V1 | 迁移前不可见 | 造完数据，进 insight 列表 | 一条 chat 会话都看不到（SPEC-INS-030 §6.1 的现状） |
+| V0 | **路径 B 已撤干净**（§1.1） | 造几条 `agent='octo_ai'` 且 `directory` = 当前选中目录的会话 | insight 列表**一条都看不到**。撤之前这几条是会显示的 —— 这条专门守住撤销是否真的生效 |
+| V1 | 迁移前不可见 | 造完数据（directory 分散到 2~3 个目录），进 insight 列表 | 一条 chat 会话都看不到（SPEC-INS-030 §6.1 的现状） |
 | V2 | 预览计数 | 打开设置 → 通用 → Chat 历史会话迁移 | 显示的待迁移条数 = 库里 `agent='octo_ai'` 的条数，**与 directory 无关**（跨目录的也算上） |
 | V3 | 默认目录 | 打开该设置项 | 文件夹选择器默认填当前全局选中目录；点「选择…」能改 |
 | V4 | **迁移生效** | 选一个目录 → 开始迁移 | toast 报出条数；切到该目录的 insight 列表，**全部** chat 会话可见、按更新时间倒序 |
@@ -179,8 +241,11 @@ WHERE agent = 'octo_ai'
 | V7 | 文件面板空态 | 同 V6，看文件管理 | 空态，不报错（chat 本来就没有 `.octo` 布局） |
 | V8 | 幂等 | 再点一次迁移 | toast「没有需要迁移的 Chat 历史会话」，不报错、数据不变 |
 | V9 | **重新迁移** | 换一个目录点「重新迁移」 | 同一批会话出现在新目录；旧目录列表里不再有它们 |
-| V10 | 备份存在且只备一次 | 看数据目录 | 有且仅有一个 `chat-migrate-bak-*` 文件（第二次迁移不再新增）；`[octo:chat-migrate] backup` 记录了大小 |
+| V10 | 备份存在且只备一次 | 看数据目录 | 有且仅有一个 `chat-migrate-bak-*` 文件（第二次迁移不再新增、永不覆盖）；`[octo:chat-migrate] backup` 记录了大小 |
+| V10.1 | **备份是完整快照**（WAL 陷阱，§5.2） | 用 `sqlite3 <备份文件> "SELECT COUNT(*) FROM session WHERE agent='octo_ai'"` | 条数 = 迁移前当前库里的条数。**若用 copyFile 而非 `VACUUM INTO`，这条会偶发对不上** |
+| V10.2 | **备份校验挡得住**（§5.2.1） | 人为把备份路径指到一个不可写位置 | 迁移**中止**、明确报错；库里 `agent='octo_ai'` 条数不变（没有"备份失败但照样迁"） |
 | V11 | 失败回滚 | 传一个不存在 / 无权限的目录 | toast 明确报错；库里 `agent='octo_ai'` 条数不变（事务回滚） |
+| V11.1 | **对话内容零改动** | 迁移前后各导出一次某条会话的消息与 parts 计数 | 完全一致（本迁移只 UPDATE 三列，§3.3） |
 | V12 | 不越界 | 迁移后检查 `agent IS NULL` 的老会话 | 未被改动（§3.2） |
 | V13 | 列表自动刷新 | 迁移成功后不手动刷新页面 | insight 列表自己更新出新会话（§4.2 的事件/refetch） |
 
