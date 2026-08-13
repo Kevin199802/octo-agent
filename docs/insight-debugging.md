@@ -56,6 +56,7 @@
 | `[octo:extract]` | [packages/opencode/src/tool/extract_document.ts](../packages/opencode/src/tool/extract_document.ts) | **server 端工具**:文档→文本抽取(docx=mammoth / pdf=unpdf / xlsx=exceljs / pptx=jszip 直抽,[SPEC-INS-016](specs/infra/insight-extract-document.md);**SPEC-INS-021 §3 起支持 txt/md 直读**,过程条 title 中文「提取文档正文:xx」),gate 到 octo_insight。`ok`:path/format/chars/tokenEstimate/ms/**saved**(落盘的解析件路径,空 = 没落上)/**inlined**(是否把全文一并回灌)/pages·sheets·slides;`failed`:path/reason(`not-found`·`unsupported`·`parse-error`)/format/err;**`persist-failed`**:path/dir/err(SPEC-INS-016 v2 全量落盘写盘失败,**已降级为整篇返回**,功能不中断)。**「模型说文档内容不全 / 反复重读同一份文档」先看这三条**:`inlined:false` 说明正文只在 `saved` 那个文件里(设计如此,模型应 grep/read 取用);`saved:""` + `persist-failed` 才是真出问题(退回 v1 的字节截断行为) |
 | `[octo:kb]` | [packages/opencode/src/tool/knowledge_search.ts](../packages/opencode/src/tool/knowledge_search.ts) · [pages/insight/utils/account.ts](../packages/app/octoapp/pages/insight/utils/account.ts) | **server 端工具**:内网知识库检索(getKnowledgeVector),**SPEC-INS-030 起 gate 到 octo_insight**(原 chat 的 octo_ai)。另有一条 `account missing` 出在客户端 DevTools(发送时取不到工号)。spec 见 [specs/agents/insight-knowledge-search.md](specs/agents/insight-knowledge-search.md),旧接口细节见 [chat-knowledge-search.md](specs/agents/chat-knowledge-search.md) |
 | `[octo:mcp]` | [config/config.ts](../packages/opencode/src/config/config.ts) · [mcp/index.ts](../packages/opencode/src/mcp/index.ts) | **server 端**:内建 MCP(uxr-tool)生效配置 + 连接过程参数。地址由 `OCTO_UXR_MCP_URL` 控制(见 [config/builtin-mcp.ts](../packages/opencode/src/config/builtin-mcp.ts) + [specs/agents/mcp-contract.md §MCP server 地址配置](docs/specs/agents/mcp-contract.md)) |
+| `[octo:chat-migrate]` | [session/session-chat-migration.ts](../packages/opencode/src/session/session-chat-migration.ts) · [httpapi/handlers/insight.ts](../packages/opencode/src/server/routes/instance/httpapi/handlers/insight.ts) | **server 端**:设置 → 通用里的 Chat 历史会话迁移([SPEC-INS-031](specs/infra/insight-chat-session-migration.md),**临时功能**,退场时整组一起删)。裸 `console.log`,跟随 sidecar stdout。见下 §1.6.2 |
 
 ### 0.3 server 端日志怎么读取
 
@@ -306,6 +307,30 @@ grep -E "\[octo:(mcp|kb|inject|extract)\]" "$DIR/$(ls -t "$DIR" | head -1)"
 | `[octo:worktree] download-resource failed` | error(**进 main.log**) | 「另存为/下载原件」下载失败(`download-resource`),字段语义同上。 | `url`、`reason` 或 `status`+`statusText` |
 | `[octo:worktree] materialize-rejected` | error(**进 main.log**) | **SPEC-INS-026 §4.1**:产物文件名不合法(含 `/` `\` `NUL`、或名为 `.`/`..`),**拒绝落盘且不静默改名**。与 `result-materialize-failed`(网络类,可重试)不同,这条重试无用;渲染端据 message 前缀 `[octo:name-rejected]` 识别并 toast。([desktop/src/main/landing-name.ts](../packages/desktop/src/main/landing-name.ts)) | `url`、`filename`、`sessionId`、`reason` |
 | `[octo:worktree] upload-name-rejected` | error(**进 main.log**) | 同上,发生在**上传方向**(`copy-file-to-worktree`,附件拷进 `.octo/tmps/`)。 | `srcPath`、`filename`、`reason` |
+
+### 1.6.2 `[octo:chat-migrate]` — Chat 历史会话迁移(SPEC-INS-031,server 端)
+
+设置 → 通用 → 「Chat 历史会话迁移」触发的一次性搬家:把 chat 历史(`agent='octo_ai'`)的**归属三列**改成 insight 的(`agent` / `directory` / `project_id`)。**临时功能**,迁移潮过去后整组下线。裸 `console.log`,跟随 sidecar stdout(落点同 §0.3)。
+
+> **对话内容一个字都不会被这套代码碰到**:只有 `UPDATE` 那三列,没有任何 `DELETE`/`DROP`,不碰 message / part 表。所以最坏情况是「列表里找不到」,再迁一次即可修正。
+
+| 日志 | 级别 | 时机 / 含义 | 关键字段 |
+|---|---|---|---|
+| `[octo:chat-migrate] preview` | log | 进设置页查一次,驱动按钮文案(`pending=0` 且 `migratable>0` → 按钮显示「重新迁移」)。 | `pending`(库里还没迁的条数,**与 directory 无关**)、`migratable`(备份里可重迁的条数)、`directory` |
+| `[octo:chat-migrate] backup` | log | 迁移前整库备份(`VACUUM INTO`,**不是 copyFile**——库是 WAL 模式,裸复制会得到缺最新数据的快照)。`skipped:true` = 备份已存在,**永不覆盖、永不自动删**。 | `to`(备份路径)、`bytes`(库大小)、`skipped` |
+| `[octo:chat-migrate] backup-verified` | log | 备份三条校验通过(存在且非空 / 能作为 SQLite 打开 / 里面 `octo_ai` 条数 == 迁移前当前库的条数)。`expected:null` = 复用已有备份,只校验可读且含数据,不比对条数。 | `to`、`octoAiCount`、`expected` |
+| `[octo:chat-migrate] run` | log | 事务 UPDATE 提交成功。`migrated:0` + `matched:0` = 没有可迁的,属正常(UI 出「没有需要迁移的 Chat 历史会话」)。 | `directory`、`projectID`、`matched`、`migrated` |
+| `[octo:chat-migrate] published` | log | 迁移后补发的 `session.updated` 事件条数(直接 UPDATE 不经 session 服务、不会自动发事件,列表靠它自刷新)。 | `events` |
+| `[octo:chat-migrate] failed` | error | **中止**,数据未变。`stage` 指出停在哪一步。 | `stage` ∈ `resolve-project`｜`backup`｜`verify-backup`｜`update`、`error` |
+| `[octo:chat-migrate] publish-failed` | error | 事件没发出去,**迁移本身已成功**——现象只是列表要手动刷一下。 | `error` |
+
+**排查口诀**:
+
+- **看到 `failed` 就一定没动过数据**:前三个 stage 都在 UPDATE 之前;`update` 阶段失败已整体回滚。
+- **`backup-verified` 与 `run` 必须成对出现**。只有 `backup` 没有 `backup-verified` 却出现了 `run` = 实现把校验漏了,属严重缺陷。
+- **「提示迁移成功 N 条,但列表里一条没有」** → 看 `run` 的 `projectID` 是不是目标目录解析出来的那个。列表按 `project_id` **和** `directory` 同时过滤,只改 directory 会静默失败(这是本功能最隐蔽的坑)。
+- **一条 `[octo:chat-migrate]` 都没有** = 请求没打到 server(接口走的是类型化 Effect HttpApi 的 `insight` 分组;若误加成 Hono 路由,现象是新接口 404 且**重启无用**,见 [hono-vs-effect-httpapi-routing.md](learning/hono-vs-effect-httpapi-routing.md))。
+- **迁错目录了** → 直接「重新迁移」选对目录再点一次:会话是**整批挪走**的,旧目录不留残余,不需要手动删。原始数据始终在 `backup` 那条日志记的备份文件里。
 
 ### 1.7 其他前缀(出场较少)
 
