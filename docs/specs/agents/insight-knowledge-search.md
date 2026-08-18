@@ -150,6 +150,9 @@
 - 引用 `[[n]](url)` → 原生 markdown 链接，正常。底部「引用 N 篇」列表丢失（那是 message-timeline 注入），可接受降级。
 - 残留：```html fence 仍被自由文本嗅探（路径 B，指 output-renderers 的嗅探路径，与本节的迁移路径 B 无关）做成预览卡（md 表格嗅探 2026-06 已移除）——但**渲成卡片不丢原文**，按底线可接受，**不加"外来会话朴素模式"特殊闸**。
 - **底线验证（迁移功能落地前必做）**：拿一条真实 chat 会话在 insight-turn 下跑一遍，确认 GenericTool 兜底对 `octo_ai` 的 bash/edit part **不抛错**。该验证随 [SPEC-INS-031](../infra/insight-chat-session-migration.md) 一起做（迁移前 chat 历史在 insight 里根本打不开，无从验起）。
+- **图片附件：本评估当年漏了这一类，2026-08-18 内网实测暴露并修复。** 现象是迁移过来的对话里每张图画两遍（2 张图显示成 4 个缩略图）。成因是**两层都在渲染同一批 FilePart**：insight-turn 自己那层不看 url 形态、两种都画；上游 `Message` 则只渲染 `attached()` 的 part，判据是 `url.startsWith("data:")`（`ui/components/message-file.ts`）。insight 自己发的图走 S3（`https`）命不中上游那条，两层长期相安无事；而 **chat 时代的图是内联 base64**（`data:` URL），迁进来后两层同时命中。
+  修法：由 insight-turn 统一接管，并接上与上游同一个 `ImagePreview` 弹窗（点击可放大，交互与上游等价）；`octo-tokens.css` 压掉上游的 `[data-slot="user-message-attachment"][data-type="image"]`。**只压 image 这一支** —— `data-type="file"` 的非图片附件仍归上游渲染，因为 chat 数据里没有 insight 的 `[附件]` synthetic 清单，压过头会让那些文档附件彻底消失。验证条目见 [SPEC-INS-031 §6.1 V6.1](../infra/insight-chat-session-migration.md)。
+- **教训**：这份评估当年只过了正文与工具调用，没有逐类 part 过一遍。判断「外来会话在 insight 下渲染是否兼容」，要按 part 类型逐个走（text / tool / file / resource_link），而不是只看正文能不能渲染出来 —— 附件类恰恰是两套实现最容易各写一遍的地方。
 
 ### 6.1 结论（2026-08-12 定案）：走显式迁移，不做读时合并
 
