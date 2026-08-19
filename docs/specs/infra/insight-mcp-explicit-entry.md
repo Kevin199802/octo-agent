@@ -74,7 +74,7 @@ MCP 解析(另一团队维护)在内网排队严重;insight「标准 Agent 化�
 
 | 方案 | 机制 | 结论 |
 |---|---|---|
-| **A. turn 级动态 gate** | 工具白名单保留 MCP 工具,但组请求时按「本 turn 是否 chip 注入」动态决定是否下发给模型 | **✓ 已落地(2026-07-06)**:非 chip turn 模型根本看不到 MCP 工具,误触发为 0。**实现落点(调研结论)**:opencode **上游原生**支持 per-message `tools: Record<string, boolean>` —— promptAsync 入参存到 user message(`lastUser.tools`),每 turn 组工具集时 [session/llm.ts resolveTools](../../../packages/opencode/src/session/llm.ts) 按 `user.tools[key] !== false` 过滤(octo_studio 的图像模式已用同机制),**零上游改动**。客户端每次发送都带 gate(`buildToolGate`):非 chip turn 5 个业务工具全 `false`,chip turn 只放行选中那一个;`get_task_result`/`stop_task` 不在 gate 内(查询/终止发生在后续非 chip turn,须常驻)。副作用即兜底:服务端 `prompt()` 会把 tools 转成 session.permission 持久化,某 turn 漏传时上一轮的 deny 仍隐藏工具 |
+| **A. turn 级动态 gate** | 工具白名单保留 MCP 工具,但组请求时按「本 turn 是否 chip 注入」动态决定是否下发给模型 | **✓ 已落地(2026-07-06)**:非 chip turn 模型根本看不到 MCP 工具,误触发为 0。**实现落点(调研结论)**:opencode **上游原生**支持 per-message `tools: Record<string, boolean>` —— promptAsync 入参存到 user message(`lastUser.tools`),每 turn 组工具集时 [session/llm.ts resolveTools](../../../packages/opencode/src/session/llm.ts) 按 `user.tools[key] !== false` 过滤(octo_studio 的图像模式已用同机制),**零上游改动**。客户端每次发送都带 gate(`buildToolGate`):非 chip turn 5 个业务工具全 `false`,chip turn 只放行选中那一个;`get_task_result`/`stop_task` 不在 gate 内(查询/终止发生在后续非 chip turn,须常驻)。chip turn 另关 `task`/`bash`/`webfetch`(§8-8 逃生口)与 `extract_document`(§8-9:MCP 只收文件名、服务端自解析,本地正文零贡献纯占上下文)。副作用即兜底:服务端 `prompt()` 会把 tools 转成 session.permission 持久化,某 turn 漏传时上一轮的 deny 仍隐藏工具 |
 | B. 提示词层禁用 | 白名单保留,常驻提示词删除 MCP 引导、chip 模板内授权 | 不需要:A 已落地(常驻提示词删 MCP 段落 + chip 引导句照做,作为 A 的配套而非替代) |
 
 ## 4. 系统提示词删减
@@ -136,6 +136,34 @@ MCP 解析(另一团队维护)在内网排队严重;insight「标准 Agent 化�
 6. **chip UI**(对齐设计稿):触发钮「研究工具 ▾」位于模型选择器右侧,激活后替换为高亮胶囊「<功能> ×」;菜单经 Portal 挂 body + fixed 定位——chip 在输入卡片内,卡片 `overflow-hidden` 会裁掉就地渲染的菜单(初版 bug)。
 7. **埋点命名**(§5 对应):`mcp-chip-open` / `mcp-chip-select`(功能 + fileCount + 待发送附件字节估算 tokens;历史轮文件客户端拿不到大小,精确值以 `[octo:extract]` 为准)/ `mcp-chip-clear` / `message-send.extend.mcpFunction` / `mcp-chip-result`(turn 完成后对账是否调用、成败;`not-called` **不必然是失败**——调用与否归模型判断,命中率结论交内网评测结合用户复述行为看)/ `extract-failure`(reason 分布)。原 `preset-click` 事件随胶囊行下线。
 8. **chip turn 关闭即兴逃生口 + 调用纪律**(2026-07-07,内网验证教训):MCP 连接故障(见下方验证记录)导致被钉死的工具缺失时,弱模型即兴发挥——委托 task 子代理、用 shell 裸调 MCP HTTP、**编造 task_id**。硬约束:chip turn 的 gate 顺手下发 `task: false`、`bash: false`(该 turn 职责就是一次直接调用,这俩没有正当用途;非 chip turn 保留);软约束:模板增设"调用纪律"四条(必须直接调用,禁止任何模拟途径 / 工具不可用时如实告知用户、**不要再让用户点按钮** / task_id 只能来自工具真实返回,绝不编造 / [MCP声明] 是机器段落不得向用户复述)。同时改写常驻提示词 MCP 段落为「工具按需出现、出现时由你调用」——原措辞"由用户点击按钮触发、你不能代调"会让模型在工具缺失时把已经点过按钮的用户再往按钮上引。
+
+9. **chip turn 关掉 `extract_document`**(2026-08-19,内网上下文超限):内网反馈「做观点提取时还会同时触发 `extract_document`,多文件直接超限」。**MCP 调用根本不需要正文**——模型只填文件名,octo-upload-inject 在 `tool.execute.before` 换成 S3 URL,解析由内网服务端自己做;本地抽出来的正文对这次调用**零贡献**,纯上下文负担,且随会话历史累积。而常驻提示词「解析材料统一入口 = `extract_document`」「office 一律用它」的引导正把模型往这条路上推,chip turn 遂出现「先逐个抽文档、再调 MCP」。体量对得上:[SPEC-INS-016](insight-extract-document.md) §4.1 的内联分支(≤~49KB ≈ 1.6 万汉字,**一份普通访谈稿正好落在这档**)是全文回灌,10 份 ≈17 万 token 超 128K 窗口即 overflow。
+   - **落点**:`buildToolGate` 的 chip 分支加 `gate["extract_document"] = false`,与 bash/webfetch 同处(turn 级 gate 机制不变,零服务端改动)。
+   - **只关 chip turn**:MCP 是异步长任务,提交完即结束本轮;后续轮次用户问「稿子里 XX 怎么说的」、或走本地线(SPEC-INS-018)分析时,`extract_document` 仍是 office 文件的**唯一**读取入口(`read` 对二进制直接报错),全局摘等于砍掉本地解析线。单测两条都断言了(chip turn 关、非 chip turn **不下发**)。
+   - **配套模板纪律**(必须,有先例):工具从列表里消失而提示词仍在引导它,正是第 8 条那次事故的形态(MCP 工具缺失 → 弱模型委托 task / shell 裸调 / 编造 task_id)。故「调用纪律」补一条:**不要先去读文件正文**——工具只需要文件名、材料由内网服务端自行解析,读正文对调用无帮助只挤占上下文(`extract_document` 本轮已禁用);需要分桶时按文件名判断或问用户,不要靠读内容判断(与 §2.1「分桶归模型」一致,不新增约束)。
+   - **顺带影响**:该 gate 也消掉了 chip turn 里 txt/md 被重复抽取的那一份;但**非 chip turn 的 txt/md 双份问题不在此列**,见 [SPEC-INS-021 §3.1](insight-toolset-convergence.md)(提示词判据订正)及其中记录的死角——txt/md 的 FilePart 内联不是工具调用,gate 够不着。
+   - **验证**见 §9。
+
+## 9. 验证(§8-9 chip turn 关闭 extract_document)
+
+> 判据统一看 `[octo:extract]` 日志(裸 console.log,跟随 sidecar stdout;落点见 [insight-debugging.md](../../insight-debugging.md) 及其 §「注意上传在 sidecar」一段:**成品包在 `main.log`**、`run dev` 打在外部 server 终端)。**改的是服务端提示词与客户端 gate,验证前必须重启 opencode server / Electron 进程**,否则模型拿的是旧提示词、客户端是旧 bundle。
+
+**自动化(已通过)**:`mcp-trigger.test.ts` 两条——chip turn 断言 `extract_document === false`;非 chip turn 断言 **`"extract_document" in gate === false`**(不下发,后者是真正的防回归点:挪出 `if` 就会让 office 全局读不了)。insight 单测 268 pass,两包 `tsgo` 干净;`octo_insight.md` / `.txt` 已 diff 核对一致。
+
+**外网端到端**(不依赖内网 MCP 可用——外网 MCP 连不上是预期,本项要看的是**调用之前**的行为):
+
+1. 新建 insight 会话 → 上传一份 docx → 选「研究工具 · 观点解析」→ 发送。
+   - **期望:全程不出现任何 `[octo:extract]`**。模型应直接尝试调 MCP 工具,失败后按调用纪律回「内网 MCP 连接暂不可用…」。
+   - **失败形态**:出现 `[octo:extract] ok` = gate 没生效(先查是否重启、bundle 是否更新)。
+2. **对照组(防误伤本地线,必做)**:同一会话取消 chip → 让模型分析那份 docx → `[octo:extract] ok` 正常出现、模型读到正文。证明只关了 chip 那一轮。
+3. **模板纪律生效**:第 1 步里模型不应说「我先读一下文档内容」或试图用 read/glob 绕道取正文。
+
+**内网验证**(真依赖内网 MCP 与弱模型):
+
+1. **超限回归(本次的直接目标)**:传一叠真实逐字稿(复现原问题的那个量级)→ 选研究工具 → 发送。期望:无 `[octo:extract]`、模型一次直接调用拿到 task_id、**不再触发上下文超限 / auto compaction**。
+2. **只关那一轮**:上一步拿到 task_id 后,在后续非 chip turn 让模型读其中某份 docx → `extract_document` 正常可用。这条不过 = 关过头了,本地解析线被误伤。
+3. **弱模型遵从度**:第 1 步重点观察模型有没有绕道(read/glob 取正文、编造已读到的内容)。若出现,是模板纪律措辞问题,回本条记录。
+4. 日志速查(内网 Windows / PowerShell):`Select-String -Path <main.log> -Pattern 'octo:extract'`;本地 Mac:`grep 'octo:extract' <main.log>`。
 
 **验证**:两包 typecheck 通过;insight 既有单测 100 通过;插件冒烟 11 例通过(字段校验各失败路径 / 声明工具不匹配回落 / 非 chip 路径不变 / mock 上传服务正向全链路,含 user_prompt 矫正、file_names 注入、模型抄完整路径的三键命中)。
 

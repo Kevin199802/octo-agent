@@ -18,7 +18,7 @@
 |---|---|---|
 | 注册表条件 gate | `tool/registry.ts` tools()(~L308–330;builtin 全集 ~L236–258) | 仅两条:extract_document 只给 insight、knowledge_search 只给 octo_ai |
 | agent 权限 | `agent/agent.ts` octo_insight(~L239–250);defaults(~L109–127)为 `"*": allow` | **零裁剪**(对比 octo_ai 显式 deny 了 task/webfetch/生图等) |
-| per-message tools gate | app 端 `buildToolGate()`(mcp-trigger.ts)→ session.permission(session/prompt.ts ~L1406)→ `llm.ts` resolveTools(~L448) | 仅 5 个 MCP 业务工具(chip turn 顺带关 task/bash) |
+| per-message tools gate | app 端 `buildToolGate()`(mcp-trigger.ts)→ session.permission(session/prompt.ts ~L1406)→ `llm.ts` resolveTools(~L448) | 仅 5 个 MCP 业务工具 + task 恒关(chip turn 另关 bash/webfetch/extract_document,见 SPEC-INS-017 §8-8·§8-9) |
 
 所以 insight 模型现在实际看得到:**shell、read、glob、grep、edit、write、task、webfetch、todowrite、skill、两个生图工具、extract_document** + MCP get_task_result/stop_task。
 
@@ -78,6 +78,52 @@ Permission deny 的语义(llm.ts resolveTools + Permission.disabled):**既从模
 - **office 禁走 read**:常驻提示词补一条硬规则「docx/xlsx/pdf/pptx 一律用 extract_document,绝不要用 read 读它们(二进制不可读)」。
 - **扩展支持 txt/md**:extract_document 增加 txt/md 直读(readFile 即得,~15 行),使"解析源文件"有统一入口——收益:① 测量头(字数/token 估算)对所有解析源一致生效(018 §6 护栏的信号源);② 018 若落段落锚点,全格式统一;③ 提示词规则从三条(office→extract / 上传 txt→已内联 / 贴路径 txt→read)简化为两条(解析材料→extract_document;回读产物/Truncate 落盘→read)。上传 txt/md 的 FilePart 内联路(ADR-015 路由①)**不动**——已在上下文里的不需要工具。
 - read 的定位收窄为:产物回读、Truncate 落盘文件回读、按行定点检查(它有行号/offset/limit,extract 没有)。
+
+### 3.1 订正(2026-08-19):txt/md「已内联禁抽」要写成硬规则,不能留给模型自判
+
+**现象**(内网):上传多个 txt 逐字稿后模型逐个调 `extract_document`,直接撑爆上下文。
+
+**根因是上一条自己埋的**。§3 把提示词「简化为两条规则」时,原本三条里的「上传 txt→已内联、不用调」那条边界消失了,落到提示词里变成一句软句子:
+
+> 上传的 txt / md 正文已自动内联进上下文,直接读即可、无需调工具;**若正文不在上下文里**(如用户只贴了路径),同样用 `extract_document`。
+
+这要求模型自问「这份正文在不在我的上下文里」——**它答不了这道题**:路由 ① 的 FilePart 内联正文进上下文后没有文件名边界标记,多文件时更认不出哪段正文对应 `[附件]` 清单里哪一条。而它眼前是清单里的路径 + 「解析材料统一入口 = extract_document」+ 「支持 …/txt/md」,保险起见调工具是它能做的最合理选择。
+
+**后果比 office 更糟**:office 只有工具回灌那一份,txt/md 是**内联一份 + 工具回灌一份**,同一份正文在上下文里存在两份(小文件走内联分支是完整正文),N 个文件即 2N 份。
+
+**订正**:判据从「正文在不在我上下文里」(模型无从判断)换成「**这个文件在不在 `[附件]` 区块里**」(模型看得见的确定性事实)。常驻提示词改为两条硬规则:
+
+- `[附件]` 区块里列出的 txt / md → **禁止**调 `extract_document`(正文已内联,再抽即双份);
+- txt / md 只有一种情况要用它:用户在消息里直接给出路径、且该文件**不在**任何 `[附件]` 区块里。
+
+**能力本身不撤**:§3 加 txt/md 直读是为「用户只贴了路径」的场景,那个场景依然成立且无替代;要挡的只是「已经内联了还抽一遍」。
+
+**本次只做提示词层(软约束),不做机制层**。评审时提过在 [octo-upload-inject](../../../UXAI/packages/opencode/src/agent/octo-upload-inject.ts) 的 `tool.execute.before` 硬拦(该插件已在拦所有工具、已会解析 `[附件]` 清单,加一条「txt/md 且命中当前清单 → 响亮失败回灌『正文已在你的上下文中』」即可),**决定先不做**:软约束失效的后果只是回到现状,不会静默错文件、不丢数据,方向安全;先看一轮数据再定是否加机制。
+
+**观测手段(判断软约束够不够的依据)**:server 日志 `[octo:extract] ok` 带 `format` 字段——**出现 `format: "txt"` / `"md"` 且该文件在 `[附件]` 区块里,即为软约束漏了**。内网跑一轮 grep 即可,零成本。漏的比例不可忽略时再上插件硬拦。
+
+**已知死角(本订正与 SPEC-INS-017 的 gate 都够不着)**:txt/md 的内联是 FilePart、**不是工具调用**。用户传一叠 txt 逐字稿走 MCP 解析时,正文**必然**全份进上下文,而 MCP 根本不需要正文(服务端自解析)。若内网逐字稿多为 txt,MCP 场景的超限有一部分来自这里,提示词与 tools gate 均无从干预——需要动客户端的 FilePart 组装策略,不在本次范围,待数据。
+
+#### 3.1.1 验证
+
+> 本条是**纯提示词改动**,没有机制兜底 —— 所以验证的重点不是"能不能工作",而是**模型遵从度**,且必须在内网那档模型上看(强模型遵从不代表弱模型遵从,§8 已有同款教训)。判据看 `[octo:extract]` 的 `format` 字段。**改的是服务端提示词,验证前必须重启 opencode server / Electron 进程。**
+
+**自动化**:无新增可测逻辑(提示词文本不进单测);`octo_insight.md` / `.txt` 已 diff 核对一致(除 .md 顶部注释)。
+
+**外网端到端**:
+
+1. **禁抽生效**:新建会话 → 上传 2–3 个 txt(每个几千字)→ 让模型总结。期望:**不出现 `format:"txt"` 的 `[octo:extract]`**,模型直接基于已内联正文作答。md 同样抽一个跑。
+   - 失败形态:出现了 → 软约束漏(本条的核心风险,预期会有一定漏网率)。
+2. **贴路径场景没被误杀(必做,防改过头)**:准备一个**不上传**的 txt(放会话目录外)→ 在消息里贴它的绝对路径 → 期望 `extract_document` 正常调用并读到正文。这条不过 = 把 §3 加 txt/md 直读的初衷一起废了。
+3. **边界**:同一文件既在 `[附件]` 又被用户在消息里贴了路径 → 按硬规则应**不抽**(判据是"在不在 `[附件]`",与用户是否贴了路径无关)。
+
+**内网验证**(弱模型遵从度 —— 本条的真正验收):
+
+1. 复现原问题的场景:传多个 txt 逐字稿 → 让模型做分析。期望不再逐个抽取、不再超限。
+2. **漏网率统计(决定要不要上插件硬拦)**:跑若干轮后统计日志里 `format:"txt"`/`"md"` 且该文件在 `[附件]` 区块内的 `[octo:extract]` 条数。
+   - 内网 Windows / PowerShell:`Select-String -Path <main.log> -Pattern 'octo:extract' | Select-String -Pattern '"txt"|"md"'`
+   - 本地 Mac:`grep 'octo:extract' <main.log> | grep -E '"txt"|"md"'`
+   - **漏网率不可忽略 → 按 §3.1 的方案上插件硬拦**;接近 0 → 软约束够,维持现状。这是本条唯一的立项依据,不靠感觉判断。
 
 ## 4. 过程展示人话化(能力 vs 工具的"过程"层)
 
