@@ -55,6 +55,7 @@ MCP 解析(另一团队维护)在内网排队严重;insight「标准 Agent 化�
 - **chip 注入模板附带机器可读声明段**(独立 synthetic text part,用户不可见,与 `[附件]` 清单同类机制):声明本 turn 的**目标工具**、**是否要求 outline 字段**(`outline_required`,多角色工具)与**用户当轮原文**(`user_prompt`),由客户端生成。
 - **octo-upload-inject 插件在 `tool.execute.before` 读取本 turn 的 chip 声明**:若 `input.tool` 与声明匹配 →
   - **校验**:`download_links` 必须是非空文件名数组、`outline_required` 时 `outline_file_path` 必填;每个引用必须**精确命中**清单(三键之一)。任何 miss / 缺字段 / 空列表 → 抛错,错误信息带可用文件清单,回灌模型重填或转而向用户索取材料;
+  - **清单来源 = 会话里的全部文件清单区块**(2026-08-20 修正):`[附件]`(SPEC-INS-015,附件栏上传)**与** `[引用文件]`(SPEC-INS-023,`@` 引用的会话文件,含 agent 自己生成的产物)。两者行格式相同、对本插件语义等价,插件 `MANIFEST_HEADERS` 同时收录。此前只认 `[附件]`,导致「先对话生成 md → `@` 它 → 选研究工具」必死(详见 SPEC-INS-023 §8)。**白名单语义不变**:仍只认清单内的文件、仍精确匹配、miss 仍响亮失败;修的是「`@` 这条入口从来没被登记进白名单」的契约漏配。
   - **替换与注入**:命中的引用按需上传、换成 URL;确定性注入 `download_file_names` / `outline_file_name`(= 命中文件的磁盘落地名,与 URL 数组下标对齐;mcp-contract 2026-07-03 提案字段,可选、UXR 未消费前无害)与 `user_prompt`(声明原文,模型转述一律矫正)。
 - **与 ADR-014 handle 机制的本质区别**(handle 曾因「不想让用户看到」被 SPEC-INS-015 撤掉):handle 要**经模型复述**、且可能漏进用户可见对话;chip 声明是 synthetic part,模型只携带不复述,用户不可见,插件直接读。
 - 非 chip turn 无声明,插件行为不变(按 §3,非 chip turn 本不应出现 MCP 调用)。

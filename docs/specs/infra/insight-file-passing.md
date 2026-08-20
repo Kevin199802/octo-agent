@@ -24,13 +24,16 @@
 
 | # | 文件类 | 用途 | 载体 | 传 S3 | 上传时机 |
 |---|---|---|---|---|---|
-| ① | txt / md / 代码 | 模型**读** | `FilePart(file://…/sources/<file>, text/plain)`；opencode 组 prompt 时自动调 Read 把正文内联 | 否 | — |
+| ① | **非 ②③ 的一切文本类**（md / txt / csv / json / log / html / 无扩展名…） | 模型**读** | `FilePart(file://…, text/plain)`；opencode 组 prompt 时自动调 Read 把正文内联（2000 行 / 50KB 上限，超出附 `offset` 续读提示） | 否 | — |
 | ② | docx / xlsx / pdf / pptx | 模型**读** | 附件清单给本地路径（§2）+ 模型调 `extract_document(path)` 读出文本 | 否 | — |
 | ③ | 图片 | 模型**看** | `FilePart{ type:file, mime:image/*, url:S3 }` 走 vision | **是** | **change 即传**（选/拖/粘当下） |
 | ④ | 任意 | 喂 **MCP 工具** | 模型在工具参数里填**文件名** → 插件按需上传换 url（§3） | 是 | **调 MCP 工具那一刻** |
 
 要点：
 
+- **① 的判定是反向排除，不是正向白名单**（2026-08-20 修订）：上游 `read` 支持的是「任何非二进制文本」（[tool/read.ts](../../../packages/opencode/src/tool/read.ts) `isBinaryFile` = 二进制扩展名黑名单 + 内容嗅探），不是固定清单。客户端 `isTextInlineFile` 因此只排掉**有专门通道的**格式（②的 office/pdf、③的图片），其余一律交给服务端 `read` 判定。**好处**：上传格式放开（如 json / csv 进 `ALLOWED_EXT`）时无需再同步一次内联清单，判定口径与 opencode 原生一致。排除集之外若真是二进制（如 `@` 一个 .zip 产物），`read` 返回 `Cannot read binary file` 进上下文——响亮失败，不做客户端预判（嗅探要读文件字节，是服务端的活）。
+  - ~~原 `TEXT_INLINE_EXT = {txt, md}`~~：正向白名单，恰好等于当时 `ALLOWED_EXT` 里的全部文本类，于是把「模型能读什么」和「附件栏允许传什么」两件无关的事耦合在了一起。
+- **① 的来源含附件栏文件 + `@` 引用的会话文件**（2026-08-20，SPEC-INS-023 §7.2）：两个入口合并后传入同一入参，按 path 去重（同一文件既是本轮附件又被 `@` 引用时只内联一次）。`@` 的**图片**仍不走 ③——vision 需要 S3 url，而 `@` 的本地图片没有；目前只在 `[引用文件]` 清单里给路径，需要时另议。
 - **载体各自独立、可叠加**：一个 docx 可同时被 ②（extract_document 读）和 ④（MCP 分析）使用，两条互不排斥。
 - **图片只走 ③**：不进附件清单、不进 ④。图片对"本地读正文 / 喂 MCP"无意义，模型只能"看"——给它本地路径或 handle 它理解不了，必须是它能 vision 的 url。
 - ②的 `extract_document` 工具**本体见 [SPEC-INS-016](insight-extract-document.md)**（已实现：docx=mammoth / pdf=unpdf / xlsx=exceljs）；本 spec 只负责接线（agent 工具表登记 + 提示词路由 office 走它）。
@@ -49,7 +52,8 @@
 
 - **用户照样看得到文件**：这段 synthetic 文本不作为**裸文字**渲染进气泡（否则气泡里是一长串本地路径，丑且无意义）——`UserMessageDisplay` 过滤 synthetic text；但 **InsightTurn 解析这段、渲染成文件卡片**，用户在对话里看到的就是那些卡片（与今天一致）。`toModelMessages` 不过滤 synthetic → 模型也拿得到清单。
 - **定性**：这是「当前可用文件 + 本地绝对路径」的清单，服务 ②（extract_document 拿路径读）与 ④（MCP 引用）。**它不是"MCP 块"；注入它不触发任何上传。**
-- txt/md 另走 ①（FilePart 内联正文给模型读）；清单里仍列它们，供模型在 ④ 里按文件名引用。
+- 文本类另走 ①（FilePart 内联正文给模型读）；清单里仍列它们，供模型在 ④ 里按文件名引用。
+- **清单区块有两个头，对 ④ 完全等价**（2026-08-20）：`[附件]`（附件栏上传）与 `[引用文件]`（SPEC-INS-023 的 `@` 引用，含 agent 自己生成的产物）。插件 `MANIFEST_HEADERS` 两个都收——曾只认 `[附件]`，导致 `@` 来的文件无法喂 MCP（见 SPEC-INS-023 §8）。不合并成单一头的理由：session 消息持久化，旧会话里永远是 `[附件]`，双头解析注定要永久保留。
 - 图片**不进**本清单（走 ③，卡片由图片 FilePart 渲染缩略图）。
 - 格式契约与 §3 插件解析**同源**（两处独立实现，改格式需同步）。
 
