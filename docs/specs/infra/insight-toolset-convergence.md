@@ -12,7 +12,7 @@
 
 ### 0.1 octo_insight 没有工具白名单,是"全家桶"
 
-`octo_insight.md` frontmatter 里的 `tools: [task, extract_document]` **不被任何代码消费**——agent.ts 导入的是无 frontmatter 的 `octo_insight.txt` 镜像,.md 是文档虚构。工具对模型的实际可见性由三层叠加决定:
+`octo_insight.md` frontmatter 里的 `tools: [task, extract_document]` **不被任何代码消费**——agent.ts 导入的是无 frontmatter 的 `octo_insight.txt` 镜像,.md 是文档虚构。(**2026-08-18 归因订正**,见 [SPEC-INS-032](insight-subagent-dispatch.md) §3.2:结论成立,但只对**内置 agent** 成立——`octo_insight` 定义硬编码在 agent.ts,那份 .md 不在 config 扫描路径里。**config 目录下的 agent md,`tools:` 是生效的**:上游 [config/agent.ts `normalize()`](../../../packages/opencode/src/config/agent.ts) 把这个已废弃字段翻译成 `permission` 再往下传。别把本句读成「该字段全局失效」。)工具对模型的实际可见性由三层叠加决定:
 
 | 层 | 位置 | 对 insight 的实际裁剪 |
 |---|---|---|
@@ -45,6 +45,7 @@ octo_insight 常驻可见集收敛为(2026-07-11 修订:webfetch/websearch 自 d
 理由对照:
 - `write` 保留给 018 产物落盘;`edit` **2026-07-30 放开**(原归 ROADMAP D 二次生成、v1 不放):用户要编辑已生成的 md 交付物。edit 与 write 同用 `filePath`,outputs 重定向插件(`agent/octo-outputs-redirect.ts`)已同步把 edit 的相对文件名解析进会话 outputs——判据是「以 filePath 落盘产物」,write/edit 归同一集合。
 - `task` 权限层保留 allow(018 多文档分治的编排原语),但 **turn 级默认关**(2026-07-13 追加,与用户对齐):task 是内部编排原语、不是用户能力入口——用户 turn 里模型自发起子代理对用研场景零收益(token/时延/弱模型跑偏),子会话还会被点成「侧栏没有记录的对话」的观感 bug。buildToolGate 对**所有**用户 turn 下发 `task=false`;018 那类**我们编排的 turn** 由构造方显式放行。配套 UI 面:insight 内**子会话导航全拦截**(task 卡片点击 / href / 刷新保路由恢复,均校验 parentID),过程仍由 turn 内联 task 卡片透明展示(§4),不 fork 第二个对话入口——业界同类(Claude Code subagent / Manus 执行流)子任务均为内联过程块,不开独立对话;上游"点进子会话"是开发者调试入口,不该漏给研究员。
+  - ⚠️ **2026-08-18 撤销「turn 级默认关」**(见 [SPEC-INS-032](insight-subagent-dispatch.md) §5):`buildToolGate` 里那行 `task = false` 删除,task 常驻可见。本条当初的两个理由各自已有解——「弱模型跑偏」由候选收敛解决(defaults `task: { insight_reader: deny }` + octo_insight 显式 allow,模型的 task 描述里只剩一个只读文档子代理);「侧栏幽灵对话」由子代理独立 agent 名解决(侧栏按 `agent = octo_insight` 过滤,子会话天然不出现)。**本条的子会话导航全拦截保留不动**(点击 / href / 刷新恢复),作双保险。
 - `bash`(shell)**2026-07-30 放开**:interview-analysis skill 的执行步骤需要 shell。原为 2026-07-07 事故(弱模型 MCP 断连时用 shell 裸调 MCP HTTP、编造 task_id,见 §0.1)后常驻 deny;权衡后为 skill 放开**普通轮次**的 bash,接受「非 chip 轮次那条逃生口在弱模型上重新暴露」的代价(不收窄到「仅 skill 轮次」)。产物落盘错位单独靠提示词「只给文件名」硬规则收敛,不靠关 bash。
 - chip turn 的 gate 另**在关 bash 基础上增关 webfetch**(与 shell 同属 chip 轮模拟 MCP 调用的通道;webfetch 非 chip turn 不受影响)。gate 与本白名单双保险、互不替代(gate 管 turn 级动态,白名单管常驻底线)。**注**:bash 2026-07-30 放开后,chip turn 关 bash 已从「权限层已 deny 之上的冗余」升为**唯一守卫**——删 buildToolGate 那行会让研究工具轮次重新暴露 shell(mcp-trigger.ts 注释已同步)。
 - `webfetch` / `websearch` 保留(2026-07-11 与用户对齐):竞品分析是能力线既定方向,工具面按能力本体划、不按 v1 单一场景裁。可用性实测(2026-07-11 用户验证):webfetch 内网代理配置后已验证可通(setGlobalProxyFromEnv 链路);websearch 亦实测可用(注册表 gate——registry.ts ~L310 仅 opencode provider 或 `OPENCODE_ENABLE_EXA` flag——在其环境已满足)。遗留约束:内网网关对部分域名 TLS 层掐断,覆盖面问题在竞品检索正式立项时再评估数据源。
@@ -53,7 +54,7 @@ octo_insight 常驻可见集收敛为(2026-07-11 修订:webfetch/websearch 自 d
 - 生图两件(`jimeng_image_generate`=即梦 / `internel_image_generate`=内网生图)deny:octo_studio 的创作类工具,用研场景无用途;思维导图类可视化产物走文本渲染,不是文生图。
 - ⚠️ 已知取舍:registry 对 gpt 系模型用 apply_patch 替代 edit/write(registry.ts ~L324)。deny apply_patch 后 gpt 系模型在 insight 无落盘通道——当前内网 GLM / 外网 Claude 均不受影响,若将来接 gpt 系再单独处理。
 
-**实现方式**:agent.ts octo_insight 的 permission 增加 `Permission.fromConfig({ … deny … })`(与 octo_ai 同款写法,merge 顺序 defaults → 本 deny → user,用户配置仍可覆盖)。**不做** frontmatter 白名单机制(那要新造一层配置消费,收益为零)。
+**实现方式**:agent.ts octo_insight 的 permission 增加 `Permission.fromConfig({ … deny … })`(与 octo_ai 同款写法,merge 顺序 defaults → 本 deny → user,用户配置仍可覆盖)。**不做** frontmatter 白名单机制(那要新造一层配置消费,收益为零)。(**2026-08-18 部分翻案**,[SPEC-INS-032](insight-subagent-dispatch.md) §3:`extract_document` 的工具面改走**权限层声明**——defaults deny + 需要的 agent 显式 allow。这不是新造一层:`permission` 就是上游的声明式机制;而收益也不再为零——第三方 skill 团队自带 agent md 时可自助声明,不必我们改代码。`apply_patch` 因上游 `EDIT_TOOLS` 共键仍留在 registry 层,见 032 §3.4。)
 
 Permission deny 的语义(llm.ts resolveTools + Permission.disabled):**既从模型工具列表隐藏,也阻断执行**,一处配置两层效果。
 
@@ -144,7 +145,7 @@ Permission deny 的语义(llm.ts resolveTools + Permission.disabled):**既从模
 
 ## 6. 不在范围
 
-- 解析能力本体、方法论提示词、子代理、产物契约(SPEC-INS-018)
+- 解析能力本体、方法论提示词、子代理、产物契约(SPEC-INS-018;子代理分治后独立立项为 [SPEC-INS-032](insight-subagent-dispatch.md))
 - 引用锚点 / 引用校验器(018 §2,消费本 spec 的 txt/md 统一入口)
 - edit / 二次生成(ROADMAP D)
 - question dock、insight 之外其他 agent 的工具面
