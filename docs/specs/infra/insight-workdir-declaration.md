@@ -1,6 +1,6 @@
 # SPEC-INS-028：会话工作目录声明对齐（Working directory = 会话产物目录）
 
-> **状态**：草案（待实现）
+> **状态**：✅ 实现已合入 UXAI `dev`（§6 落地清单 5 项全完成 + v2 声明层预建，[PR #682](https://github.com/MyHeavenDyf/UXAI/pull/682) 已合）
 > **上游已实现**：✗（上游只有 instance 级单一 `directory`，无会话级工作目录概念；但 `experimental.chat.system.transform` hook 与 `Working directory` / `Workspace root folder` 二元语义均为上游现成物，本 spec 不新增概念）
 > **领域**：infra/insight（声明层，跨系统提示词 / 工具基准 / skill 契约）
 > **关系**：是 [SPEC-INS-026 产物身份模型](insight-artifact-identity.md) 的下一层——026 主张「身份 = 磁盘路径」，本份定义**那条路径的根由谁声明**；取代 learning [agent-output-path-and-provenance.md](../../learning/agent-output-path-and-provenance.md) §6 的第 1、4 条落法
@@ -10,7 +10,8 @@
 
 ## 修订记录
 
-- **2026-08-05 v1（本版）**：起因是接入外部 skill 后产物「随机散落在选中目录根与 outputs」。排查发现散落不随机，是**按写盘通道确定性分裂**；再往上追，根因是全系统只有一处目录声明且它指向选中目录，插件只改了行为、没改声明。2026-07-30 定的四条落法（见 learning §6）没有一条动过声明，这是一个记录在案但一直没关的口子。
+- **2026-08-21 v2（本版）**：**§3.2.3 的一半被推翻。** v1 定「声明层只是字符串、不碰磁盘，只有执行层交出默认值那一刻才建目录」，并明确否决 eager。实测证伪：模型拿到 `Working directory` 声明后会先**探测**目录在不在，而探测用的是从声明里抄来的绝对路径 / 显式 `workdir`——执行层对这两者一律早返回、不走 `ensureDir`，探测必然扑空，模型据此判定目录不可访问，转而把产物写到 `/tmp`，再次绕过重定向、落到 `outputs/` 之外。根子上是 v1 **把 `outputs/` 归错了类**（当成「用户指定的既有目录」，实为「程序为本次会话造的专属目录」），业界判据见 §3.2.3。现行规则：**声明层与执行层都建**。同步补 V4.2 验证条目。
+- **2026-08-05 v1**：起因是接入外部 skill 后产物「随机散落在选中目录根与 outputs」。排查发现散落不随机，是**按写盘通道确定性分裂**；再往上追，根因是全系统只有一处目录声明且它指向选中目录，插件只改了行为、没改声明。2026-07-30 定的四条落法（见 learning §6）没有一条动过声明，这是一个记录在案但一直没关的口子。
 
 ---
 
@@ -126,31 +127,64 @@ C 不需要发明新概念——上游 env block 本来就是两行：
 
 `read/glob/grep` 纳入是本版相对 v5 的扩大项：声明改了而它们不改，会产生新的不一致（模型按声明写下 `foo.md`，再 `read("foo.md")` 却读到选中目录根）。
 
-### 3.2.3 交出默认目录前必须 `ensureDir`
+### 3.2.3 目录存在性：**声明它，就要保证它存在**
 
-会话目录是**惰性创建**的——创建者只有上传接口（`httpapi/handlers/insight.ts`）、文件管理列表接口（`handlers/artifact.ts` 的 `ensureDir`）、以及 `write` 的 `fs.writeWithDirs`。用户没上传过文件、也没开过文件管理时，`.octo/<sid>/` 整体不存在。
+> **v2 推翻了 v1 的一半结论。** v1 定的是「只有执行层交出默认值那一刻才建，声明层只是字符串、不碰磁盘」，并明确否决了 eager。实测证伪，见下方「v1 错在哪」。现行规则是**声明层与执行层都建**。
 
-而 §3.2 把不存在的目录塞给了三个通道，表现各不相同：
+**本插件之外**，会话目录是**惰性创建**的——创建者只有上传接口（`httpapi/handlers/insight.ts`）、文件管理列表接口（`handlers/artifact.ts` 的 `ensureDir`）、以及 `write` 的 `fs.writeWithDirs`。用户没上传过文件、也没开过文件管理时，`.octo/<sid>/` 整体不存在。下面两条规则就是补这个洞。
+
+#### 规则
+
+**凡是把某个目录的名字交出去——无论是交给工具当默认参数，还是写进系统提示交给模型——都先幂等 `ensureDir` 一次。**
+
+| 层 | 时机 | 建不出来时 |
+|---|---|---|
+| **声明层** | 把 `outputs/` 写进 `Working directory` 的同一刻 | **照常改写声明**，不退回选中目录（退回等于把产物散落到项目根，正是本 spec 要修的病）；由 `write` 的 `writeWithDirs` 兜底报真实错误 |
+| **执行层** | 把默认 `workdir` / `path` 交给 bash / glob / grep 之前 | **不改默认值**，交回原生行为，别把工具引向一个不存在的目录 |
+
+两层的失败处理刻意不同：执行层有「原生行为」这个安全退路，声明层没有——声明层的退路只有「说选中目录」，而那恰恰是错的。
+
+#### 目录不存在时，各通道的表现
 
 | 通道 | 目录不存在时 |
 |---|---|
 | `bash` 的 `workdir` | spawn 直接失败（`cwd` 必须预先存在——这是它与 `write` 的本质差别） |
 | `glob` 的 `path` | `stat` 拿不到 → 不是 `"File"` → 校验放行 → ripgrep 用不存在的 cwd spawn 失败 |
 | `grep` 的 `path` | **静默搜错目录**：`grep.ts` 在 `stat` 失败时把该路径当**文件**处理，`cwd` 退化成父目录 `.octo/`，结果恒为空且不报错 |
+| **模型按声明去探测** | 模型拿到 `Working directory` 这行后，会先用 bash / read / glob 确认目录在不在。这三条探测**都带显式参数**（从声明里抄来的绝对路径），而执行层对显式 `workdir` 和绝对 `filePath` 一律早返回、不走 `ensureDir` ——于是探测扑空，模型判定目录不可访问，**转而把产物写到 `/tmp` 这类绝对临时路径**；绝对路径再次早返回，文件落到 `outputs/` 之外，文件管理面板看不到 |
 
-`read` 不受影响（文件不存在本就该报错）；`write`/`edit` 由 `writeWithDirs` 自动建父目录；声明层只是字符串，不碰磁盘。
-
-**规则：凡是把某个目录作为默认值交给工具，先幂等 `ensureDir` 一次；建不出来就不改默认值、保持原生行为。**
-
-业界判据是**谁设置工作目录、谁保证它存在**：Docker `WORKDIR` 官方明确「If the WORKDIR doesn't exist, it will be created」；CI runner（GitHub Actions / GitLab）在 spawn 步骤前 `mkdir -p` workspace；Node `child_process` 对不存在的 `cwd` 直接 ENOENT、运行时不兜底。我们改写了这些参数，就落在「设置方」这个角色上。
-
-这**仍然是惰性**——只在真正要交出去的那一刻建，用户从头到尾没跑过 bash / glob / grep 就永远不建。不采用「建会话即初始化目录」的 eager 方案：那会给每个 insight 会话落一堆空目录，且没有解决「谁负责」这个问题本身。
+`read` 的**文件**不存在不受影响（本就该报错）；`write`/`edit` 由 `writeWithDirs` 自动建父目录。
 
 > **grep 那条尤其要修**：它让 §7.1 的 V7.1「材料搜得到」在空会话里静默失败，测试者只会看到「搜不到」，查不到原因。
 
+#### v1 错在哪：把 `outputs/` 归错了类
+
+v1 的推理是「惰性更省，eager 会给每个会话落一堆空目录」。省的那点磁盘是真的，但它**把 `outputs/` 当成了「用户指定的既有目录」来处理**，而它其实是「我们为这次会话造出来的专属目录」。业界对这两类的处理正好相反：
+
+| 判例 | 目录性质 | 行为 |
+|---|---|---|
+| **Docker `WORKDIR`** | 镜像自己的工作目录 | **建**。官方原文：「If the `WORKDIR` doesn't exist, it will be created **even if it's not used in any subsequent Dockerfile instruction**」——声明即建，明确不看后续是否用到 |
+| **GitHub Actions runner** | 每 job 的 workspace | **建**。`PipelineDirectoryManager.PrepareDirectory` 在 job 开始前无条件 `CreateDirectory` pipeline + workspace 目录（默认 no-clean 分支同样建），**job 里一个文件都不写也建** |
+| **systemd `RuntimeDirectory=` / `StateDirectory=` / `CacheDirectory=`** | 服务专属目录 | **建**。原文：「when the unit is started, one or more directories by the specified names **will be created (including their parents)**」 |
+| **systemd `WorkingDirectory=`** | **用户在 unit 里指定的既有路径** | **不建**，缺失即 fatal（要容忍得显式加 `-` 前缀） |
+| **Node `child_process` 的 `cwd`** | 调用方传入的既有路径 | **不建**，直接 ENOENT |
+
+systemd 一家同时给出了两种行为，判据因此很清楚——**看这个目录归谁所有**：
+
+- **用户指定的既有路径**：不替他建。建了会把「配置写错」掩盖成「静默跑在错地方」，所以宁可响亮失败。
+- **程序为本次运行造出来的专属路径**：启动即建，不看用不用。因为它的存在性是程序自己的不变量，不是用户的输入。
+
+`.octo/<sessionID>/outputs/` 毫无疑问属于后者：用户从没指定过它，它是我们从 sessionID 算出来的、只服务于这一个会话。v1 把它按前者处理，是**分类放错了边**，不只是「假设没料到模型会探测」。
+
+v1 那句成本论据也被判例直接回答了：GitHub Actions 每个 job 都留一个可能全空的 workspace，业界接受这个成本——换来的是「声明的东西一定存在」这个不变量，而这正是本 spec 最需要的那条。何况我们的空目录落在隐藏的 `.octo/<sid>/` 下，用户不可见。
+
+#### 实现注记
+
+`experimental.chat.system.transform` 是**每次模型请求**触发一次（`session/llm.ts` 的 `stream()` 内），不是每轮一次——一个多步工具循环会触发多次。`mkdir -p` 幂等，但工作目录若在网络盘 / 同步盘上，每请求一次同步 IO 并非零成本，实现侧按会话记忆化去重（执行层每次工具调用仍会 `ensureDir`，兜底不丢）。
+
 ### 3.2.1 为什么改了声明还需要执行层（常见误解）
 
-**我们并没有真的把进程 cwd 改成产物目录**——§2 已说明 Level 2 自指不可达。改的只是**塞进模型上下文的那行字符串**。真实解析基准一行未动，也动不了：
+**我们并没有真的把进程 cwd 改成产物目录**——§2 已说明 Level 2 自指不可达。改的只是**塞进模型上下文的那行字符串**（外加 §3.2.3 v2 起在同一刻把那个目录建出来——但那只是让声明兑现，不改变任何解析基准）。真实解析基准一行未动，也动不了：
 
 | 上游硬编码 | 位置 | 声明改写对它的影响 |
 |---|---|---|
@@ -233,13 +267,15 @@ skill 不应点名任何具体目录——「当前工作目录」这句话本�
 
 ## 6. 落地清单
 
-UXAI 仓，单分支：
+UXAI 仓，单分支。**5 项均已完成并合入 `dev`**（2026-08-21 按 dev 实际代码核对）：
 
-1. `packages/opencode/src/agent/octo-outputs-redirect.ts` — 扩为声明 + 执行两层：新增 `experimental.chat.system.transform`（§3.1）、bash `workdir` 默认值（§3.2）、read/glob/grep 基准（§3.2）、containment 校验（§3.3）。文件职责已超出「outputs 重定向」，考虑更名为 `octo-session-workdir.ts`。
-2. `packages/opencode/src/agent/prompt/octo_insight.md` — 提示词降级（§3.5）。
-3. 文档仓 `docs/specs/agents/artifact-output-for-skills.md` — 新增对外契约（§5）。
-4. 文档仓 `docs/insight-debugging.md` — 同步新增 / 变更的 `[octo:*]` 日志前缀与字段。
-5. 文档仓 learning `agent-output-path-and-provenance.md` — §6 标注被本 spec 取代。
+1. ✅ `packages/opencode/src/agent/octo-session-workdir.ts` — 扩为声明 + 执行两层：`experimental.chat.system.transform`（§3.1）、bash `workdir` 默认值（§3.2）、read/glob/grep 基准（§3.2）、containment 校验（§3.3）。**已按本清单建议从 `octo-outputs-redirect.ts` 更名**，旧文件在 dev 上已不存在。
+2. ✅ `packages/opencode/src/agent/prompt/octo_insight.md` — 提示词降级（§3.5）：现存表述为「`filePath` 给相对路径 → 解析到你的工作目录，也就是本会话的产物目录」+「产物不要用 `..` 写到工作目录之外」，硬抗式指令已移除。
+3. ✅ 文档仓 [artifact-output-for-skills.md](../agents/artifact-output-for-skills.md) — 对外契约（§5）。
+4. ✅ 文档仓 [insight-debugging.md](../../insight-debugging.md) — `[octo:session-workdir]` 日志前缀与字段已登记（含 032 的根会话解析两条）。
+5. ✅ 文档仓 learning [agent-output-path-and-provenance.md](../../learning/agent-output-path-and-provenance.md) — §6 已标注被本 spec 取代。
+
+**v2 增量**（§3.2.3 声明层预建）：✅ [UXAI PR #682](https://github.com/MyHeavenDyf/UXAI/pull/682) 已合入 dev —— 声明层 `ensureDir` + 按 `outputs` 路径记忆化（`system.transform` 每次 LLM 请求触发，避免 N 步循环 N 次 mkdir）、前端 turn-end 用 `isWorking`（`busy || retry`，与 make 的 `type !== "idle"` 等价；`SessionStatus` 只有 idle/busy/retry 三态）bump `filesRefreshKey`，含 `octo-session-workdir.test.ts` 4 个用例。
 
 ---
 
@@ -256,6 +292,8 @@ UXAI 仓，单分支：
 | V3 | 绝对路径不再错位 | 提示模型「把结果保存成文件」，不给任何路径 | 即使模型拼绝对路径，落点也在产物目录内；文件管理可见 |
 | V4 | bash 通道对齐 | 让模型跑 `python -c "open('a.txt','w').write('x')"`（不给 workdir） | `a.txt` 落在产物目录，选中目录根无新增文件 |
 | V4.1 | **空会话不炸**（§3.2.3 回归） | **全新会话、一个文件都不上传、不点开文件管理**，直接让模型跑一次 bash / 让它 grep 一次 | 不出现 `Shell NotFound` / `FileSystem.access`；产物目录被自动建出。**这条挂了会表现为模型反复重试并最终去申请临时目录权限**（内网 2026-08-05 实测现象） |
+| V4.2 | **声明即兑现**（§3.2.3 v2 回归） | **全新会话、什么都不上传**，只发一句「你好」（不触发任何工具），然后直接 `ls .octo/<sid>/` | `outputs/` 已存在。**判据是磁盘不是日志**——这条守的是「模型探测目录时不会扑空」，而探测发生在第一次工具调用之前，执行层的 `ensureDir` 来不及 |
+| V4.3 | **探测不扑空 → 不逃向 `/tmp`** | 让模型「先确认工作目录可用，再把结果存成文件」（诱导它显式探测） | 探测成功；产物落在 `outputs/` 内，**`/tmp` 与选中目录根均无新增**。这条挂了的现象是模型自述「工作目录不存在/ 无权访问」并改用临时路径 |
 | V5 | 子目录 | 让模型「把过程文件放到 `过程稿/` 下」 | 磁盘出现 `outputs/过程稿/…`；文件管理能点进该文件夹 |
 | V6 | 越界拒绝 | 构造 `filePath = "../../escape.md"` 的写入 | 写入被拒 + `[octo:*]` 记录；产物目录外无 `escape.md` |
 | V7 | read 基准一致 | V3 落盘后让模型 `read` 该文件的**相对**名 | 读到内容（证明写/读基准同一） |
