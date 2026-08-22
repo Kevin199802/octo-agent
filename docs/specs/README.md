@@ -31,16 +31,16 @@
 | 018 | 本地解析 v1（长上下文直喂，观点解析先行） | 草案（2026-07-11 修订：工具面拆出至 021、锚点+校验器、能力形态定案） | infra/insight | [insight-local-analysis-v1.md](infra/insight-local-analysis-v1.md) |
 | 019 | Insight 对话面板顶部标题栏 | 上游已实现 ✓ | ui/insight | [insight-conversation-header.md](ui/insight-conversation-header.md) |
 | 020 | 聊天区排版产品化 — 现状取证 + 设计对接 | 现状取证阶段 | ui/insight | [reasoning-content-typography.md](ui/reasoning-content-typography.md) |
-| 021 | insight 工具集收敛 + 权限交互 + extract_document 入口修正 | 已实现（外网，分支 `feat/insight-toolset-convergence`；人工验证清单见 spec §8） | infra/insight | [insight-toolset-convergence.md](infra/insight-toolset-convergence.md) |
+| 021 | insight 工具集收敛 + 权限交互 + extract_document 入口修正 | 实现已合入 dev（032 在其基础上改 `extract_document` gate）；人工验证清单见 spec §8 | infra/insight | [insight-toolset-convergence.md](infra/insight-toolset-convergence.md) |
 | 022 | Insight 响应式布局适配（窄屏三栏 / 抽屉） | 草案（v2 已实现，外网，PR #369；未真机验证，待设计确认） | ui/insight | [insight-responsive-layout.md](ui/insight-responsive-layout.md) |
 | 023 | Insight 输入框 `@` 引用面板 | 已实现（外网），待内网验证 | ui/insight | [insight-mention-at.md](ui/insight-mention-at.md) |
 | 024 | 输入区草稿保留（per 会话分桶 · 跨模块通用） | v1 已实现（外网，UXAI 分支 `feat/composer-draft-per-session`；insight 已接入，make / pattern / studio 待接） | ui（跨模块） | [composer-draft.md](ui/composer-draft.md) |
 | 025 | Insight question 工具答题 UI（对齐 Claude AskUserQuestion） | 草案（待实现） | ui/insight | [insight-question-dock.md](ui/insight-question-dock.md) |
 | 026 | Insight 产物身份模型（身份 = 磁盘路径 · 命名/类型/去重单一来源） | 草案（入口卡三态已落地 UXAI PR #467，其余待实现） | infra/insight | [insight-artifact-identity.md](infra/insight-artifact-identity.md) |
-| 027 | 会话排队 drain 运行器（UI 无关 · 跨模块通用） | 草案（待实现） | ui（跨模块） | [session-queue-runner.md](ui/session-queue-runner.md) |
-| 028 | 会话工作目录声明对齐 — 修「skill 产物散落在选中目录根」：把模型看到的 `Working directory` 从选中目录改成会话产物目录，bash / read / write 三个通道的相对基准一并对齐；含产物子目录放开 | 草案（待实现） | infra/insight | [insight-workdir-declaration.md](infra/insight-workdir-declaration.md) |
+| 027 | 会话排队 drain 运行器（UI 无关 · 跨模块通用） | ✅ 实现已合入 dev（`pages/insight/queue-runner.tsx` + `octoapp/utils/session-queue-runner.ts`；insight 页内两处 in-page flush 触发器已移除） | ui（跨模块） | [session-queue-runner.md](ui/session-queue-runner.md) |
+| 028 | 会话工作目录声明对齐 — 修「skill 产物散落在选中目录根」：把模型看到的 `Working directory` 从选中目录改成会话产物目录，bash / read / write 三个通道的相对基准一并对齐；含产物子目录放开 | ✅ 实现已合入 dev（§6 落地清单 5 项全完成，插件更名为 `octo-session-workdir.ts`，旧 `octo-outputs-redirect.ts` 已删）；**spec v2**（§3.2.3 声明层预建，推翻 v1 的「声明层不碰磁盘」）随 UXAI PR #682 已合入 dev | infra/insight | [insight-workdir-declaration.md](infra/insight-workdir-declaration.md) |
 | 029 | @技能激活的服务端事件上报（`extra.skills` → `skill.used`）— 补 023 §2.2 明确接受的「不发 SkillUsed 事件」那项代价 | 草案（待实现） | infra/insight | [insight-skill-activation-event.md](infra/insight-skill-activation-event.md) |
-| 030 | Insight 吸收内网知识库问答 + chat 模块下线（chat→insight 合并）— supersede 旧 chat-knowledge-search；含新接口契约 / 历史迁移 / account 限流必修 | PR-A/B/C 已实现待内网验证（UXAI #633 / #634）；PR-D 多库路由待 Q3 | agents / infra/ui/insight | [insight-knowledge-search.md](agents/insight-knowledge-search.md) |
+| 030 | Insight 吸收内网知识库问答 + chat 模块下线（chat→insight 合并）— supersede 旧 chat-knowledge-search；含新接口契约 / 历史迁移 / account 限流必修 | PR-A/B/C 已实现待内网验证（UXAI #633 / #634）；Q3 已定案（2026-08-22：只查全量库、不做多库路由）；PR-D（切新接口走全量库）未开始 | agents / infra/ui/insight | [insight-knowledge-search.md](agents/insight-knowledge-search.md) |
 | 031 | Chat 历史会话迁移 — 设置里一次性把 chat 老会话（agent=octo_ai）改归属到 insight：回填 agent + directory + project_id，用户选目标目录；备份即记录、可重新迁移、不做还原按钮；**临时功能，后续版本整体下掉** | 草案（待实现） | infra/insight | [insight-chat-session-migration.md](infra/insight-chat-session-migration.md) |
 | 032 | Insight 子代理分治（多文档通读）+ 工具面声明化 — 一份文档一个 `insight_reader` 子代理（子代理自己抽取、只回传结论），解 016 v2 遗留的「10 份文档通读撞窗口」；`extract_document` 的 gate 从 registry 按 agent 名硬编码改为**权限层声明**（defaults deny + 显式 allow，第三方 skill 可自助）；task 常驻放开但候选收敛到 `insight_reader` 且不外溢到其他 agent；工作区判据改「会话树根会话」。**v2（2026-08-21）补入口覆盖面**：md/txt 不走 `extract_document`、而是被上游翻成一次 50KB 封顶的 `read`，10 份两三万字第一轮就超限且单份已被静默截断——改为发送前按**总字节**分层（≤32KB 内联不变，超了整批转分治），单份 >150KB 响亮失败；并给子代理补「读完 / 读准」的硬判据（总行数自查、原话锚点、边读边记） | v1 已合入 dev、待人工验证；**v2 待实现**（清单见 spec §12.2） | infra/insight | [insight-subagent-dispatch.md](infra/insight-subagent-dispatch.md) |
 
@@ -69,6 +69,7 @@
 | 开发环境搭建 | 已完成（Mode A ✅ / Mode B 🚧 待验收） | infra | [dev-environment.md](infra/dev-environment.md) |
 | 文档视角迁移到 UXAI | 草案 | infra/docs | [docs-uxai-perspective-rewrite.md](infra/docs-uxai-perspective-rewrite.md) |
 | 文件上传服务 | agent 项目自有上传能力 | infra | [file-upload.md](infra/file-upload.md) |
+| 设计稿截图 → HTML 生成服务（内网 web + Java 后台） | 草案（待内网网关能力验证定 imageMode） | infra | [screenshot-to-html.md](infra/screenshot-to-html.md) |
 | 仓库结构改造 — 转为文档主线 + 实现归档 | 草案 | infra/repo | [repo-restructure-to-docs-only.md](infra/repo-restructure-to-docs-only.md) |
 | 会话 agent 归属字段化 | 草案 | infra/session | [session-agent-attribution.md](infra/session-agent-attribution.md) |
 | 打点接入规范（Tracker SDK + Mock Server） | 已落地（P1 完成） | infra | [tracking.md](infra/tracking.md) |
