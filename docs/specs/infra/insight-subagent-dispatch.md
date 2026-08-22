@@ -1,6 +1,8 @@
 # SPEC-INS-032 — Insight 子代理分治(多文档通读)+ 工具面声明化
 
-> 状态:已实现(外网,UXAI 分支 `feat/insight-subagent-dispatch`)—— 单测 + typecheck 通过,**待人工验证**(清单见 §10.2 / §10.3)· 优先级 P1 · 规模 [M] · 领域 infra/insight/agent
+> 状态:**v1 已实现**(外网,UXAI 分支 `feat/insight-subagent-dispatch`)—— 单测 + typecheck 通过,待人工验证(§10.2 / §10.3);
+> **v2 增补(2026-08-21)待实现** —— §2.3 / §2.4 入口覆盖面与单份上界、§4.3 读取契约,清单见 §12。
+> 优先级 P1 · 规模 [M] · 领域 infra/insight/agent
 >
 > **上游已实现:✓/✗ 混合**
 >
@@ -10,6 +12,8 @@
 > - ✗ `insight_reader` 子代理定义(Octo 自写)
 > - ✗ 会话树工作区归属(现状按「本会话 agent 名」判,需改成「根会话」)
 > - ✗ task 的 turn 级放行(insight 前端 `buildToolGate` 现在恒关)
+> - ✓ 文本附件的渐进式披露:上游把 `text/plain` 附件表达成**一次受限的 `read`**(2000 行 / 50KB 截断),粒度粗但机制在(§2.3)
+> - ✗ 按总体量决定内联还是转分治(v2:`INLINE_BUDGET` / `SINGLE_DOC_LIMIT`,Octo 自写)
 >
 > 依赖:[SPEC-INS-016 v2](insight-extract-document.md)(全量落盘)、[SPEC-INS-021](insight-toolset-convergence.md)(工具面 / 权限 / task 静默化)、[SPEC-INS-014](insight-worktree-layout.md)(会话工作目录布局)、[SPEC-INS-028](insight-workdir-declaration.md)(工作目录声明对齐 —— §6 把它的判据从「本会话」推广到「会话树根会话」,机制不变)。
 > 取代:016 §8「子代理分治读文档 —— 独立立项」那条待办;021 §1 的 task「turn 级默认关」在本 spec 撤销(见 §5)。
@@ -26,6 +30,8 @@
 本 spec 解决的就是这后半句。手段是**上下文隔离**:一份文档交给一个子代理,子代理在自己的上下文窗口里读完、只把结论回传给父。
 
 **价值是隔离,不是并发**(016 §8 已定调):内网模型并发能力一般,串行跑子代理同样能把父上下文从十几万 token 压到几千,而且串行天然产生「读完一份 → 一段小结 → 下一份」的可见过程(§8)。
+
+**v2 补的是入口覆盖面**(2026-08-21):v1 默认「多文档 = 走 `extract_document` 的二进制类」,于是只覆盖了 docx / pdf 那条路。md / txt 是原生可读格式,走的是完全不同的一条链路(附件 → 合成 `read`),它同样撞窗口、而且还多一个静默截断的正确性问题——10 份两三万字的 md,第一轮就超限。见 §2.3。
 
 ---
 
@@ -54,6 +60,152 @@
 ### 2.2 子代理不写产物
 
 子代理**只回传结论文本,不落任何文件**。理由:并发/多个子代理写同名文件会互相覆盖,而产物命名与版本策略归 018/026,不该由临时子会话承担。报告一律由父代理写。(工作区归属见 §6——即便子代理写了,也会落在父会话目录,但这是兜底不是许可。)
+
+### 2.3 入口覆盖面:md / txt 也要能进这条路径(v2 增补,2026-08-21)
+
+v1 只解决了 `extract_document` 那条路,也就是**二进制类**(docx / pdf / xlsx / pptx)。md / txt 走的是完全不同的一条路,而它**同样撞窗口**——v1 漏了这半边。
+
+事实链(核对过代码,别再凭「附件就是全文进上下文」的印象推):
+
+1. insight 前端把可内联文本文件发成 `file://` + `text/plain` 的 FilePart([build-prompt-parts.ts:53](../../../packages/app/octoapp/pages/insight/utils/build-prompt-parts.ts#L53))
+2. 服务端 [prompt.ts:1129](../../../packages/opencode/src/session/prompt.ts#L1129) 把这种 part 翻译成**一次合成的 `read` 调用**——注入的文本字面就是 `Called the Read tool with the following input: {…}`,后面跟 read 的 output
+3. `read` 有硬上限:[read.ts:15-18](../../../packages/opencode/src/tool/read.ts#L15-L18) 2000 行 / **50KB**,超了截断并追加 `(Output capped at 50 KB. Showing lines X-Y. Use offset=N to continue.)`
+
+由此,现状有两个问题,而**容量问题反而是次要的那个**:
+
+| | 现象 | 性质 |
+|---|---|---|
+| A | 单份两三万字中文(UTF-8 3 字节/字 ≈ 60–90KB)**已经被静默截到前 ~1.7 万字**,模型拿到残缺正文 + 一句 offset 提示,弱模型多半不会续读 | **正确性**:不报错、不可见,基于半份材料作答 |
+| B | 10 份 × 50KB(截断后) ≈ 12–17 万 token,内网 ~10 万窗口第一轮就爆 | 容量:会报错,至少是响亮的 |
+
+**A 比 B 危险**:B 撞窗口会报错,A 不会。截断并没有救 B,只是让爆之前先丢了数据。
+
+#### 2.3.1 业界做法对比
+
+| | 做法 | 代表 | 结论 |
+|---|---|---|---|
+| A | 永远全文内联 | —— | ✗ 事实上不存在这种产品。**上游 opencode 自己就不是这样**——附件被表达成一次受限的 read,截断即粗粒度的渐进式披露(一份 50KB) |
+| B | 永远按需,模型自己决定读不读 | Claude Code / Codex 对本地文件;`@file` 同样只是触发一次有上限的 Read | ✗ 单独用不行:一份随手贴的小材料若不内联,弱模型可能压根不调 read 就作答。这是把「要不要读全」的确定性交给模型 |
+| C | **按体量分层**:小的内联,超阈值切机制 | claude.ai / ChatGPT 的文件上传 | ✓ **选定**——业界主流就是分层,不是一刀切 |
+| D | 超阈值转向量检索(RAG) | ChatGPT `file_search`、claude.ai Projects 知识库 | ✗ **本场景不选**:检索适合「从材料里找某句话」,而本 spec 要解的是「通读全部材料产出报告」——检索会漏,漏了还不自知 |
+
+D 那条顺带印证了 §2 的选型:**分治不是因为模型弱才做的降级方案**,map-reduce 就是通读型任务的业界正解。
+
+> **别把 D 读成「insight 永不用检索」**(2026-08-21 评审修正):否掉的是「拿检索**替代**通读」,不是检索本身。按任务分路才是完整图景 ——
+>
+> | 用户任务 | 路径 |
+> |---|---|
+> | 小材料直接提问 | 预算内全文内联(§2.3.2) |
+> | 在材料里找事实 / 回答局部问题 | `grep` 定位(现状已够);材料规模再上一个量级才谈向量检索 |
+> | 通读全部材料、逐份总结、全量比较 | 子代理分治(本 spec) |
+> | 核验报告里的原话 | 按 §4.3 #2 的锚点回读 `extracted/` |
+>
+> 第二行现在用 `grep` 就能覆盖,**上向量库是另一个量级的工程,本 spec 不立项**;真要做时它是「新增一条路径」,不是「替换分治」。
+
+#### 2.3.2 定案:发送前按总字节分层
+
+**判定在发送前由前端确定性完成,不交给模型判断。**
+
+在 [build-prompt-parts.ts](../../../packages/app/octoapp/pages/insight/utils/build-prompt-parts.ts) 统计本轮可内联文本文件的总字节:
+
+- `总字节 ≤ INLINE_BUDGET` → 维持现状全部内联,**行为零变化**
+- `总字节 > INLINE_BUDGET` → **整批不内联**,`[附件]` 清单照旧给绝对路径,另附一段体量说明,由父代理按 §2 逐份派 `insight_reader`
+
+体量说明是一个**独立 synthetic 块** `[材料体量]`(`formatDispatchNote`),排在 syntheticTexts 末尾,两条落地理由:
+
+> ① **`[附件]` 的行格式 `- <名>: <路径>` 不许动**——它有三个消费方:`parseUploadedFiles`(InsightTurn 渲染文件卡片)、服务端 `octo-upload-inject` 插件的 `parseManifest`(MCP 按需上传)、`[引用文件]` 块复用同一解析。
+> ② 起初想把说明附在 `[附件]` 块尾,**落地时否掉**:内联判定覆盖 `[附件]` 与 `[引用文件]` 两条来源(023 §7.2 起两者一致),而 `formatUploadsForPrompt` 在无附件时返回空串——只 `@` 引用大文件的那轮说明就丢了。独立块两条来源都覆盖。
+>
+> 排末尾是因为文案说的是「本轮共 N 份材料(含 [附件] 与 [引用文件])」,两个清单都出现过之后再给总述才对得上;`[附件]` 仍是第一块,位置契约不变。正常发送与 drain **两条路径顺序一致**(防两套漂移)。
+
+三条口径(2026-08-21 拍板):
+
+| 问题 | 定 | 理由 |
+|---|---|---|
+| 阈值口径 | **字节**(UTF-8),不是字数 | 与 `read` 的 50KB 同口径,不必猜 tokenizer 的中文比率 |
+| 超预算时 | **整批**转分治,不做「大的分治 + 小的仍内联」 | 混合模式下父代理要同时维护「哪几份我已经看过、哪几份还要派活」,弱模型容易漏派或重复派 |
+| 单份就超 | **也走分治**,不让父代理自己 offset 续读 | 逻辑统一;且续读发生在子代理的干净窗口里,父上下文不被正文污染 |
+
+`INLINE_BUDGET` 取 **32KB**(≈ 1 万汉字)。取值依据是**用途**而不是「尽量多塞」:内联的全部价值是「一份随手贴的小材料,一轮直接答」;超过 1 万汉字的东西已经是研究材料,本来就该走通读流程。
+
+这一改之后,**md/txt 与 office 的差异被抹平**:两边都是「父代理只见路径、子代理在自己窗口里读完回结论」,§2 的机制一行不用改。子代理侧 md/txt **同样先走 `extract_document`**(021 起支持文本类直读):不是绕远路——`read` 会砍掉超过 2000 字符的单行且没有续读手段,而 `extract_document` 的 `wrapLongLines` 先把长行折好再落盘,顺带产出可 grep、可引用的解析件。详见 §13.1-1。
+
+### 2.4 单份体量的上界:分治不扩容
+
+**分治不让单份变大。** 子代理与父代理跑的是同一个模型、同一个窗口——它省下的是「父代理不必把正文吃进去」,不是「正文可以更大」。这条边界 v1 没写,补上:
+
+| | 量级(内网 ~10 万 token 窗口) |
+|---|---|
+| `read` 单次上限 | 50KB ≈ 1.7 万汉字 |
+| 子代理扣掉系统提示 / 工具定义 / 任务描述后,留给正文 | 保守 ~5 万汉字 ≈ **150KB**(= 3 次 read) |
+| 典型场景:单份两三万字(60–90KB) | 2 次 read,**在能力内** ✓ |
+| 单份 > 150KB | 子代理自己也爆,**分治救不了** |
+
+**P0 处理:响亮失败。** 前端在发送前拦下超 `SINGLE_DOC_LIMIT`(150KB)的文件,明确告知这份材料超出单次通读容量、建议拆分后重传(文案按 CLAUDE.md「生产可见文案用专业措辞」写)。
+
+两个被否掉的替代:
+
+- **照读前 150KB** ✗ —— 那正是 §2.3 表里 A 那个要消除的静默半读,换了个地方重新引入。
+- **读完但如实声明覆盖范围** ✗ —— 把诚实性交回给模型自觉,与本 spec「确定性在代码侧」的取向冲突。
+
+**份内切段分治**(一份切 M 段、每段派一个子代理、父代理二次汇总)是这个问题的正解,但它的汇总质量损失需要实测数据才能定口径,列 §11 后续。
+
+### 2.5 阈值定在哪、怎么算、换模型后怎么刷新
+
+**三个数字都不是魔法值,写成带推导的常量,换模型只改一个输入。**
+
+#### 2.5.1 位置
+
+| 常量 | 定义处 | 值 | 归谁 |
+|---|---|---|---|
+| `MODEL_CTX_TOKENS` | [build-prompt-parts.ts](../../../packages/app/octoapp/pages/insight/utils/build-prompt-parts.ts) 顶部 | 100_000 | **唯一需要手改的输入**(内网当前模型窗口) |
+| `INLINE_BUDGET` | 同上,由用途定 | 32 * 1024(32KB) | Octo |
+| `SINGLE_DOC_LIMIT` | 同上,由 `MODEL_CTX_TOKENS` 推导 | 150 * 1024(150KB) | Octo |
+| `DEFAULT_READ_LIMIT` / `MAX_BYTES` | [read.ts:15-18](../../../packages/opencode/src/tool/read.ts#L15-L18) 2000 行 / 50KB | 上游 | **不改**——改它影响 chat / make / studio 所有 agent,不是 insight 能单方面动的 |
+
+常量与推导注释**集中在 `build-prompt-parts.ts` 一处**,不散到调用方(`index.tsx` / `queue-drain.ts` 只调 `assembleInsightParts`)。
+
+#### 2.5.2 换算口径(中文,保守取值)
+
+| 量 | 取值 | 说明 |
+|---|---|---|
+| 中文字符 → 字节 | **3 字节/字**(UTF-8) | 确定值 |
+| 中文字符 → token | **1 token/字**(保守) | 实测常见区间 0.6–1.5,取 1 是往「更容易超」的方向保守 |
+| 合成 | **1KB ≈ 341 token**,50KB ≈ 1.7 万 token | 由上两行推出 |
+
+#### 2.5.3 两个阈值的推导(性质不同,别一起调)
+
+**`SINGLE_DOC_LIMIT` —— 跟模型窗口线性缩放。**
+
+```
+子代理正文预算 = (MODEL_CTX_TOKENS - 固定开销 - 产出预留) × 安全系数
+               = (100_000 - 5_000 - 10_000) × 0.6 ≈ 51_000 token
+               ≈ 51_000 汉字 ≈ 153KB   → 取整 150KB(恰好 3 次 read)
+```
+
+- 固定开销 5_000:`insight_reader` 系统提示 + 工具定义 + 任务描述
+- 产出预留 10_000:结论输出 + §4.3 #3「边读边记」的中间要点
+- 安全系数 0.6:**不用满窗口**——长上下文尾部召回质量下降,且父代理派活时无法精确预知正文体量
+
+**`INLINE_BUDGET` —— 由用途定,不跟窗口线性缩放。**
+
+它不是「父代理还能塞多少」,而是「**多小算随手贴的片段**」:内联的全部价值是「一份小材料,一轮直接答,省掉一整轮子代理往返」。1 万汉字(32KB)以上的东西已经是研究材料,本来就该走通读流程,**哪怕窗口变大也一样**。
+
+它只有一条来自窗口的**上界约束**(要满足,不是要取满):
+
+```
+INLINE_BUDGET ≤ MODEL_CTX_TOKENS × 0.15
+32KB ≈ 11_000 token ≤ 100_000 × 0.15 = 15_000  ✓
+```
+
+#### 2.5.4 模型换代后的刷新步骤
+
+1. 改 `MODEL_CTX_TOKENS` 为新窗口。
+2. 按 §2.5.3 第一条公式重算 `SINGLE_DOC_LIMIT`,**向下取到 50KB 的整数倍**(对齐 read 分页,让「几次 read 读完」是整数)。
+3. `INLINE_BUDGET` **默认不动**;只在校验 §2.5.3 那条上界不再满足时才调小。若产品上希望「更大的材料也能一轮直答」,那是**体验决策**,要显式讨论,不是跟着窗口自动放大。
+4. 重跑 §10.1 的边界用例(它们断言的是「相对预算」的行为,不写死字节数,故改常量不需改用例)与 §10.2-8 的埋点实测(新窗口下单份多段的召回率会变)。
+
+> 若换代后窗口大到 `SINGLE_DOC_LIMIT` 超过绝大多数真实材料(比如 100 万 token 窗口 → 单份上界 ~1.5MB),§2.4 的响亮失败与 §11 的份内切段就自然失效,可整条摘掉;但 `INLINE_BUDGET` 与分治本身**不该跟着摘** —— 分治的价值是上下文隔离与注意力,不是窗口不够(§1)。
 
 ---
 
@@ -123,6 +275,36 @@ registry 里还有一条同款的名字 gate:`KnowledgeSearchTool` → `input.ag
 - 形态:`<归属>_<角色>`,snake_case。我们的 = `insight_*`;第三方 skill 自带的 = `<skill名>_<角色>`。
 - **不叫 `insight_subagent`**:`mode` 字段和会话 category 已经表达了「它是子代理」,这个词零信息量;而名字是模型的选择依据、也直接显示在 task 卡片上(021 §4 已知限制:卡片标题取 subagent 名,上游读 data 字段不是 i18n 键)。
 - **前缀不作为任何 `if` 的判据**(§3.1-C)。它存在的唯一硬理由是**防撞名**:[config/agent.ts:145](../../../packages/opencode/src/config/agent.ts#L145) 是「文件名即 agent 名」,而 [agent.ts](../../../packages/opencode/src/agent/agent.ts) 的 config 合并循环命中同名就**改内置 agent**——谁往 `.octo/agent/` 放一个 `explore.md`,就静默改掉内置 explore 的 prompt 与权限;放 `octo_insight.md` 改的就是我们的主 agent。这是既有隐患,本 spec 只在对外契约里点明(§7),不改上游合并逻辑。
+
+### 4.3 读取契约:让「读完」和「读准」有硬判据(v2 增补,2026-08-21)
+
+先说清楚**分治不做什么**:它不提升准确性,只把「本来读不到」变成「读得到」。读得到之后,准确性的天花板仍是模型本身。
+
+但有三个具体失真源,前两个可以确定性收紧。[insight_reader.txt](../../../packages/opencode/src/agent/prompt/insight_reader.txt) 与 `octo_insight` 派活的提示词按此修订:
+
+| # | 失真源 | 现状 | 收紧 |
+|---|---|---|---|
+| 1 | **「读完」没有硬判据** | 提示词写「读到提示还有剩余就继续」——靠模型自觉的启发式,正是要避免的那类 | 派活时把**总行数**写进任务描述:「这份文档共 5230 行,你必须读到第 5230 行」。模型能拿最后一次 read 返回的行号自查,比「读到 End of file」硬。总行数**不需要前端算**:读落盘件时 `read` 第一次返回就带 `(Showing lines 1-2000 of 5230. …)`,`of N` 就是总行数——子代理拿它当终点自查即可。提示词要写明这一点(否则模型会以为要靠猜)。office 类同理由 `extract_document` 返回带出 |
+| 2 | **结论回传有损,且不可逆** | 已要求「保留出处 + 引语原文」 | 再拧一档:每条结论带**可 grep 回原文的锚点**(说话人 + 原话片段)。这样报告里的引用是真的,用户追问细节时父代理能 grep 回根会话 `extracted/` 定位(§6 把落盘归到根会话,正是为此),不必盲目重派子代理 |
+| 3 | 多段 read 之间的**注意力衰减** | 无 | **边读边记**:每读完一段先落一小段要点再读下一段,不要全读完再回头总结。这是长上下文的固有问题、非分治引入,只能缓解不能消除 |
+
+**不可消除的代价要在提示词里写明**:父代理拿不到原文,手上只有结论。用户追问「第三份里那人原话怎么说的」时,父代理要么用 #2 的锚点 grep 回落盘件,要么重派子代理去读——**不能凭结论编**。这条进 `octo_insight` 提示词。
+
+#### 4.3.1 代价:锚点让结论变大,§2.1 的 token 账要上调
+
+#2 的原话锚点不是免费的——结论从「纯要点」变成「要点 + 引语」,每份从 ~800 token 涨到 ~1500。§2.1 那张对比表是按旧口径算的,按新口径重算父上下文:
+
+| 份数 × 3 万字 | 父上下文(派发 + 结论 + 系统提示 + 报告输出) | 结论 |
+|---|---|---|
+| 10 份 | ~2.5 万 token | 安全 ✓(这是当前主场景) |
+| 20 份 | ~4 万 token | 仍安全 ✓ |
+| 30 份以上 | ~6 万 + 报告输出 | **开始紧张**,需二级汇总(分批汇总再汇总) |
+
+**份数安全线约 20–25 份**,超了要分批。这条与 §2.4 的单份上界是两个独立维度:§2.4 管「一份多大」,这里管「多少份」。二级汇总同样列 §11 后续,触发条件写清:实测中父代理在 25 份以上出现漏派 / 报告丢材料时再立项。
+
+另一个必须写明的残余风险:**父上下文是跨轮累积的**。第一轮 2.5 万 token 安全,但结论留在上下文里,用户追问 → 再派子代理 → 再收结论,第 4–5 轮可能到 6–8 万。P0 依赖上游既有的 summarize / compact 兜底,不自建;内网实测(§10.3)要专门跑一轮**多轮追问**看它撑到第几轮。
+
+> 这三条收紧之后,剩下的准确性风险就是模型本身的,推理没法再往下确认,只能实测(§10.2 埋点验证)。
 
 ---
 
@@ -228,6 +410,8 @@ octo_insight:   task: { insight_reader: "allow" }
 | `[octo:session-workdir] 根会话解析` | 工作区上溯命中根会话(只在当前会话不是根时打,即 task 子代理那种情形) | sessionID / rootSessionID / depth |
 | `[octo:session-workdir] 根会话解析失败,退化为按当前会话取工作区` | 上溯超深 / 成环(**响亮失败,退化为 032 之前的行为**) | sessionID / depth / err |
 | `[octo:extract] root-session-unresolved` | 落盘目录未能归到根会话(同上,已退化为按当前会话落盘) | sessionID |
+| `[octo:attach] 内联预算超限,转子代理分治` | 本轮文本附件总字节 > `INLINE_BUDGET`(§2.3.2) | count / totalBytes / budget |
+| `[octo:attach] 单份超出通读容量,已拦下` | 某份 > `SINGLE_DOC_LIMIT`(§2.4),发送前拦截 | filename / bytes / limit |
 
 前端的 `[octo:subagent] dispatch/result`(逐份派发 / 结论回传)**本次不做**:P0 的过程可见性走父代理的文字回执(§8),
 子会话过程本身有上游 task 卡片 + `[octo:task]` 既有日志;真需要逐份计时再随 §8 的 P1 卡片增强一起加。
@@ -244,6 +428,11 @@ octo_insight:   task: { insight_reader: "allow" }
 - `test/tool/registry.test.ts`:`extract_document` 的断言从注册表层移除(改由 agent 层覆盖),`apply_patch` 对 insight 摘除的断言保留。
 - `test/tool/extract_document.test.ts` 增:在带 `parentID` 的子会话上下文里抽取 → 落盘路径指向**根会话** `extracted/`;上溯成环时**降级为当前会话目录并打 `root-resolve-failed`**,不抛错。
 - `bun run --cwd packages/opencode --conditions=browser src/index.ts serve --port <n>` 起源码 server + `curl /agent` 核对 `insight_reader` 存在、mode=subagent、权限清单符合预期。
+- `packages/app/octoapp/pages/insight/utils/build-prompt-parts.test.ts` 增(§2.3.2 / §2.4 的分层判定,**纯函数、无需起服务**):
+  - 总字节 ≤ `INLINE_BUDGET` → 仍产出 `text/plain` FilePart(现状行为不变,回归锁);
+  - 总字节 > `INLINE_BUDGET` → **一个 FilePart 都不产出**,改为 `[附件]` 清单文本含每份的绝对路径 + 字节数 + 行数;
+  - 边界:恰好等于预算走内联;单份 > `SINGLE_DOC_LIMIT` → 该份被拦下并给出可读原因;
+  - 图片 / office 不受影响(仍各走 vision / `extract_document`)。
 - `tsgo --noEmit` 干净。
 
 ### 10.2 外网人工(开发机 + Claude)
@@ -254,12 +443,15 @@ octo_insight:   task: { insight_reader: "allow" }
 4. **不外溢**(本轮硬要求):切到 make / studio,问模型「列出你可用的 subagent 类型」→ 有 `general` / `explore`,**没有** `insight_reader`;同时确认这些页面的 task 工具**本身仍可用**(§5.2 的两个函数语义差别,人工侧就看这一条)。
 5. **工具面**:在 make / studio 问「你有 extract_document 吗」→ 没有;insight 里有。
 6. **回归**:chip turn(研究工具那轮)行为不变——`[octo:chip] chip-send` 的 `toolGate` 里 bash / webfetch 仍为 false,业务工具只放行所选那个;**`task` 不再恒为 false**(这是本 spec 的预期变化,核对时别当回归失败)。
+7. **md/txt 分层**(v2 主路径):上传 10 份两三万字的 **md**,问「把每份的关键发现汇总成一份报告」→ Console 出现 `[octo:attach] 内联预算超限,转子代理分治`;父代理逐份派 `insight_reader`;**第一轮不再撞窗口**。对照组:只传 1 份 3000 字的 md → 不出现该日志、模型一轮直接答(内联行为未变)。
+8. **埋点验证读得准不准**(§4.3 的实测口,推理确认不了,必须跑):取一份 3 万字真实访谈稿,在 **80% 位置**埋一个全文只出现一次的具体事实(某受访者提的一个具体数字),派给子代理 → 看结论里捞不捞得出来。捞不出来说明是续读没走完或注意力衰减(对应 §4.3 的 #1 / #3),还有得修;捞得出来这条路就是通的。**单份多段(> 100KB)也跑一次**,结果决定 §11「份内切段分治」立不立项。
 
 ### 10.3 内网(桌面包 + GLM + 真 MCP)
 
 1. **原始边界对上号**:016 v2 遗留的「一轮 10 个文件做通读类任务撞窗口」场景重跑 → 分治后不再撞窗口。
 2. **弱模型遵从度**(重点,强模型通过不代表弱模型通过):① 父代理是否真的逐份派活、还是自己硬读;② 子代理是否只回结论、有没有擅自写文件;③ 单文档场景是否滥发 task(§5.1 残余代价的实测口)。
-3. MCP chip 全链路回归(017):选功能 → 直接调用 → task_id → 转述 → 「好了吗」查询 → 文件卡片,不受工具面改动影响。
+3. **多轮累积**(§4.3.1):10 份分治跑完后连续追问 4–5 轮(每轮都问需要重看材料的细节)→ 看父上下文第几轮撑不住、上游 summarize 有没有接住。
+4. MCP chip 全链路回归(017):选功能 → 直接调用 → task_id → 转述 → 「好了吗」查询 → 文件卡片,不受工具面改动影响。
 
 ---
 
@@ -268,11 +460,16 @@ octo_insight:   task: { insight_reader: "allow" }
 - **`knowledge_search` 的 registry 名字 gate 同款改造**——同属依赖倒置,但归 SPEC-INS-030 那条线且刚动过归属,单独评估(§3.5)。
 - **`apply_patch` 的 registry 裁剪**——上游 `EDIT_TOOLS` 共键所迫,除非上游改映射,否则维持(§3.4)。
 - **task 卡片增强(步数/耗时/展开结论)**——P1,见 §8。
+- **份内切段分治**(§2.4)——单份 > `SINGLE_DOC_LIMIT` 时把一份切 M 段、每段派一个子代理、父代理二次汇总。P0 先响亮失败,因为二次汇总的质量损失没有实测数据、定不了口径;等 §10.2 的埋点验证跑出单份多段的召回率再立项。
+- **office 的单份上界**(§13.2)——`SINGLE_DOC_LIMIT` 现在只作用于文本类;office 用 `extract_document` 已有的 `tokenEstimate` 判,判定点在子代理侧。
+- **二级汇总**(§4.3.1)——份数超安全线(约 20–25 份)时分批汇总再汇总。触发条件:实测中父代理在 25 份以上出现漏派 / 报告丢材料。
 - **并发分治**——本 spec 只做串行(价值是隔离不是并发,且串行才有流式可见过程)。若内网模型并发能力改善且时延成为瓶颈再议。
 - **子代理的解析件复用 / 缓存**——016 §8 已记「不做」,分治后重复抽取的面积变大,若成为瓶颈按那条立项。
 - **上游 agent 合并循环的撞名保护**(config agent md 静默覆盖内置 agent)——本 spec 只在契约里点明(§4.2),不改上游。
 
 ## 12. 对齐清单(落地时逐项过)
+
+### 12.1 v1(已落地)
 
 - [x] `agent.ts`:defaults 加 `extract_document: "deny"` + `task: { insight_reader: "deny" }`;`octo_insight` 加两条 allow;新增 `insight_reader` 定义 + prompt txt
 - [x] `registry.ts`:摘掉 `extract_document` 的 agent 名 gate;`apply_patch` 那条补注释说明为什么留
@@ -285,3 +482,63 @@ octo_insight:   task: { insight_reader: "allow" }
 - [x] `docs/specs/README.md` 登记表、`ROADMAP.md` 行状态
 - [x] SPEC-INS-016 §8 子代理那条改为指向本 spec;SPEC-INS-021 §1 的 task「turn 级默认关」追加撤销说明
 - [ ] (待对齐)「子代理 — skill 作者须知」对外文档
+
+### 12.2 v2 增补(2026-08-21,待落地)
+
+- [x] `build-prompt-parts.ts`:新增 `MODEL_CTX_TOKENS` / `INLINE_BUDGET` / `SINGLE_DOC_LIMIT` 三个常量(**带 §2.5.3 的推导注释**,集中一处不散到调用方)与分层判定;超预算时不产 FilePart,改产「`[附件]` 清单(行格式不变)+ 一段体量说明」;字节数取 `Attachment.size`,`@` 引用的文件用 `api.readFileBuffer` 补
+- [x] 前端:单份超 `SINGLE_DOC_LIMIT` 的响亮失败提示(专业措辞,给出「拆分后重传」这个可执行动作)
+- [x] `insight_reader.txt`:补 §4.3 三条 —— 按任务里给的**总行数**自查读完、结论带**可 grep 的原话锚点**、**边读边记**(每段先落要点再读下一段)
+- [x] `octo_insight` 提示词:派活时把总行数写进 task prompt;写明「父代理手上只有结论,追问细节要 grep `extracted/` 或重派子代理,**不许凭结论编**」
+- [x] `build-prompt-parts.test.ts`:§10.1 的分层判定用例(含「等于预算」「单份超限」边界)
+- [x] `docs/insight-debugging.md`:补 `[octo:attach]` 两条日志
+- [ ] §10.2 第 7、8 项人工验证(尤其 **8 的埋点实测** —— 它的结果决定 §11「份内切段分治」立不立项)
+- [x] `docs/specs/README.md` 登记表描述、`ROADMAP.md` 行状态同步为「v1 已实现 / v2 待实现」
+- [x] 评审修正三条(§13.1):`insight_reader.txt` 撤回 md/txt 直读;`removeQueued` 回填 `u.bytes`;`agent.ts` 候选收敛 `{ "*": deny, insight_reader: allow }` + `agent.test.ts` 两条新断言(`evalPermPattern(insight,"task","general"/"explore") === "deny"`)与 `evalPerm(insight,"task")` 断言订正
+- [x] `octo_insight` 提示词点名压过 `task.txt` 的「尽量并发」(§13.1 末)
+
+---
+
+## 13. 外部评审的处理(2026-08-21,codex)
+
+评审对象是 v2 定稿。**它抓到三个真问题(已改)**,另有一批建议基于「支持 100 份文件」这个我们没有的目标(不采纳,记触发条件)。
+
+### 13.1 已改
+
+| # | 问题 | 处置 |
+|---|---|---|
+| 1 | **md/txt 让子代理直接 `read` 会静默丢数据** | 撤回。[extract_document.ts:90](../../../packages/opencode/src/tool/extract_document.ts#L90) 的注释早写明:`read` 的 `MAX_LINE_LENGTH=2000` 砍掉超长行尾巴且**没有续读手段**,而 md 里长段落不换行很常见。`extract_document` 的 `wrapLongLines` 正是为此存在,且 021 起本就支持 txt/md 直读 —— 改回「所有格式一律先 `extract_document`」,零成本。**§4.3 #1 里「md/txt 直读」那句同步删掉。** |
+| 2 | **排队取消后附件 `size` 退化成 0** | [index.tsx](../../../packages/app/octoapp/pages/insight/index.tsx) `removeQueued` 还原附件时硬编码 `size: 0`。链路:排队 10 份大 md → 取消 → 附件栏还原但字节归零 → 重发算出 `totalBytes=0` → 误判可内联 → 全塞进上下文,**静默**。改为回填 `u.bytes`(入队时已快照)。这是 §2.3.2 元数据链路的漏口,不补则分层判定在这条路径上整个失效。 |
+| 3 | **task 候选并没有真收敛** | §5.1 原话「候选只有一个只读的文档子代理,派错了也干不了坏事」**与代码不符**:`describeTask` 列的是「所有未被 deny 的 subagent」,而 `octo_insight` 只写了 `{ insight_reader: "allow" }`,于是 `general`(bash / write / webfetch 全开)与 `explore` 照样在候选里。改为 `task: { "*": "deny", insight_reader: "allow" }`。 |
+
+第 3 条的两个落地要点(单测锁住):
+
+- **顺序有意义**:`fromConfig` 按 `Object.entries` 顺序生成规则,`Permission.disabled` 用 `findLast` 取最后一条匹配 `task` 的规则、仅当它 `pattern === "*" && deny` 才隐藏工具。`insight_reader: "allow"` 必须排在 `"*": "deny"` 之后,写反了就把 insight 的 task 整个关掉。
+- **一处预期副作用,方向是对的**:`evaluate("task", "*", …)` 现在对 insight 返回 deny,于是 [truncate.ts](../../../packages/opencode/src/tool/truncate.ts) 的 `hasTaskTool` 为 false,工具输出截断时的提示从「派 explore agent 处理」换成「用 Grep / Read offset」。**这正是我们要的** —— explore 已经不在 insight 的候选里,原提示会让模型去派一个它根本没有的 subagent。
+
+顺带:`task` 工具自身的说明([task.txt:16](../../../packages/opencode/src/tool/task.txt#L16))写着 "Launch multiple agents concurrently whenever possible",与本 spec 的串行派发**直接冲突**。`octo_insight` 提示词里显式压过它(点名这条、说明为什么通读不照做),不改上游。
+
+### 13.2 结论对但范围要收窄:office 的单份上界
+
+评审指出「不能用源文件字节数推导文档 token」(docx 是压缩包,100KB 可能抽出数十万字)——**判断对,但对本实现的描述不成立**:`decideInlineStrategy` 只对 `isTextInlineFile` 的文件算字节,office 被反向排除、压根不进预算(单测有此条)。
+
+真正的缺口是另一个:**office 完全没有单份上界拦截**。§2.4 的 `SINGLE_DOC_LIMIT` 只作用于文本类,一个 100KB 的 docx 抽出 30 万字,子代理照样爆,而我们没有任何判据。
+
+判据现成:`extract_document` 的 metadata 已有 `tokenEstimate`([extract_document.ts:85](../../../packages/opencode/src/tool/extract_document.ts#L85))。**但它属于新增能力、且判定点在子代理侧而不是前端**,不塞进 v2,列 §11 后续。
+
+### 13.3 不采纳:面向 100 份文件的那套
+
+评审的核心前提是「支持 100 个文件」,据此把批处理调度工具(`analyze_document_batch`)、二级汇总、coverage 校验器全部提为 P0。**这个前提不是我们的目标**:
+
+- 本 spec 从头到尾的场景是 10–20 份(§4.3.1 已给出份数安全线);
+- `MAX_ATTACHMENTS = 10`([index.tsx](../../../packages/app/octoapp/pages/insight/index.tsx)),产品形态上一次就进不来 100 份。
+
+具体不采纳的理由:
+
+| 建议 | 不采纳的理由 |
+|---|---|
+| `analyze_document_batch` 代码级批处理工具 | 等于自建一套调度层,与「复用上游 `task` 机制、不动上游核心」的取向冲突。10–20 份下,提示词编排 + §10.2-8 的实测足以判断是否需要 |
+| 二级汇总提 P0 | §4.3.1 已算过:10 份 ~2.5 万、20 份 ~4 万 token,安全。触发条件已写明(25 份以上出现漏派 / 报告丢材料),到了再立项 |
+| coverage 代码校验器 | 方向对(§4.3 自己也承认提示词不是硬保证),但要改 `task` 工具、记录每份的 offset 覆盖区间,是独立工程。**先用 §10.2-8 的埋点实测拿数据**:10 份场景下提示词收紧够不够,实测说了算,不靠推演 |
+| `MODEL_CTX_TOKENS` 动态化 | 内网当前只有一个模型,动态化收益为零、复杂度实打实。§2.5.4 的手工刷新步骤够用 |
+
+> 这些不是「否掉」,是**排期**:100 份文件真成为产品需求时,评审 §六那套架构(manifest + 分组 Reduce + 覆盖率)是对的起点,连同它 §七的验收用例一起用。届时另立 spec,不在 032 里滚。

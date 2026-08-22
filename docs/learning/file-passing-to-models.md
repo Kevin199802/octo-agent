@@ -41,6 +41,14 @@ FilePart = { type:"file", mime, url, filename?, source? }
 - `url` 是 **`file://` 且是二进制(office/图片)** → opencode **读字节转 `data:<mime>;base64,...`**([prompt.ts:1257](../../packages/opencode/src/session/prompt.ts#L1257)),作为 media part 交 AI SDK。⇒ 落到**模式 B**。
 - `url` 是 `data:` → 直接用。
 
+> **⚠️ 「自动内联」≠「全文进上下文」(2026-08-21 补,SPEC-INS-032 v2)**
+>
+> 上一条说的「调 Read 工具读出文件内容」是**字面**的:它调的就是那个 `read` 工具,因此**照吃 `read` 的硬上限**——[read.ts:15-18](../../packages/opencode/src/tool/read.ts#L15-L18) 2000 行 / **50KB**,超了截断并追加 `(Output capped at 50 KB. … Use offset=N to continue.)`。
+>
+> 后果:一份**两三万字的中文 md**(UTF-8 3 字节/字 ≈ 60–90KB)作为附件发出去,模型拿到的是**前 ~1.7 万字 + 一句续读提示**,而弱模型多半不会续读。**不报错、不可见**,直接基于半份材料作答。
+>
+> 所以「纯文本/md 走 FilePart 正好」这句只在**小文件**下成立。上游这个设计本身就是粗粒度的渐进式披露(一份 50KB),不是「全文进上下文」——业界(claude.ai / ChatGPT)同样是**按体量分层**,没有产品在做「永远全文内联」。insight 侧按总字节分层转子代理分治的定案见 [SPEC-INS-032 §2.3](../specs/infra/insight-subagent-dispatch.md)。
+
 **推论(踩过的坑)**:把一个 **office 文件**作为 `FilePart(file://)` 丢进去,**指望模型"看到路径后自己调 extract 工具"是错的**——opencode 在模型回合前就把它 base64 掉了,模型手里根本没有路径。要让模型按需调 extract,得**把路径作为 text 给它 + 提供工具**(模式 C),不能走 FilePart。纯文本/md 走 FilePart 反而正好(自动内联)。
 
 ### 非多模态模型怎么办
@@ -96,5 +104,7 @@ insight **不复用**上游 chat 的附件逻辑,自己一套。当前实际跑�
 - 模型 API 不收 File/Blob/磁盘路径,只收 {文本 / base64 / 公网url / file_id / 工具 args}。
 - `FilePart.url` 是多态定位符,**会在组 prompt 时被解析成内容**(text/plain→内联、二进制→base64)。
 - "给模型路径让它自己调工具"只有把路径当**文本**给 + 配工具才成立;走 FilePart 不成立。
-- base64 只对小图;文档超窗,必须抽文本或交工具。
-- 有存储就用 URL;前提是 provider 够得到那个 URL。
+- text/plain 的「内联」**是真的走 `read` 工具**,所以**有 2000 行 / 50KB 上限**;大 md 会被静默截断,别把「自动内联」读成「全文进上下文」(§1 的警示框)。
+- **图片的 base64 不进 token**(走 vision 解码通道),同一张图 URL 传和 base64 传的 token 数完全一样;base64 的代价在请求体/内存/日志,不在模型侧。只有把 base64 拼进 **text part** 才会 tokenize 爆炸。
+- 文档不能 base64 给模型,原因是**多模态通道不解码 docx/xlsx**(与体积无关),必须抽文本或交工具。
+- 有存储就优先 URL(省内存、可留档);前提是 provider 够得到那个 URL,够不到就用 base64,模型侧无损失。
