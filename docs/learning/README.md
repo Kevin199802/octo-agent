@@ -64,6 +64,8 @@ learning 文档面向"对该领域不熟悉、想完整理解原理"的读者。
 
 39. [relative-path-base-per-tool.md](relative-path-base-per-tool.md) — 相对路径的「基准」为什么要逐工具指定,以及它跟「能读写哪里」不是一回事:**基准**(`a.md` 等于哪个绝对路径,我们的插件)≠ **允许区**(那个绝对路径准不准碰,上游 `external_directory`)——插件对绝对路径完全不介入,不会让模型「读不到某目录」/ 必须逐工具是因为上游没有会话级 cwd 抽象、每个工具各自 join `instance.directory`,而改 `Instance.directory` 自指 / 基准表(write·edit·read·bash → 产物目录;glob·grep → **会话根**)与三处刻意的不对称(搜索范围≠落点,否则「在材料里找 X」搜不到 uploads;read 不拦越界因 `../uploads/` 合法;bash 只能靠 workdir——skill 脚本不读系统提示词)/ **三层心智模型**:声明层(改字符串)·基准层(改参数)·权限层(改判定),①② 缺一不可——只改声明,`write.ts` 的 `path.join(instance.directory,…)` 一字未动(锚点:SPEC-INS-028 · `octo-session-workdir.ts`)
 
+40. [sync-store-is-partial-cache.md](sync-store-is-partial-cache.md) — 前端 `sync.data.session` **不是**会话全集、也不是侧栏列表的镜像,而是「最近 5 个根会话 + 4h 内活跃的 + 本次运行碰巧路过的子会话」(三条进入路径 / 两条淘汰路径,`roots: true` · `limit: 5` · `trimSessions`)/ 锚点案例:子会话导航拦截查它的 `parentID`,**当轮对、刷新后错**——`!!undefined?.parentID` 把「没查到」悄悄当成「不是子会话」放行 / 为什么自测动作永远走在对的那一半 / 判定分三类:渲染态与优化性判断可查 store,**权威判定不行**(「查不到 ≠ 不成立」)/ 三条出路(根本不问 > 实拉校验 > 服务端判定)与 `!!x?.foo` 形状自查法(锚点:SPEC-INS-021 §1 · UXAI PR #718)
+
 > 后续可能补:
 >
 > - `electron-vite-build.md` — main/preload/renderer 三段构建模型(暂不重要)
