@@ -44,8 +44,9 @@ octo_insight 常驻可见集收敛为(2026-07-11 修订:webfetch/websearch 自 d
 
 理由对照:
 - `write` 保留给 018 产物落盘;`edit` **2026-07-30 放开**(原归 ROADMAP D 二次生成、v1 不放):用户要编辑已生成的 md 交付物。edit 与 write 同用 `filePath`,outputs 重定向插件(`agent/octo-outputs-redirect.ts`)已同步把 edit 的相对文件名解析进会话 outputs——判据是「以 filePath 落盘产物」,write/edit 归同一集合。
-- `task` 权限层保留 allow(018 多文档分治的编排原语),但 **turn 级默认关**(2026-07-13 追加,与用户对齐):task 是内部编排原语、不是用户能力入口——用户 turn 里模型自发起子代理对用研场景零收益(token/时延/弱模型跑偏),子会话还会被点成「侧栏没有记录的对话」的观感 bug。buildToolGate 对**所有**用户 turn 下发 `task=false`;018 那类**我们编排的 turn** 由构造方显式放行。配套 UI 面:insight 内**子会话导航全拦截**(task 卡片点击 / href / 刷新保路由恢复,均校验 parentID),过程仍由 turn 内联 task 卡片透明展示(§4),不 fork 第二个对话入口——业界同类(Claude Code subagent / Manus 执行流)子任务均为内联过程块,不开独立对话;上游"点进子会话"是开发者调试入口,不该漏给研究员。
-  - ⚠️ **2026-08-18 撤销「turn 级默认关」**(见 [SPEC-INS-032](insight-subagent-dispatch.md) §5):`buildToolGate` 里那行 `task = false` 删除,task 常驻可见。本条当初的两个理由各自已有解——「弱模型跑偏」由候选收敛解决(defaults `task: { insight_reader: deny }` + octo_insight 显式 allow,模型的 task 描述里只剩一个只读文档子代理);「侧栏幽灵对话」由子代理独立 agent 名解决(侧栏按 `agent = octo_insight` 过滤,子会话天然不出现)。**本条的子会话导航全拦截保留不动**(点击 / href / 刷新恢复),作双保险。
+- `task` 权限层保留 allow(018 多文档分治的编排原语),但 **turn 级默认关**(2026-07-13 追加,与用户对齐):task 是内部编排原语、不是用户能力入口——用户 turn 里模型自发起子代理对用研场景零收益(token/时延/弱模型跑偏),子会话还会被点成「侧栏没有记录的对话」的观感 bug。buildToolGate 对**所有**用户 turn 下发 `task=false`;018 那类**我们编排的 turn** 由构造方显式放行。配套 UI 面:insight 内**子会话导航全封**(task 卡片点击 / href / 刷新保路由恢复),过程仍由 turn 内联 task 卡片透明展示(§4),不 fork 第二个对话入口——业界同类(Claude Code subagent / Manus 执行流)子任务均为内联过程块,不开独立对话;上游"点进子会话"是开发者调试入口,不该漏给研究员。
+  - ⚠️ **2026-08-18 撤销「turn 级默认关」**(见 [SPEC-INS-032](insight-subagent-dispatch.md) §5):`buildToolGate` 里那行 `task = false` 删除,task 常驻可见。本条当初的两个理由各自已有解——「弱模型跑偏」由候选收敛解决(defaults `task: { insight_reader: deny }` + octo_insight 显式 allow,模型的 task 描述里只剩一个只读文档子代理);「侧栏幽灵对话」由子代理独立 agent 名解决(侧栏按 `agent = octo_insight` 过滤,子会话天然不出现)。**本条的子会话导航全封保留不动**(点击 / href / 刷新恢复),作双保险。
+  - ⚠️ **2026-08-27 换实现**:task 卡片那两条腿原先是「查 `sync.data.session` 的 `parentID`,是子会话才拦」,**偶现拦不住**——会话列表只拉 root([session-load.ts](../../../packages/app/octoapp/context/global-sync/session-load.ts) `roots: true`),子会话仅在当轮 SSE `session.created` 时才进 store,刷新 / 重开后回看历史 turn 就查不到,判定返回 false 当成根会话放行。改为 insight 的 `DataProvider` **不传** `onNavigateToSession` / `onSessionHref`:上游 `clickable()` = `!!(childSessionId() && (navigateToSession || href()))`,两个 prop 缺席即恒 false,卡片不渲染 ↗、不生成 `<a>`,点击与 cmd/中键一起断在**渲染层**,不再依赖任何运行时状态。刷新恢复那条腿不变(仍是 `session.get` 实拉校验 `parentID`,不查 store)。
 - `bash`(shell)**2026-07-30 放开**:interview-analysis skill 的执行步骤需要 shell。原为 2026-07-07 事故(弱模型 MCP 断连时用 shell 裸调 MCP HTTP、编造 task_id,见 §0.1)后常驻 deny;权衡后为 skill 放开**普通轮次**的 bash,接受「非 chip 轮次那条逃生口在弱模型上重新暴露」的代价(不收窄到「仅 skill 轮次」)。产物落盘错位单独靠提示词「只给文件名」硬规则收敛,不靠关 bash。
 - chip turn 的 gate 另**在关 bash 基础上增关 webfetch**(与 shell 同属 chip 轮模拟 MCP 调用的通道;webfetch 非 chip turn 不受影响)。gate 与本白名单双保险、互不替代(gate 管 turn 级动态,白名单管常驻底线)。**注**:bash 2026-07-30 放开后,chip turn 关 bash 已从「权限层已 deny 之上的冗余」升为**唯一守卫**——删 buildToolGate 那行会让研究工具轮次重新暴露 shell(mcp-trigger.ts 注释已同步)。
 - `webfetch` / `websearch` 保留(2026-07-11 与用户对齐):竞品分析是能力线既定方向,工具面按能力本体划、不按 v1 单一场景裁。可用性实测(2026-07-11 用户验证):webfetch 内网代理配置后已验证可通(setGlobalProxyFromEnv 链路);websearch 亦实测可用(注册表 gate——registry.ts ~L310 仅 opencode provider 或 `OPENCODE_ENABLE_EXA` flag——在其环境已满足)。遗留约束:内网网关对部分域名 TLS 层掐断,覆盖面问题在竞品检索正式立项时再评估数据源。
@@ -199,7 +200,7 @@ Permission deny 的语义(llm.ts resolveTools + Permission.disabled):**既从模
 **E. task 静默化(2026-07-13 追加)**
 
 1. 明确诱导:「开一个子任务/子代理帮我分析这个文件」→ 模型**不发起 task**(工具对本 turn 不可见),正常自答或说明能力;侧栏**不出现**新的无标题对话。
-2. 历史会话回归:找一条**旧会话里已有 task 卡片**的记录,点击卡片 → **不再跳转**(Console 出现 `[octo:task] child-session navigation blocked`);cmd/中键点击也不开新页。
+2. 历史会话回归:找一条**旧会话里已有 task 卡片**的记录(**整页刷新后再看**——2026-08-27 前的实现正是在这里漏的),卡片右上角**无 ↗ 图标**、hover 不变手型、点击无反应;cmd/中键点击也不开新页(DOM 里该卡片不应有 `<a href>`)。
 3. 刷新兜底:若此前曾停留在子会话路由(或手工把子会话 id 写进 `octo:insight:last-session`),整页刷新 → 落回首页空态,**不恢复**进子会话。
 
 ### 8.2 内网(桌面包,GLM + 真 MCP)

@@ -595,7 +595,7 @@ octo_insight:   task: { insight_reader: "allow" }
 
 1. **分治主路径**:上传 6–10 份 docx,让它「把每份的关键发现汇总成一份报告」→ 观察:父代理**逐份发起 task**、每份返回后写一行小结;对话不中断、不撞窗口;最终报告落 `outputs/`。
 2. **工作区归属**:上一步跑完后查磁盘——`.octo/<父会话ID>/extracted/` 下有 N 份解析件(**不是**散在各子会话目录);`outputs/` 里只有父代理写的报告(子代理没写文件)。
-3. **侧栏干净**:分治期间与结束后,左侧会话列表**不出现**任何新条目;点 task 卡片不跳转(Console `[octo:task] child-session navigation blocked`);刷新不落进子会话。
+3. **侧栏干净**:分治期间与结束后,左侧会话列表**不出现**任何新条目;task 卡片右上角无 ↗、点不动(**整页刷新后再点一遍**);刷新不落进子会话。
 4. **不外溢**(本轮硬要求):切到 make / studio,问模型「列出你可用的 subagent 类型」→ 有 `general` / `explore`,**没有** `insight_reader`;同时确认这些页面的 task 工具**本身仍可用**(§5.2 的两个函数语义差别,人工侧就看这一条)。
 5. **工具面**:在 make / studio 问「你有 extract_document 吗」→ 没有;insight 里有。
 6. **回归**:chip turn(研究工具那轮)行为不变——`[octo:chip] chip-send` 的 `toolGate` 里 bash / webfetch 仍为 false,业务工具只放行所选那个;**`task` 不再恒为 false**(这是本 spec 的预期变化,核对时别当回归失败)。
