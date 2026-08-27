@@ -42,7 +42,7 @@
 | 029 | @技能激活的服务端事件上报（`extra.skills` → `skill.used`）— 补 023 §2.2 明确接受的「不发 SkillUsed 事件」那项代价 | 草案（待实现） | infra/insight | [insight-skill-activation-event.md](infra/insight-skill-activation-event.md) |
 | 030 | Insight 吸收内网知识库问答 + chat 模块下线（chat→insight 合并）— supersede 旧 chat-knowledge-search；含新接口契约 / 历史迁移 / account 限流必修 | PR-A/B/C 已实现待内网验证（UXAI #633 / #634）；Q3 已定案（2026-08-22：只查全量库、不做多库路由）；PR-D（切新接口走全量库）未开始 | agents / infra/ui/insight | [insight-knowledge-search.md](agents/insight-knowledge-search.md) |
 | 031 | Chat 历史会话迁移 — 设置里一次性把 chat 老会话（agent=octo_ai）改归属到 insight：回填 agent + directory + project_id，用户选目标目录；备份即记录、可重新迁移、不做还原按钮；**临时功能，后续版本整体下掉** | 草案（待实现） | infra/insight | [insight-chat-session-migration.md](infra/insight-chat-session-migration.md) |
-| 032 | Insight 子代理分治（多文档通读）+ 工具面声明化 — 一份文档一个 `insight_reader` 子代理（子代理自己抽取、只回传结论），解 016 v2 遗留的「10 份文档通读撞窗口」；`extract_document` 的 gate 从 registry 按 agent 名硬编码改为**权限层声明**（defaults deny + 显式 allow，第三方 skill 可自助）；task 常驻放开但候选收敛到 `insight_reader` 且不外溢到其他 agent；工作区判据改「会话树根会话」。**v2（2026-08-21）补入口覆盖面**：md/txt 不走 `extract_document`、而是被上游翻成一次 50KB 封顶的 `read`，10 份两三万字第一轮就超限且单份已被静默截断——改为发送前按**总字节**分层（≤32KB 内联不变，超了整批转分治），单份 >150KB 响亮失败；并给子代理补「读完 / 读准」的硬判据（总行数自查、原话锚点、边读边记） | v1 已合入 dev、待人工验证；**v2 待实现**（清单见 spec §12.2） | infra/insight | [insight-subagent-dispatch.md](infra/insight-subagent-dispatch.md) |
+| 032 | Insight 子代理分治（多文档通读）+ 工具面声明化 — 一份文档一个 `insight_reader` 子代理（子代理自己抽取、只回传结论），解 016 v2 遗留的「10 份文档通读撞窗口」；`extract_document` 的 gate 从 registry 按 agent 名硬编码改为**权限层声明**（defaults deny + 显式 allow，第三方 skill 可自助）；task 常驻放开但候选收敛到 `insight_reader` 且不外溢到其他 agent；工作区判据改「会话树根会话」。**v2（2026-08-21）补入口覆盖面**：md/txt 不走 `extract_document`、而是被上游翻成一次 50KB 封顶的 `read`，10 份两三万字第一轮就超限且单份已被静默截断——改为发送前按**总字节**分层（≤32KB 内联不变，超了整批转分治），单份 >150KB 响亮失败；并给子代理补「读完 / 读准」的硬判据（总行数自查、原话锚点、边读边记） | v1 已合入 dev（#683）；v2 入口覆盖面已实现；**v3（2026-08-27 内网实测回补：office 分治判据 / 单份超量改切段 / 子代理会话 id 守卫 / 串行闸）待内网验证** | infra/insight | [insight-subagent-dispatch.md](infra/insight-subagent-dispatch.md) |
 
 > **025 编号说明（2026-07-28）**：question 工具答题 UI 起草时取号 023，但同期 `@` 引用面板已用 023 落地并推送、`composer-draft` 已占 024。按下方 019 / 020 确立的"孤儿号改分配新号，不动已发布号"原则，未推送的这份改分配为 025。
 
@@ -61,6 +61,7 @@
 | `question` 工具 — skill 作者须知 | 对外交付（发给 skill 开发者；刻意不写 schema，理由见 §0） | agents | [question-tool-for-skills.md](agents/question-tool-for-skills.md) |
 | 产物落盘 — skill 作者须知 | 对外交付（发给 skill 开发者；三条规则 + 自查清单，宿主侧机制见 SPEC-INS-028） | agents | [artifact-output-for-skills.md](agents/artifact-output-for-skills.md) |
 | 文档解析结果 — skill 作者须知 | 对外交付（发给 skill 开发者；不自己解析 / 路径当参数接 / 别把行当段 / 容错，宿主侧机制见 SPEC-INS-016） | agents | [extracted-documents-for-skills.md](agents/extracted-documents-for-skills.md) |
+| `task` 子代理 — skill 作者须知 | 对外交付（发给 skill 开发者；insight 里能派的子代理只有 `insight_reader`、子代理拿不到 skill、结论只有一段文本，宿主侧机制见 SPEC-INS-032） | agents | [task-tool-for-skills.md](agents/task-tool-for-skills.md) |
 | MCP 集成（重点：内网数据访问） | 草案 | agents | [mcp-integration.md](agents/mcp-integration.md) |
 | 多 Agent 协作 | 草案 | agents | [multi-agent.md](agents/multi-agent.md) |
 | Skill 系统 | 草案 | agents | [skill-system.md](agents/skill-system.md) |
