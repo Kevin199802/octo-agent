@@ -1,6 +1,6 @@
-# SPEC-INS-033 — Insight 统一产物统计打点（`artifact-output`）
+﻿# SPEC-INS-033 — Insight 统一产物统计打点（`artifact-output`）
 
-> 状态：**已实施（D3+D4，2026-08-29：服务端上报 + 事件族收敛为 write/edit/mcp/outside 四条，三层归因）** · 优先级 P2 · 规模 [S] · 领域 infra/insight
+> 状态：**已实施（D3+D4+D5，2026-08-29：服务端上报 + 三层归因 + 事件名沿用原口径）** · 优先级 P2 · 规模 [S] · 领域 infra/insight
 >
 > 上游已实现：✓ git snapshot / `summary.diffs` 全链路；✓ 服务端发射器（opencode `tracking/report.ts` + `summary.ts` 挂钩，三层归因分派事件名）；✓ 前端 artifact 打点 effect 全部删除
 
@@ -63,16 +63,16 @@ UXAI `tracking.md` §十「统计产物」现有三个事件（`artifact-file-wr
 
 ## 4. 方案设计
 
-**事件族（D4）：`artifact-output-write` / `artifact-output-edit` / `artifact-output-mcp` / `artifact-output-outside` 四条，全部服务端发送。**原前端三条（`artifact-file-write` / `artifact-file-edit` / `artifact-mcp-return`）与原单一 `artifact-output` 均已删除——本族完全替代：per-file 粒度、字段更全、bash 等脚本通道有归因、且不受组件生命周期影响。
+**事件族（D4+D5）：`artifact-file-write` / `artifact-file-edit` / `artifact-mcp-return` / `artifact-output-outside` 四条，全部服务端发送、事件名沿用原口径名（D5 用户拍板「名字别改」——语义延续，实现与覆盖面升级）。**原前端三条 effect 与原单一 `artifact-output` 均已删除——本族完全替代：per-file 粒度、字段更全、bash 等脚本通道有归因、且不受组件生命周期影响。
 
 | 事件 | 归因规则（见 §4.1.1 三层归因） | extend |
 |------|-----------|--------|
-| `artifact-output-write` | write 工具（含覆盖写，工具优先于 status）或脚本**新建**（status=added） | `{sessionId, messageId, file, type, status}` |
-| `artifact-output-edit` | edit 工具或脚本**修改**（status=modified） | `{sessionId, messageId, file, type, status}` |
-| `artifact-output-mcp` | MCP resource_link 落盘文件（basename best-effort 匹配） | `{sessionId, messageId, file, type, status, tool}` |
+| `artifact-file-write` | write 工具（含覆盖写，工具优先于 status）或脚本**新建**（status=added） | `{sessionId, messageId, file, type, status}` |
+| `artifact-file-edit` | edit 工具或脚本**修改**（status=modified） | `{sessionId, messageId, file, type, status}` |
+| `artifact-mcp-return` | MCP resource_link 落盘文件（basename best-effort 匹配） | `{sessionId, messageId, file, type, status, tool}` |
 | `artifact-output-outside` | 会话目录外变更（噪声桶，**turn 级一条**，仅 outside>0 时报） | `{sessionId, messageId, outside}` |
 
-**bash/powershell/python 等脚本通道**：diff 里有、tool part 里没有的文件，按 git status 兜底归因——`added`→write（脚本新建）、`modified`→edit（脚本修改）。git 的 status 判定是权威的，不靠嗅探命令文本；这正覆盖了「bash edit 一个文件」的场景（归 `artifact-output-edit`）。
+**bash/powershell/python 等脚本通道**：diff 里有、tool part 里没有的文件，按 git status 兜底归因——`added`→write（脚本新建）、`modified`→edit（脚本修改）。git 的 status 判定是权威的，不靠嗅探命令文本；这正覆盖了「bash edit 一个文件」的场景（归 `artifact-file-edit`）。
 
 ### 4.1 事件定义（per-file 粒度，见 §9 决策 D2/D4）
 
@@ -83,7 +83,7 @@ UXAI `tracking.md` §十「统计产物」现有三个事件（`artifact-file-wr
 extend 字段：
 
 ```jsonc
-// artifact-output-write / -edit / -mcp(每个文件一条)
+// artifact-file-write / -edit / -mcp(每个文件一条)
 {
   "sessionId": "ses_xxx",       // 会话归属(不依赖 path 解析)
   "messageId": "msg_xxx",       // 本 turn 的 user message id —— 下游幂等键组成部分,见 §4.4
@@ -91,7 +91,7 @@ extend 字段：
   "type": "markdown",           // 六值枚举;.ts/.py/.txt 等一律归 code
   "status": "added"             // added / modified(含覆盖写)
 }
-// artifact-output-mcp 额外带:
+// artifact-mcp-return 额外带:
 { "tool": "key_findings" }      // 产生该文件的 MCP 业务工具名(business_type)
 // artifact-output-outside(turn 级一条)
 { "sessionId": "ses_xxx", "messageId": "msg_xxx", "outside": 2 }
@@ -126,8 +126,8 @@ export function isSessionArtifactPath(filePath: string, sessionId: string): bool
 对会话产物区内的每条 diff，按优先级归因到事件名（归因纯函数 `attributeDiff`，单测覆盖）：
 
 1. **write/edit 工具 part 精确匹配**：遍历本 turn assistant messages 的 completed 写盘类工具 part（bare 名 write/edit 及带前缀变体），取 `state.metadata.filepath`（服务端写盘的权威绝对路径，兜底 `state.input.filePath`），与 diff 路径做**后缀匹配**（统一分隔符 + 大小写不敏感——tool part 是绝对路径、diff 是仓库相对路径，共享 `.octo/<sessionId>/` 后缀段）。工具优先于 status：write 覆盖写（modified）仍归 write
-2. **resource_link basename 匹配**：MCP eager 落盘文件用 `link.name`（markdown 补 `.md`、撞名加 `-N` 后缀，均为 best-effort 前缀关系），basename 命中 → `artifact-output-mcp`，`business_type` 进 `tool` 字段
-3. **git status 兜底**：前两层都没中 → `status=added` 归 `artifact-output-write`（脚本新建）、`status=modified` 归 `artifact-output-edit`（脚本修改）。**这层覆盖 bash/powershell/python 等脚本通道**——git 的 added/modified 判定是权威的，不靠嗅探命令文本
+2. **resource_link basename 匹配**：MCP eager 落盘文件用 `link.name`（markdown 补 `.md`、撞名加 `-N` 后缀，均为 best-effort 前缀关系），basename 命中 → `artifact-mcp-return`，`business_type` 进 `tool` 字段
+3. **git status 兜底**：前两层都没中 → `status=added` 归 `artifact-file-write`（脚本新建）、`status=modified` 归 `artifact-file-edit`（脚本修改）。**这层覆盖 bash/powershell/python 等脚本通道**——git 的 added/modified 判定是权威的，不靠嗅探命令文本
 
 归因原料（tool parts + resource links）从 `summarize` 的 turn messages 现场提取（`collectAttributionSources`，仅 assistant 消息），无额外查询。
 
@@ -171,6 +171,7 @@ export function reportDiffs(input: {
   const effectiveAccount = account ?? "mock"    // mock 模式:占位继续发(外网验证)
 
   const { toolParts, resourceLinks } = collectAttributionSources(input.messages) // 三层归因原料
+  // EVENT_NAMES(D5 沿用原口径名): { write: "artifact-file-write", edit: "artifact-file-edit", mcp: "artifact-mcp-return" }
   let outside = 0
   const effects: Effect.Effect<void>[] = []
   for (const d of input.diffs) {
@@ -185,7 +186,7 @@ export function reportDiffs(input: {
       type: outputTypeOf(d.file), status: d.status ?? "modified",
     }
     if (attr.tool) extend.tool = attr.tool
-    effects.push(sendOne({ account: effectiveAccount, name: `artifact-output-${attr.event}`, extend }))
+    effects.push(sendOne({ account: effectiveAccount, name: EVENT_NAMES[attr.event], extend }))
   }
   if (outside > 0) {
     effects.push(sendOne({ account: effectiveAccount, name: "artifact-output-outside",
@@ -206,7 +207,7 @@ export function reportDiffs(input: {
 - **口径静默依赖用户项目的 `.gitignore`**：snapshot 会按源仓 ignore 规则过滤（`packages/opencode/src/snapshot/index.ts:238-249`，`diffFull` 出口 `:694-698` 再滤一次）。若 projectDir 恰好是个 git 仓且 `.gitignore` 忽略了 `.octo/`（隐藏目录，很常见），**本族事件恒为 0**。排查任何「产物统计为 0」的反馈时先查这一条。（D3 迁服务端**不改变**此条：挪的只是发射器，数据源还是 git snapshot。）
 - **account 缺失的 turn 整批跳过（真实上报模式）**：未登录态、或 opencode 服务重启后用户尚未再发消息（sessionExtras 为进程内存）时，该 turn 静默跳过。偏差方向恒为偏低，日志有 `[octo:tracker-server] account missing` 可排查。mock 模式（外网调试）不跳过（占位 `"mock"`，不进真实管道）。
 - **`artifact-output-outside` 是噪声桶不是产物**：它混着并发会话、Make 模块、用户手动保存三类来源，只用于观察污染量级，不要计入产物总量。
-- **归因兜底的两处低频误标**（D4）：① 用户生成期间手改会话目录内文件 → modified → 误标 `artifact-output-edit`；② MCP 匹配失败（eager 落盘晚于末次 snapshot / 撞名规则外）→ 按 status 兜底误标 write/edit。两处均低频、方向可解释；分析侧口径：「write/edit = 会话产物区内的新建/修改总量（含脚本），mcp = MCP 返回物」。
+- **归因兜底的两处低频误标**（D4）：① 用户生成期间手改会话目录内文件 → modified → 误标 `artifact-file-edit`；② MCP 匹配失败（eager 落盘晚于末次 snapshot / 撞名规则外）→ 按 status 兜底误标 write/edit。两处均低频、方向可解释；分析侧口径：「write/edit = 会话产物区内的新建/修改总量（含脚本），mcp = MCP 返回物」。
 - **含 `"` / `\` 的文件名历史脏数据**：曾因 `summary.ts:128` 写入 `summary.diffs` 未走 `unquoteGitPath` 而判成 `code`；该修复已随 D3 同批合入（写入前归一化），存量历史 message 中的带引号路径不回填。
 
 ---
@@ -260,21 +261,21 @@ export function reportDiffs(input: {
 
 | # | 场景 | 操作 | 预期事件（per-file，服务端发） |
 |---|------|------|----------------------|
-| 1 | write 工具创建文件 | 「创建 test.md」 | **1 条 `artifact-output-write`**：`{sessionId, messageId, file, type:"markdown", status:"added"}` |
-| 2 | **bash 创建文件** | 「用 echo 创建一个 a.txt」 | **1 条 `artifact-output-write`**：`type:"code"`, `status:"added"`（status 兜底归因——D4 核心场景） |
-| 3 | **bash 修改文件** | 「用 bash/sed 修改 a.txt」 | **1 条 `artifact-output-edit`**：`status:"modified"`（status 兜底归因） |
+| 1 | write 工具创建文件 | 「创建 test.md」 | **1 条 `artifact-file-write`**：`{sessionId, messageId, file, type:"markdown", status:"added"}` |
+| 2 | **bash 创建文件** | 「用 echo 创建一个 a.txt」 | **1 条 `artifact-file-write`**：`type:"code"`, `status:"added"`（status 兜底归因——D4 核心场景） |
+| 3 | **bash 修改文件** | 「用 bash/sed 修改 a.txt」 | **1 条 `artifact-file-edit`**：`status:"modified"`（status 兜底归因） |
 | 4 | **多步 turn** | 「先分析附件，再写一份 md 报告」 | 每 finish-step 一轮、只发当轮新增；turn 结束时产物的**几条全有** |
 | 5 | **打开历史会话** | 切到一个有 5 条历史产物 turn 的会话 | **一条都不报**（服务端在生成时刻发，打开历史不触发任何东西） |
 | 6 | F5 刷新 | 刷新已有产物的会话 | 同 #5，一条都不报 |
 | 7 | **生成中切走会话（D3 核心验收）** | 发完消息**立刻**切到别的会话 / 关窗口 | **照常上报**——前端组件卸载与服务端发送无关；B 方案在此场景漏报（见 §9.1） |
-| 8 | edit 工具修改 | 「修改 test.md 第 1 行」（模型用 edit 工具） | **1 条 `artifact-output-edit`**（tool part 精确归因） |
+| 8 | edit 工具修改 | 「修改 test.md 第 1 行」（模型用 edit 工具） | **1 条 `artifact-file-edit`**（tool part 精确归因） |
 | 9 | 并发污染 | insight 生成期间用 Make 模块产出文件 | Make 的文件不进 write/edit/mcp，报 **1 条** `artifact-output-outside:{outside:1}` |
 | 10 | **gitignore 忽略** | projectDir 为 git 仓且 `.gitignore` 含 `.octo/` | `diffs` 为空 → 不上报（已知偏差 §5 第一条） |
 | 11 | **per-file 粒度** | 「一次创建 3 个文件」（write×3 或 bash 批量） | **3 条**，面板行数=文件数（旧的聚合口径只显示 1，见 §9.2 D2） |
 | 12 | 同名覆盖写 | turn 内两次 write 同一文件 | 2 条（added + modified 各一），file 相同、status 不同——`group by messageId,file` 取最新即正确终态 |
 | 13 | **未登录态（真实上报模式）** | 配了 base URL 且无 `userInfo.account` | 整批跳过 + `[octo:tracker-server] account missing` warn（不造空 account 脏数据；mock 模式不适用此条——占位继续发） |
 | 14 | **make 不误报** | 用 Make 模块产文件 | **零条**（agent 守卫：只报 `octo_insight` 会话） |
-| 15 | MCP 产物 | 调一个返回 resource_link 的 MCP 工具 | **1 条 `artifact-output-mcp`**：带 `tool` 字段（basename 匹配，见 §4.2.1 第二层） |
+| 15 | MCP 产物 | 调一个返回 resource_link 的 MCP 工具 | **1 条 `artifact-mcp-return`**：带 `tool` 字段（basename 匹配，见 §4.2.1 第二层） |
 
 以上 15 条均不依赖内网真实服务或数据（本地 worktree + mock 日志即可复现），**无内网验证节**；上线后在内网配 `OCTO_REPORT_BASE_URL`（.env.beta / .env.prod），Network / 服务端日志确认命中真实域名即可，属常规打点流程（见 [tracking.md](tracking.md)），不额外列。
 
@@ -319,11 +320,16 @@ export function reportDiffs(input: {
 - B 方案时代的 D2 per-file 粒度、幂等键设计**原样保留**（D3 只换发射器，不动口径）
 
 **D4（2026-08-29）事件族收敛 + 三层归因，§9 末尾那条「未采纳建议」落地（按用户拍板形态）。**
-起因：用户验证「bash edit 一个文件」没进打点（时为旧构建包，D3 代码不在运行时），由此提出诉求——bash 的 write/edit 不该笼统归 other，要直接进 artifact-output-write / artifact-output-edit。查证发现可行且有更好的信号：
+起因：用户验证「bash edit 一个文件」没进打点（时为旧构建包，D3 代码不在运行时），由此提出诉求——bash 的 write/edit 不该笼统归 other，要直接进 artifact-file-write / artifact-file-edit。查证发现可行且有更好的信号：
 
-- **事件族收敛**：删 `artifact-output`（单一）+ 前端三条（artifact-file-write/edit/mcp-return，D3 时本已计划收敛），统一为 `artifact-output-write` / `-edit` / `-mcp` / `-outside` 四条。**事件名即归因结果**——用户明确不要「单事件 + extend.source 字段」形态（面板按行即得来源，不用解析 extend）
+- **事件族收敛**：删 `artifact-output`（单一）+ 前端三条（artifact-file-write/edit/mcp-return，D3 时本已计划收敛），统一为 `artifact-output-write` / `-edit` / `-mcp` / `-outside` 四条（D5 起改回原口径名，见下）。**事件名即归因结果**——用户明确不要「单事件 + extend.source 字段」形态（面板按行即得来源，不用解析 extend）
 - **三层归因**（§4.2.1）：write/edit 工具 part 精确匹配（metadata.filepath 后缀匹配）> resource_link basename（markdown 补 .md / 撞名 `-N` best-effort）> **git status 兜底**——`added`→write / `modified`→edit。第三层正是 bash 归因的关键：**git 的 status 判定是权威的**（脚本新建必是 added、修改必是 modified），不嗅探命令文本；最初设想单列 bash 或笼统 other 均不如按 status 归并语义诚实
 - 归因原料从 summarize 的 turn messages 现场提取（`collectAttributionSources`），服务端全自含，前端至此零参与
 - P1（mock 模式占位 account）/ P2（§8.1 三种验证形态的环境矩阵——desktop/打包形态必须先 `bun run build` opencode，mock 日志在 main.log 不在终端）随 D4 同批落地
 
 （最初记录的「未采纳建议」原文：`artifact-` 前缀下 4 个事件口径互相重叠、需靠相减推断，分析侧难解释；更清爽的形态是只留一个 turn 级事件、来源作维度进 extend。**D4 已按事件名分派形态落地**——比单事件+字段更彻底：分析侧连 extend 都不用解析。相减推断的口径重叠问题随前端三条删除而消失。）
+
+**D5（2026-08-29）事件名改回原口径：`artifact-file-write` / `artifact-file-edit` / `artifact-mcp-return`（outside 不变）。**
+D4 定的 `artifact-output-write/edit/mcp` 尚未合入即被用户推翻——「名字别改，按这个 artifact-file-write / artifact-file-edit / artifact-mcp-return」。理由充分：原三条名是既有口径（面板 / 分析侧可能已按此建了查询），沿用可让「服务端接管」对下游零感知——语义延续、覆盖面升级（per-file、bash 归因、不怕切走），但事件名与维度完全不变。改动仅 `EVENT_NAMES` 常量映射与文档；outside 事件名未在用户推翻之列，维持 `artifact-output-outside`。
+
+最终事件族（现行）：`artifact-file-write`（新建，含脚本新建）/ `artifact-file-edit`（修改，含脚本修改）/ `artifact-mcp-return`（MCP 落盘，带 tool）/ `artifact-output-outside`（目录外噪声，turn 级一条）。
