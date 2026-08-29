@@ -7,7 +7,7 @@
 
 ---
 
-## 已编号（SPEC-INS-001 ~ 033）
+## 已编号（SPEC-INS-001 ~ 032）
 
 | 编号 | 标题 | 状态 | 领域 | 文件 |
 |---|---|---|---|---|
@@ -43,7 +43,6 @@
 | 030 | Insight 吸收内网知识库问答 + chat 模块下线（chat→insight 合并）— supersede 旧 chat-knowledge-search；含新接口契约 / 历史迁移 / account 限流必修 | PR-A/B/C 已实现待内网验证（UXAI #633 / #634）；Q3 已定案（2026-08-22：只查全量库、不做多库路由）；PR-D（切新接口走全量库）未开始 | agents / infra/ui/insight | [insight-knowledge-search.md](agents/insight-knowledge-search.md) |
 | 031 | Chat 历史会话迁移 — 设置里一次性把 chat 老会话（agent=octo_ai）改归属到 insight：回填 agent + directory + project_id，用户选目标目录；备份即记录、可重新迁移、不做还原按钮；**临时功能，后续版本整体下掉** | 草案（待实现） | infra/insight | [insight-chat-session-migration.md](infra/insight-chat-session-migration.md) |
 | 032 | Insight 子代理分治（多文档通读）+ 工具面声明化 — 一份文档一个 `insight_reader` 子代理（子代理自己抽取、只回传结论），解 016 v2 遗留的「10 份文档通读撞窗口」；`extract_document` 的 gate 从 registry 按 agent 名硬编码改为**权限层声明**（defaults deny + 显式 allow，第三方 skill 可自助）；task 常驻放开但候选收敛到 `insight_reader` 且不外溢到其他 agent；工作区判据改「会话树根会话」。**v2（2026-08-21）补入口覆盖面**：md/txt 不走 `extract_document`、而是被上游翻成一次 50KB 封顶的 `read`，10 份两三万字第一轮就超限且单份已被静默截断——改为发送前按**总字节**分层（≤32KB 内联不变，超了整批转分治），单份 >150KB 响亮失败；并给子代理补「读完 / 读准」的硬判据（总行数自查、原话锚点、边读边记） | v1 已合入 dev（#683）；v2 入口覆盖面已实现；**v3（2026-08-27 内网实测回补：office 分治判据 / 单份超量改切段 / 子代理会话 id 守卫 / 串行闸）待内网验证** | infra/insight | [insight-subagent-dispatch.md](infra/insight-subagent-dispatch.md) |
-| 033 | Insight 统一产物统计打点 — 现有三个 `artifact-*` 事件基于客户端解析 tool part，`bash` 产的文件永远漏报；改用服务端 git snapshot 的 `UserMessage.summary.diffs`，**事件名沿用原口径**（`artifact-file-write` / `artifact-file-edit` / `artifact-mcp-return` / `artifact-output-outside`），全部服务端发送 + 三层归因（tool part 精确 > resource_link basename > git status 兜底——bash 新建/修改按 added/modified 天然归 write/edit）。含对 UXAI 侧初稿的评审修订与五个决策：D2 per-file 粒度（面板按行数统计）、**D3 发射器迁服务端**（「tracker SDK 纯浏览器发不出去」经查证是伪前提，前端 effect 与三层补丁全删，切走会话漏报根除）、**D4 事件族收敛 + 三层归因**（事件名即来源，分析侧不解析 extend）、**D5 事件名改回原口径**（服务端接管对下游零感知） | **已实施**（服务端形态，UXAI feature/insight-artifact-tracking） | infra/insight | [insight-artifact-output-tracking.md](infra/insight-artifact-output-tracking.md) |
 
 > **025 编号说明（2026-07-28）**：question 工具答题 UI 起草时取号 023，但同期 `@` 引用面板已用 023 落地并推送、`composer-draft` 已占 024。按下方 019 / 020 确立的"孤儿号改分配新号，不动已发布号"原则，未推送的这份改分配为 025。
 
