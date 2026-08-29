@@ -1,6 +1,6 @@
 # SPEC-INS-033 — Insight 统一产物统计打点（`artifact-output`）
 
-> 状态：草案（待实现；本文是对 UXAI 侧「批次 6」初稿的评审修订版） · 优先级 P2 · 规模 [S] · 领域 infra/insight
+> 状态：草案（待实现；本文是对 UXAI 侧「批次 6」初稿的评审修订版，2026-08-29 起粒度改 per-file，见 §9 决策 D2） · 优先级 P2 · 规模 [S] · 领域 infra/insight
 >
 > 上游已实现：✓ git snapshot / `summary.diffs` 全链路（opencode 原生，无需新增基础设施）；✗ `artifact-output` 打点本身
 
@@ -72,33 +72,40 @@ UXAI `tracking.md` §十「统计产物」现有三个事件（`artifact-file-wr
 | `artifact-file-edit` | 多少是 edit 工具产生的？ | 客户端 tool part | edit only |
 | `artifact-mcp-return` | 多少是 MCP 工具返回的？ | 客户端 resource_link | MCP only |
 
-> **⚠️ 不要把「`artifact-output.total` 减去三个事件 count 之和」当作 bash 产出量。** 两个口径既重叠又异步：MCP `resource_link` 的 eager 落盘写在会话 `outputs/` 内（SPEC-INS-014 v4），**同样会进 git diff**，与 `artifact-mcp-return` 重复计数；且客户端落盘时刻不保证早于最后一次 step-finish 的 snapshot。差值只能当**趋势性提示**（「diff 明显多于工具口径 → 大概率有 bash 产物」），不能作为精确分母。
+> **⚠️ 不要把「`artifact-output` 行数减去三个事件行数」当作 bash 产出量。** 两个口径既重叠又异步：MCP `resource_link` 的 eager 落盘写在会话 `outputs/` 内（SPEC-INS-014 v4），**同样会进 git diff**，与 `artifact-mcp-return` 重复计数；且客户端落盘时刻不保证早于最后一次 step-finish 的 snapshot。差值只能当**趋势性提示**（「diff 明显多于工具口径 → 大概率有 bash 产物」），不能作为精确分母。
 
-### 4.1 事件定义
+### 4.1 事件定义（per-file 粒度，见 §9 决策 D2）
+
+**四条 `artifact-` 事件全部 per-file：每个文件一条事件**。打点数据面板按事件行数统计、不解析 `extend` 里的 count 字段——turn 级聚合（一条事件带 `files:[{type,count}]`）会让「1 turn 产 3 个文件」在面板上只显示 1，文件量被系统性低估。per-file 后**行数即文件数**，turn 级视图由下游 `group by messageId` 还原。四条事件都未上 dev，无迁移成本。
 
 | name | 功能（统计什么） | 打在哪 | extend |
 |------|-----------------|--------|--------|
-| `artifact-output` | 本 turn 实际产出/修改的文件总量（服务端 git diff 口径，覆盖所有文件变更方式） | `insight-turn.tsx` artifact-output effect | `{messageId, files: Array<{type: OutputCardType, count: number}>, total, added, modified, outside}` |
+| `artifact-output` | 本 turn 产出/修改的一个文件（服务端 git diff 口径，覆盖所有文件变更方式） | `insight-turn.tsx` artifact-output effect | `{messageId, file, type, status}` |
+| `artifact-output-outside`（新） | 本 turn 观测到的会话目录外变更总量（噪声桶，**turn 级一条**，仅 outside>0 时报） | 同上 | `{messageId, outside}` |
+| `artifact-file-write` | write 工具产生的一个文件 | `insight-turn.tsx` artifact-file effect | `{messageId, file, type}` |
+| `artifact-file-edit` | edit 工具产生的一个文件 | `insight-turn.tsx` artifact-file effect | `{messageId, file, type}` |
+| `artifact-mcp-return` | MCP 工具返回的一个 resource_link 文件 | `insight-turn.tsx` artifact-mcp effect | `{messageId, file, type, tool}` |
 
 extend 字段：
 
 ```jsonc
+// artifact-output(每个文件一条)
 {
-  "messageId": "msg_xxx", // 本 turn 的 user message id —— 下游幂等键，见 §4.4
-  "files": [
-    { "type": "markdown", "count": 2 },
-    { "type": "code", "count": 1 }     // .ts/.py/.txt 等一律归 code
-  ],
-  "total": 3,      // 会话目录内、产出 + 修改的文件数（不含 deleted）
-  "added": 2,      // status=added
-  "modified": 1,   // status=modified（含覆盖写）
-  "outside": 1     // 落在会话目录外的变更文件数，只计数不计类型，见 §4.2
+  "messageId": "msg_xxx",       // 本 turn 的 user message id —— 下游幂等键组成部分,见 §4.4
+  "file": ".octo/ses_1/outputs/报告.md",  // git diff 路径(相对仓库根,天然幂等键组成部分)
+  "type": "markdown",           // resolveOutputType 六值枚举;.ts/.py/.txt 等一律归 code
+  "status": "added"             // added / modified(含覆盖写)
 }
+// artifact-output-outside(turn 级一条)
+{ "messageId": "msg_xxx", "outside": 2 }
+// artifact-mcp-return(每个 link 一条)
+{ "messageId": "msg_xxx", "file": "https://mcp.intra/artifacts/…/report.md", "type": "markdown", "tool": "key_findings" }
 ```
 
-**`files` 里的 `type`** 复用 `resolveOutputType(d.file)`（`pages/insight/utils/output-type.ts` 单一入口，SPEC-INS-026 §4.2），六值枚举 `markdown / html / json / code / file / image`，与 `artifact-file-write/edit` 的类型判定保持一致。
-
-**`deleted` 文件不计入**（删除的文件不算「产出」）。行数级统计另有 `session.summary.additions/deletions`，本事件只做文件级。
+- **`type`** 复用 `resolveOutputType`（`pages/insight/utils/output-type.ts` 单一入口，SPEC-INS-026 §4.2），六值枚举 `markdown / html / json / code / file / image`，四条事件类型判定一致
+- **`file`** 即幂等键的一部分：`artifact-output` 用 git diff 路径（相对仓库根）；`artifact-file-write/edit` 用写盘路径剥掉 projectDir 前缀后的相对路径；`artifact-mcp-return` 用 resource_link 的 uri
+- **`deleted` 文件不报**（删除的文件不算「产出」）。行数级统计另有 `session.summary.additions/deletions`，本族事件只做文件级
+- turn 级聚合字段（`total/added/modified`）**不再上报**：行数即 total，`status` 字段 group by 即 added/modified
 
 ### 4.2 路径过滤：只把会话目录内的算作产物
 
@@ -108,7 +115,7 @@ extend 字段：
 - **Make / Design 模块**写的 `.octo/artifacts/make/<sessionId>/`
 - 用户在**文件管理器 / md 编辑器**（`md-edit-open` 那条路径）于生成期间的保存
 
-故按路径分桶：`.octo/<sessionId>/` 内的进 `files` / `total` / `added` / `modified`，其余只计入 `outside`。判据加在 `pages/insight/utils/worktree-layout.ts`（渲染端布局知识唯一入口，与 `isPendingUploadPath` 同款分段写法），**不要用 `startsWith(".octo/")`**——git diff 输出的路径相对仓库根，projectDir 可能是仓库子目录：
+故按路径分桶：`.octo/<sessionId>/` 内的每个文件发一条 `artifact-output`（per-file，见 §4.1），其余只累计进 turn 级的 `artifact-output-outside`。判据加在 `pages/insight/utils/worktree-layout.ts`（渲染端布局知识唯一入口，与 `isPendingUploadPath` 同款分段写法），**不要用 `startsWith(".octo/")`**——git diff 输出的路径相对仓库根，projectDir 可能是仓库子目录：
 
 ```ts
 /** 该 diff 路径是否属于本会话的产物区 `.octo/<sessionId>/`。 */
@@ -132,14 +139,15 @@ export function isSessionArtifactPath(filePath: string, sessionId: string): bool
 
 ### 4.4 去重策略：baseline 快照 + 模块级 set + 下游幂等键，三层
 
-- **baseline 快照**（`artifactOutputBaselineTaken`，与现有三个 effect 同规则）：首次观测本 turn 实例时，若 `diffs` 已存在则记为「历史」不上报。**没有这层，打开一个有 N 条历史 turn 的会话就会瞬间报 N 条**——历史 message 的 `summary.diffs` 早已写好，effect 一挂载就命中
-- **模块级 `trackedArtifactKeys`**：key = `output:${messageID}`，防 memo 重算 / turn 重挂重复报。注意它是**内存 Set，页面刷新即清空**，不能单独承担「刷新后不重报」，那是 baseline 的职责
-- **下游幂等键**：`extend.messageId` 一并上报，让分析侧按 `(name, messageId)` 去重。前端两层是「尽量只报一次」，这一层才是「报重了也不算错」的兜底——业界（Stripe / AWS 事件流）的标准姿势是 at-least-once + 幂等键，不靠客户端内存状态保证唯一性
+- **baseline 快照**（`artifactOutputBaselineTaken`，与现有三个 effect 同规则）：首次观测本 turn 实例时，若 `diffs` 已存在则逐文件记入去重集、不上报。**没有这层，打开一个有 N 条历史 turn 的会话就会瞬间报 N 条**——历史 message 的 `summary.diffs` 早已写好，effect 一挂载就命中
+- **模块级 `trackedArtifactKeys`**：key = `output:${messageID}:${file}`（per-file），防 memo 重算 / turn 重挂重复报。注意它是**内存 Set，页面刷新即清空**，不能单独承担「刷新后不重报」，那是 baseline 的职责。per-file 键的附带收益：debounce 报完之后若 summarize 再覆写出**新文件**（超长 turn 的极端情况），新 key 不在 set 里、可自愈补报——turn 级键会永久锁死
+- **下游幂等键**：`extend` 带 `messageId` + `file`，让分析侧按 `(name, messageId, file)` 去重（`artifact-output-outside` 无 file，按 `(name, messageId)`）。前端两层是「尽量只报一次」，这一层才是「报重了也不算错」的兜底——业界（Stripe / AWS 事件流）的标准姿势是 at-least-once + 幂等键，不靠客户端内存状态保证唯一性
 
 ### 4.5 其余实现要点
 
 - **数据读取**：从 `data.store.message[props.sessionID]` 找 `id === props.messageID` 的 user message，读 `(userMsg as UserMessage).summary?.diffs`
-- **类型判定**：复用 `resolveOutputType(d.file)` + `aggregateByFileType`，与现有 artifact 事件一致（`resolveOutputType` 需从 `type-only` import 改为 value import）
+- **类型判定**：复用 `resolveOutputType(d.file)`（`resolveOutputType` 需从 `type-only` import 改为 value import）
+- **write/edit/mcp 三条同步改 per-file**：三条现有 effect 去重键本就 per-file（`write:${messageID}:${filePath}` 等），只改发射粒度——每个新增文件单独发一条，删除聚合上报与 `aggregateByFileType` / `aggregateByFileTypeWithTool`；触发时序维持现状（tool 完成即报，不加守卫 / debounce，那三条的设计如此）
 
 ### 4.6 伪代码
 
@@ -153,6 +161,8 @@ let artifactOutputBaselineTaken = false
 let outputTimer: ReturnType<typeof setTimeout> | undefined
 onCleanup(() => clearTimeout(outputTimer))
 
+const outputKey = (file: string) => `output:${props.messageID}:${file}`
+
 createEffect(() => {
   const messages = (data.store.message as Record<string, Message[]>)?.[props.sessionID] ?? []
   const userMsg = messages.find((m) => m.id === props.messageID)
@@ -161,43 +171,44 @@ createEffect(() => {
 
   if (!artifactOutputBaselineTaken) {
     artifactOutputBaselineTaken = true
-    if (diffs?.length) trackedArtifactKeys.add(`output:${props.messageID}`)
+    for (const d of diffs ?? []) trackedArtifactKeys.add(outputKey(d.file))
     return
   }
   if (!diffs?.length) return
   if (showGenerating()) return                 // 多步 turn：等本轮不再活跃
-  if (trackedArtifactKeys.has(`output:${props.messageID}`)) return
+  const fresh = diffs.filter((d) => !trackedArtifactKeys.has(outputKey(d.file)))
+  if (fresh.length === 0) return
 
   // debounce：末次 summarize 是 forkIn(scope) 异步，可能晚于 active 翻假才落地
   clearTimeout(outputTimer)
   outputTimer = setTimeout(() => {
-    const key = `output:${props.messageID}`
-    if (trackedArtifactKeys.has(key)) return
-    trackedArtifactKeys.add(key)
-
-    const files: Array<{ fileType: string }> = []
-    let added = 0, modified = 0, outside = 0
+    let outside = 0
+    const newFiles: Array<{ file: string; type: string; status: string }> = []
     for (const d of diffs) {
       if (d.status === "deleted") continue
+      if (trackedArtifactKeys.has(outputKey(d.file))) continue
+      trackedArtifactKeys.add(outputKey(d.file))
       if (!isSessionArtifactPath(d.file, props.sessionID)) { outside++; continue }
-      files.push({ fileType: resolveOutputType(d.file) })
-      if (d.status === "added") added++
-      else modified++
+      newFiles.push({ file: d.file, type: resolveOutputType(d.file), status: d.status ?? "modified" })
     }
-    if (files.length === 0 && outside === 0) return
+    if (newFiles.length === 0 && outside === 0) return
 
-    tracker.interaction({
-      module: "insight",
-      name: "artifact-output",
-      extend: JSON.stringify({
-        messageId: props.messageID,
-        files: aggregateByFileType(files),
-        total: files.length,
-        added,
-        modified,
-        outside,
-      }),
-    })
+    // per-file：每个会话目录内文件一条(行数即文件数,面板可直接数)
+    for (const f of newFiles) {
+      tracker.interaction({
+        module: "insight",
+        name: "artifact-output",
+        extend: JSON.stringify({ messageId: props.messageID, ...f }),
+      })
+    }
+    // outside 噪声桶：turn 级一条,只计数(会话目录外的不算产物,不逐条发)
+    if (outside > 0) {
+      tracker.interaction({
+        module: "insight",
+        name: "artifact-output-outside",
+        extend: JSON.stringify({ messageId: props.messageID, outside }),
+      })
+    }
   }, 1500)
 })
 ```
@@ -208,7 +219,7 @@ createEffect(() => {
 
 - **口径静默依赖用户项目的 `.gitignore`**：snapshot 会按源仓 ignore 规则过滤（`packages/opencode/src/snapshot/index.ts:238-249`，`diffFull` 出口 `:694-698` 再滤一次）。若 projectDir 恰好是个 git 仓且 `.gitignore` 忽略了 `.octo/`（隐藏目录，很常见），**`artifact-output` 恒为 0，而 `artifact-file-write` 照常有数**——两个口径静默打架。排查任何「产物统计为 0」的反馈时先查这一条。
 - **1.5s debounce 内切走会话会漏报**：debounce 定时器随组件卸载清掉，且 baseline 保证切回来时不补报。与 `server-mcp-result`（UXAI 打点批次 4）同调——「宁可少报、不虚增」，偏差方向恒为偏低。
-- **`outside` 是噪声桶不是产物**：它混着并发会话、Make 模块、用户手动保存三类来源，只用于观察污染量级，不要计入产物总量。
+- **`artifact-output-outside` 是噪声桶不是产物**：它混着并发会话、Make 模块、用户手动保存三类来源，只用于观察污染量级，不要计入产物总量。
 - **含 `"` / `\` 的文件名会判成 `code`**：`summary.ts:128` 写入 `summary.diffs` 时没走 `unquoteGitPath`（只有 `:137` 的 `diff()` 走了），这类路径会带首尾引号，`resolveOutputType` 取到 `md"` 匹配不上扩展名表。非 ASCII 文件名不受影响（`diffFull` 用的 `quote` 配置带 `core.quotepath=false`）。低频，服务端补一行归一化即可根治（可选项，见 §7）。
 
 ---
@@ -225,10 +236,10 @@ createEffect(() => {
 
 | 文件（相对 UXAI 仓根） | 改动 |
 |------|------|
-| `packages/app/octoapp/pages/insight/components/insight-turn.tsx` | +2 import（`UserMessage` / `isSessionArtifactPath`）、`resolveOutputType` 从 `type-only` 改 value import、+1 effect（~40 行） |
+| `packages/app/octoapp/pages/insight/components/insight-turn.tsx` | +2 import（`UserMessage` / `isSessionArtifactPath`）、`resolveOutputType` 从 `type-only` 改 value import、+artifact-output / artifact-output-outside 两个 effect（~50 行）；**artifact-file-write / artifact-file-edit / artifact-mcp-return 三条现有 effect 同步改 per-file 发射**（去重键不变），删 `aggregateByFileType` / `aggregateByFileTypeWithTool`（改后无调用方） |
 | `packages/app/octoapp/pages/insight/utils/worktree-layout.ts` | +1 导出 `isSessionArtifactPath` + 单测 |
-| `packages/app/octoapp/pages/insight/docs/tracking-plan.md` | 加「批次 6」一节，只记 name / extend / 落点，论证引本 spec |
-| `packages/app/octoapp/pages/insight/docs/tracking.md` | §十 新增 `artifact-output` 一行（实施后） |
+| `packages/app/octoapp/pages/insight/docs/tracking-plan.md` | 加「批次 6」一节，只记 name / extend / 落点与 per-file 粒度约定，论证引本 spec |
+| `packages/app/octoapp/pages/insight/docs/tracking.md` | §十 四行 extend 描述更新 + 新增 `artifact-output-outside` 行 |
 | （可选）`packages/opencode/src/session/summary.ts` | `:128` 写入 diffs 前走一次 `unquoteGitPath`，根治 §5 第四条 |
 
 ---
@@ -246,23 +257,27 @@ createEffect(() => {
 2. 仓库根 `bun run typecheck`
 3. 仓库根 `bun run dev`，按下表逐个跑，terminal 看 `[octo:tracker-mock]` payload 核对 `name` / `extend`
 
-| # | 场景 | 操作 | 预期 `artifact-output` |
+| # | 场景 | 操作 | 预期 `artifact-output`（per-file） |
 |---|------|------|----------------------|
-| 1 | write 工具创建文件 | 「创建 test.md」 | `files:[{type:"markdown",count:1}], total:1, added:1, modified:0` |
-| 2 | bash 创建文件 | 「用 echo 创建一个 a.txt」 | `total:1, added:1`，`type:"code"`（tool part 口径**漏报**、diff 兜住） |
-| 3 | **多步 turn** | 「先分析附件，再写一份 md 报告」（工具调用 → write 至少两步） | **只报一次，且 total 含 write 的产物**；若只报到第一步的部分 diff 即为触发时机写错 |
-| 4 | **打开历史会话** | 切到一个有 5 条历史产物 turn 的会话 | **一条都不报**（baseline 生效）；报 5 条即为缺 baseline |
+| 1 | write 工具创建文件 | 「创建 test.md」 | **1 条**：`{messageId, file, type:"markdown", status:"added"}` |
+| 2 | bash 创建文件 | 「用 echo 创建一个 a.txt」 | **1 条**：`type:"code"`（tool part 口径**漏报**、diff 兜住） |
+| 3 | **多步 turn** | 「先分析附件，再写一份 md 报告」（工具调用 → write 至少两步） | write 产物的那**几条都有**；若只有第一步的部分 diff 即为触发时机写错 |
+| 4 | **打开历史会话** | 切到一个有 5 条历史产物 turn 的会话 | **一条都不报**（baseline 生效）；报了即为缺 baseline |
 | 5 | F5 刷新 | 刷新已有产物的会话 | 同 #4，一条都不报 |
 | 6 | 快速切会话 | write 完成后 2s 以上再切走 | 正常上报（<1.5s 切走属已知漏报） |
-| 7 | 纯 edit | 「修改 test.md 第 1 行」 | `total:1, added:0, modified:1` |
-| 8 | 并发污染 | insight 生成期间用 Make 模块产出文件 | Make 的文件进 `outside`，不进 `total` |
+| 7 | 纯 edit | 「修改 test.md 第 1 行」 | **1 条**：`status:"modified"` |
+| 8 | 并发污染 | insight 生成期间用 Make 模块产出文件 | Make 的文件不进 `artifact-output`，报 **1 条** `artifact-output-outside:{outside:1}` |
 | 9 | **gitignore 忽略** | projectDir 为 git 仓且 `.gitignore` 含 `.octo/` | `diffs` 为空 → 不上报；确认与 `artifact-file-write` 的口径差异可解释 |
+| 10 | **per-file 粒度** | 「一次创建 3 个文件」（write×3 或 bash 批量） | **3 条** `artifact-output`，面板行数=文件数（旧的聚合口径只显示 1，见 §9 决策 D2） |
+| 11 | 同名覆盖写 | turn 内两次 write 同一文件 | 2 条（added + modified 各一），file 相同、status 不同——`group by messageId,file` 取最新即正确终态 |
 
-以上 9 条均不依赖内网真实服务或数据（本地 worktree + mock tracker 即可复现），**无内网验证节**；上线后在内网按 `bun run dev:beta` 确认命中真实域名即可，属常规打点流程（见 [tracking.md](tracking.md)），不额外列。
+以上 11 条均不依赖内网真实服务或数据（本地 worktree + mock tracker 即可复现），**无内网验证节**；上线后在内网按 `bun run dev:beta` 确认命中真实域名即可，属常规打点流程（见 [tracking.md](tracking.md)），不额外列。
 
 ---
 
-## 9. 评审记录（2026-08-28）
+## 9. 评审记录（2026-08-28）与决策记录（2026-08-29）
+
+### 9.1 评审修订（2026-08-28）
 
 本 spec 由 UXAI 侧「批次 6」初稿评审修订而来，修正的判断如下，避免后来者按初稿重做：
 
@@ -275,5 +290,17 @@ createEffect(() => {
 | 「PR #720 已修生命周期问题」 | **未合入**：UXAI PR #720 于 2026-08-27 closed，dev 上 `showGenerating` 守卫仍在 | UXAI PR #720 |
 | extend 示例 `{"type":"typescript"}` | 非法值；`OutputCardType` 是六值枚举，`.ts` 归 `code` | `output-type.ts`（SPEC-INS-026 §4.2） |
 | 引用「`tracking.md` §八 统计产物」 | 实为 **§十** | UXAI `tracking.md` |
+
+### 9.2 决策记录
+
+**D2（2026-08-29）粒度从 turn 级聚合改为 per-file，四条 `artifact-` 事件统一。**
+起因：打点数据面板按**事件行数**统计、不解析 `extend` 里的 count——turn 级聚合会让「1 turn 产 3 个文件」面板只显示 1，文件量系统性低估；且该问题不止 `artifact-output`，`artifact-file-write/edit/mcp-return` 三条同族事件同样存在。四条均未上 dev，改口径零迁移成本，故一次统一。配套变化：
+
+- 下游幂等键 `(name, messageId)` → `(name, messageId, file)`；去重键 `output:${messageID}` → `output:${messageID}:${file}`
+- turn 级聚合字段 `total/added/modified` 不再上报（行数即 total，status 字段 group by 即 added/modified，turn 级视图 `group by messageId` 还原）
+- 会话目录外变更从 `artifact-output` 的 `outside` 字段拆成独立 turn 级事件 `artifact-output-outside`（不污染 per-file 行数=文件数的语义）
+- 验证用例从 9 条扩到 11 条（新增 #10 per-file 粒度、#11 同名覆盖写）
+
+（D1 为 2026-08-28 评审确立的「选 B 折中」整体决策，见 §2 / §6，不在此重复。）
 
 未采纳但记录在案的建议：`artifact-` 前缀下 4 个事件口径互相重叠、需靠相减推断，分析侧难解释；更清爽的形态是**只留一个 turn 级事件、来源作维度进 extend**（`bySource: {write, edit, mcp, other}`）。改动面大，留待打点体系整体收敛时再议。
