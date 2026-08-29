@@ -1,8 +1,8 @@
 # SPEC-INS-033 — Insight 统一产物统计打点（`artifact-output`）
 
-> 状态：草案（待实现；本文是对 UXAI 侧「批次 6」初稿的评审修订版，2026-08-29 起粒度改 per-file，见 §9 决策 D2） · 优先级 P2 · 规模 [S] · 领域 infra/insight
+> 状态：**已实施（D3，2026-08-29：服务端上报形态）** · 优先级 P2 · 规模 [S] · 领域 infra/insight
 >
-> 上游已实现：✓ git snapshot / `summary.diffs` 全链路（opencode 原生，无需新增基础设施）；✗ `artifact-output` 打点本身
+> 上游已实现：✓ git snapshot / `summary.diffs` 全链路；✓ `artifact-output` / `artifact-output-outside` 服务端打点（opencode `tracking/report.ts` + `summary.ts` 挂钩）
 
 ---
 
@@ -34,10 +34,10 @@ UXAI `tracking.md` §十「统计产物」现有三个事件（`artifact-file-wr
 | 方案 | 做法 | 覆盖面 | 准确性风险 | 结论 |
 |---|---|---|---|---|
 | A. 客户端解析 tool part（现状） | 遍历 assistant parts 识别 write/edit/resource_link | ✗ 漏 bash / python / 任意脚本副作用 | 中：依赖组件生命周期 | 已实现，保留作分工具口径，但不能回答「一共产出多少」 |
-| **B. 服务端算 diff、前端上报（本 spec 选型）** | 读 `UserMessage.summary.diffs`（服务端 git snapshot 算好），前端 effect 上报 | ✓ 所有文件变更方式 | 中：仍受组件生命周期影响，需 baseline + 守卫 + debounce | **采用**（受 SDK 形态所限的折中，见 §6） |
-| C. 服务端直接上报 | 在 `summary.ts` 的 `summarize` 之后由 server 侧发事件 | ✓ 所有方式 | 低：一次性、无生命周期问题 | **业界标准形态，但当前做不到**——tracker SDK 是纯浏览器 SDK，见 §6 |
+| B. 服务端算 diff、前端上报（D2 前的选型） | 读 `UserMessage.summary.diffs`（服务端 git snapshot 算好），前端 effect 上报 | ✓ 所有文件变更方式 | 中：仍受组件生命周期影响，需 baseline + 守卫 + debounce | 曾采用；**D3 已升级为 C**（前端 effect 及三层补丁已删） |
+| **C. 服务端直接上报（本 spec 现行，D3）** | `summary.ts` 的 `summarize` 落库后由 server 侧发送（`tracking/report.ts`） | ✓ 所有方式 | 低：一次性、无生命周期问题 | **业界标准形态，已实施**——「tracker SDK 是纯浏览器 SDK 发不出去」的前提经查证不成立（见 §6） |
 
-业界对「产物 / 系统事实」类指标的通行做法是 C：在产生它的进程上报（后端事件流 / 审计表，或 OpenTelemetry GenAI 语义约定里的 tool span 属性）。产物统计本质是**系统事实**（谁写了哪个文件），不是用户交互；用前端 effect 推导系统事实，必然要打 baseline、去重、守卫这一整套补丁——§4 三条实现要点全部源于此，是选 B 的固有成本，不是实现没写好。
+业界对「产物 / 系统事实」类指标的通行做法是 C：在产生它的进程上报（后端事件流 / 审计表，或 OpenTelemetry GenAI 语义约定里的 tool span 属性）。产物统计本质是**系统事实**（谁写了哪个文件），不是用户交互；用前端 effect 推导系统事实，必然要打 baseline、去重、守卫这一整套补丁——B 方案的三层实现要点全部源于此。D3 落地后该成本归零。
 
 ---
 
@@ -115,7 +115,7 @@ extend 字段：
 - **Make / Design 模块**写的 `.octo/artifacts/make/<sessionId>/`
 - 用户在**文件管理器 / md 编辑器**（`md-edit-open` 那条路径）于生成期间的保存
 
-故按路径分桶：`.octo/<sessionId>/` 内的每个文件发一条 `artifact-output`（per-file，见 §4.1），其余只累计进 turn 级的 `artifact-output-outside`。判据加在 `pages/insight/utils/worktree-layout.ts`（渲染端布局知识唯一入口，与 `isPendingUploadPath` 同款分段写法），**不要用 `startsWith(".octo/")`**——git diff 输出的路径相对仓库根，projectDir 可能是仓库子目录：
+故按路径分桶：`.octo/<sessionId>/` 内的每个文件发一条 `artifact-output`（per-file，见 §4.1），其余只累计进 turn 级的 `artifact-output-outside`。判据是 `isSessionArtifactPath`，D3 起实现于**服务端** `packages/opencode/src/tracking/report.ts`（前端 `worktree-layout.ts` 的副本已随迁移删除，口径由服务端单测锁定）。**不要用 `startsWith(".octo/")`**——git diff 输出的路径相对仓库根，projectDir 可能是仓库子目录，按「最后一个 .octo 段的下一段是否等于本 sessionId」判：
 
 ```ts
 /** 该 diff 路径是否属于本会话的产物区 `.octo/<sessionId>/`。 */
@@ -126,121 +126,101 @@ export function isSessionArtifactPath(filePath: string, sessionId: string): bool
 }
 ```
 
-### 4.3 触发时机：必须等 turn 终态，且要 debounce
+### 4.3 触发时机（D3 后：服务端逐 finish-step，at-least-once）
 
-`summarize` 是**每个 `finish-step` 都跑一次**（`processor.ts:510-515`，`forkIn(scope)` 异步），每次重算并**覆写** `summary.diffs`。所以一个多步 turn（分析 → 调工具 → write，insight 的常态）里 `diffs` 会从「第一步的部分产物」逐步长到「全部产物」。
+**D3 起由服务端在 `summarize` 落库 `summary.diffs` 之后直接发送**（`summary.ts` 挂钩，`forkIn(scope)` 异步不阻塞 turn），只对 `agent === "octo_insight"` 的会话报（summarize 对所有 agent 都跑，不守卫会把 make / studio 混进 `module:"insight"`）。
 
-⚠️ **不能「数据到达即上报」**——那会在第一步结束时报出部分 diff，再被 messageID 去重永久锁死，后续 write 的交付物全丢，且多步 turn 越复杂漏得越多（系统性低估）。
+`summarize` 每个 `finish-step` 都跑一次并覆写 diffs，所以一个 turn 会发多轮（从部分产物逐步到全部）——这是**有意的 at-least-once**：每轮只发新增文件（`messageID:file` 已发集过滤），下游按幂等键去重取最新 status。**不存在「多步 turn 漏报最终产物」**：最后一轮 summarize 覆盖到全部 diffs。
 
-正确做法两层：
+~~（B 方案时代的前端触发时机——showGenerating 守卫 + 1500ms debounce——已随 D3 迁移删除，历史见 §9.1。）~~
 
-1. `if (showGenerating()) return`——与 `tracking.md` §十现有三个 effect 同一守卫，只在 turn 不再是「活跃最新轮」后上报
-2. **再 debounce ~1500ms**——最后一次 `summarize` 是 fork 出去的异步（git diff 在大 worktree 上可到秒级），可能晚于 `active` 翻假才落地；不 debounce 会读到倒数第二版。debounce 期间 diffs 再变则重置定时器，天然取最终值
+### 4.4 去重策略（D3 后：at-least-once + 下游幂等键）
 
-### 4.4 去重策略：baseline 快照 + 模块级 set + 下游幂等键，三层
-
-- **baseline 快照**（`artifactOutputBaselineTaken`，与现有三个 effect 同规则）：首次观测本 turn 实例时，若 `diffs` 已存在则逐文件记入去重集、不上报。**没有这层，打开一个有 N 条历史 turn 的会话就会瞬间报 N 条**——历史 message 的 `summary.diffs` 早已写好，effect 一挂载就命中
-- **模块级 `trackedArtifactKeys`**：key = `output:${messageID}:${file}`（per-file），防 memo 重算 / turn 重挂重复报。注意它是**内存 Set，页面刷新即清空**，不能单独承担「刷新后不重报」，那是 baseline 的职责。per-file 键的附带收益：debounce 报完之后若 summarize 再覆写出**新文件**（超长 turn 的极端情况），新 key 不在 set 里、可自愈补报——turn 级键会永久锁死
-- **下游幂等键**：`extend` 带 `messageId` + `file`，让分析侧按 `(name, messageId, file)` 去重（`artifact-output-outside` 无 file，按 `(name, messageId)`）。前端两层是「尽量只报一次」，这一层才是「报重了也不算错」的兜底——业界（Stripe / AWS 事件流）的标准姿势是 at-least-once + 幂等键，不靠客户端内存状态保证唯一性
+- **服务端已发集**（`tracking/report.ts` 模块级 `messageID:file` Set）：省流量层，同轮 summarize 重算不重发；进程内存、重启即空，**不承担正确性**
+- **下游幂等键**：`(name, messageId, file)`（outside 事件按 `(name, messageId)`），服务端事件 extend 另带 `sessionId`。业界（Stripe / AWS 事件流）标准姿势，报重了也不算错
+- ~~（B 方案时代的 baseline 快照 + 模块级 trackedArtifactKeys 两层——历史见 §9.1。）~~
 
 ### 4.5 其余实现要点
 
-- **数据读取**：从 `data.store.message[props.sessionID]` 找 `id === props.messageID` 的 user message，读 `(userMsg as UserMessage).summary?.diffs`
-- **类型判定**：复用 `resolveOutputType(d.file)`（`resolveOutputType` 需从 `type-only` import 改为 value import）
-- **write/edit/mcp 三条同步改 per-file**：三条现有 effect 去重键本就 per-file（`write:${messageID}:${filePath}` 等），只改发射粒度——每个新增文件单独发一条，删除聚合上报与 `aggregateByFileType` / `aggregateByFileTypeWithTool`；触发时序维持现状（tool 完成即报，不加守卫 / debounce，那三条的设计如此）
+- **数据源**：`summarize` 内已算好的 `msgDiffs`（该 turn 的 `UserMessage.summary.diffs`），无需二次查询
+- **协议**：`tracking/report.ts` 复刻前端 tracker（UXAI `octoapp/utils/tracker.ts`）的 `/record/logger/interaction` 契约——裸 JSON POST、字段同构；`account` 取自 sessionExtras（前端 promptAsync `extra.account` 透传，knowledge_search 同源）；`browserName` 固定 `"server"` 供分析侧区分来源；`os/platform` 按 `process.platform` 映射同值；`path` 合成 `http://localhost/insight/<sessionID>`（复刻前端路由形态，且 extend 已带 `sessionId`，归属不依赖 path 解析）
+- **account 缺失容错**：未登录态 / 服务重启后 extra 为空 → 整批跳过并留 warn 日志（空 account 的行无法归属用户，只会制造脏数据）
+- **类型判定**：`tracking/report.ts` 的 `outputTypeOf`，SPEC-INS-026 §4.2 六值枚举的服务端镜像（单测对齐前端口径）
+- **write/edit/mcp 三条 tool part 口径事件仍在前端 effect**（UXAI 批次 3，per-file 粒度同 D2），不在本 spec 迁移范围
 
-### 4.6 伪代码
+### 4.6 伪代码（服务端 `tracking/report.ts` 核心）
 
 ```ts
-import type { UserMessage } from "@opencode-ai/sdk/v2/client"
-import { resolveOutputType } from "../utils/output-type"
-import { isSessionArtifactPath } from "../utils/worktree-layout"
+// summarize 挂钩(summary.ts):msgDiffs 落库后 fork 发送,不阻塞 turn
+if (target.info.agent === "octo_insight" && msgDiffs.length > 0) {
+  yield* Tracking.reportDiffs({ sessionID, messageID, diffs: msgDiffs }).pipe(Effect.forkIn(scope))
+}
 
-// baseline：首次观测即视为历史，不报（避免打开历史会话 / 刷新时按历史 turn 数虚增）
-let artifactOutputBaselineTaken = false
-let outputTimer: ReturnType<typeof setTimeout> | undefined
-onCleanup(() => clearTimeout(outputTimer))
+// reportDiffs(tracking/report.ts):分桶 + per-file 发送
+export function reportDiffs(input: { sessionID: string; messageID: string; diffs: Snapshot.FileDiff[] }) {
+  const account = SessionExtras.readExtraString(input.sessionID, "account")
+  if (!account) return Effect.void // 未登录态/重启后 extra 空:整批跳过,不造脏数据
 
-const outputKey = (file: string) => `output:${props.messageID}:${file}`
-
-createEffect(() => {
-  const messages = (data.store.message as Record<string, Message[]>)?.[props.sessionID] ?? []
-  const userMsg = messages.find((m) => m.id === props.messageID)
-  if (!userMsg || userMsg.role !== "user") return
-  const diffs = (userMsg as UserMessage).summary?.diffs
-
-  if (!artifactOutputBaselineTaken) {
-    artifactOutputBaselineTaken = true
-    for (const d of diffs ?? []) trackedArtifactKeys.add(outputKey(d.file))
-    return
+  let outside = 0
+  const effects: Effect.Effect<void>[] = []
+  for (const d of input.diffs) {
+    if (d.status === "deleted") continue
+    const key = `${input.messageID}:${d.file}`
+    if (sentKeys.has(key)) continue // 已发集:省流量层(每 finish-step 一轮,只发新增)
+    sentKeys.add(key)
+    if (!isSessionArtifactPath(d.file, input.sessionID)) { outside++; continue }
+    effects.push(sendOne({ account, name: "artifact-output", extend: {
+      sessionID: input.sessionID, messageId: input.messageID, file: d.file,
+      type: outputTypeOf(d.file), status: d.status ?? "modified",
+    }}))
   }
-  if (!diffs?.length) return
-  if (showGenerating()) return                 // 多步 turn：等本轮不再活跃
-  const fresh = diffs.filter((d) => !trackedArtifactKeys.has(outputKey(d.file)))
-  if (fresh.length === 0) return
+  if (outside > 0) {
+    effects.push(sendOne({ account, name: "artifact-output-outside",
+      extend: { sessionID: input.sessionID, messageId: input.messageID, outside } }))
+  }
+  return Effect.all(effects, { concurrency: 4 }).pipe(Effect.asVoid)
+}
 
-  // debounce：末次 summarize 是 forkIn(scope) 异步，可能晚于 active 翻假才落地
-  clearTimeout(outputTimer)
-  outputTimer = setTimeout(() => {
-    let outside = 0
-    const newFiles: Array<{ file: string; type: string; status: string }> = []
-    for (const d of diffs) {
-      if (d.status === "deleted") continue
-      if (trackedArtifactKeys.has(outputKey(d.file))) continue
-      trackedArtifactKeys.add(outputKey(d.file))
-      if (!isSessionArtifactPath(d.file, props.sessionID)) { outside++; continue }
-      newFiles.push({ file: d.file, type: resolveOutputType(d.file), status: d.status ?? "modified" })
-    }
-    if (newFiles.length === 0 && outside === 0) return
-
-    // per-file：每个会话目录内文件一条(行数即文件数,面板可直接数)
-    for (const f of newFiles) {
-      tracker.interaction({
-        module: "insight",
-        name: "artifact-output",
-        extend: JSON.stringify({ messageId: props.messageID, ...f }),
-      })
-    }
-    // outside 噪声桶：turn 级一条,只计数(会话目录外的不算产物,不逐条发)
-    if (outside > 0) {
-      tracker.interaction({
-        module: "insight",
-        name: "artifact-output-outside",
-        extend: JSON.stringify({ messageId: props.messageID, outside }),
-      })
-    }
-  }, 1500)
-})
+// sendOne:协议复刻前端 tracker(/record/logger/interaction,裸 JSON POST);
+// browserName:"server"、os/platform 按 process.platform 映射、path 合成 /insight/<sessionID>;
+// OCTO_REPORT_BASE_URL 未配置(外网)→ console.log("[octo:tracker-server] mock", payload)
 ```
 
 ---
 
 ## 5. 已知偏差（分析侧必读）
 
-- **口径静默依赖用户项目的 `.gitignore`**：snapshot 会按源仓 ignore 规则过滤（`packages/opencode/src/snapshot/index.ts:238-249`，`diffFull` 出口 `:694-698` 再滤一次）。若 projectDir 恰好是个 git 仓且 `.gitignore` 忽略了 `.octo/`（隐藏目录，很常见），**`artifact-output` 恒为 0，而 `artifact-file-write` 照常有数**——两个口径静默打架。排查任何「产物统计为 0」的反馈时先查这一条。
-- **1.5s debounce 内切走会话会漏报**：debounce 定时器随组件卸载清掉，且 baseline 保证切回来时不补报。与 `server-mcp-result`（UXAI 打点批次 4）同调——「宁可少报、不虚增」，偏差方向恒为偏低。
+- **口径静默依赖用户项目的 `.gitignore`**：snapshot 会按源仓 ignore 规则过滤（`packages/opencode/src/snapshot/index.ts:238-249`，`diffFull` 出口 `:694-698` 再滤一次）。若 projectDir 恰好是个 git 仓且 `.gitignore` 忽略了 `.octo/`（隐藏目录，很常见），**`artifact-output` 恒为 0，而 `artifact-file-write` 照常有数**——两个口径静默打架。排查任何「产物统计为 0」的反馈时先查这一条。（D3 迁服务端**不改变**此条：挪的只是发射器，数据源还是 git snapshot。）
+- **account 缺失的 turn 整批跳过**（D3 新增）：未登录态、或 opencode 服务重启后用户尚未再发消息（sessionExtras 为进程内存）时，该 turn 的 artifact-output 静默跳过。偏差方向恒为偏低，日志有 `[octo:tracker-server] account missing` 可排查。
 - **`artifact-output-outside` 是噪声桶不是产物**：它混着并发会话、Make 模块、用户手动保存三类来源，只用于观察污染量级，不要计入产物总量。
-- **含 `"` / `\` 的文件名会判成 `code`**：`summary.ts:128` 写入 `summary.diffs` 时没走 `unquoteGitPath`（只有 `:137` 的 `diff()` 走了），这类路径会带首尾引号，`resolveOutputType` 取到 `md"` 匹配不上扩展名表。非 ASCII 文件名不受影响（`diffFull` 用的 `quote` 配置带 `core.quotepath=false`）。低频，服务端补一行归一化即可根治（可选项，见 §7）。
+- **含 `"` / `\` 的文件名历史脏数据**：曾因 `summary.ts:128` 写入 `summary.diffs` 未走 `unquoteGitPath` 而判成 `code`；该修复已随 D3 同批合入（写入前归一化），存量历史 message 中的带引号路径不回填。
 
 ---
 
-## 6. 为什么放前端（而不是服务端）
+## 6. 为什么最终放服务端（D3）
 
-§2 已述：C 方案（服务端直接上报）才是业界标准形态。**当前放前端是被 SDK 形态所迫的折中，不是设计选择**——tracker SDK 是纯浏览器 SDK（读 `localStorage.userInfo` / `navigator.userAgent` / `window.location.href`，见 UXAI `docs/tracker.md` 与本仓 [tracking.md](tracking.md)），opencode server 侧发不出去。
+§2 已述：C 方案（服务端直接上报）是业界标准形态。**初版 spec 曾断言「tracker SDK 是纯浏览器 SDK，server 侧发不出去」而选了 B（前端 effect）——2026-08-29 查证该前提不成立**：
 
-**中长期正解**：若内网打点服务开放 server 侧上报（Node HTTP），把本事件挪到 `summary.ts` 的 `summarize` 之后发——一次性、准确、无生命周期问题、无需 debounce 与 baseline。届时 §4.3 / §4.4 的三层去重全部可删。
+1. "tracker SDK" 实为 UXAI 仓内 162 行的本地文件（`octoapp/utils/tracker.ts`），本质是**裸 `fetch` POST 到 `/record/logger/interaction`，无鉴权、无 cookie、无签名**——服务端用同构 JSON 即可发送；
+2. 用户身份服务端可得：`account` 本就经 promptAsync `extra` 透传存于服务端 sessionExtras（knowledge_search 同源先例）；
+3. 服务端读不到 `VITE_` 环境变量的门槛早有解法：desktop `createSidecarEnv` 已给 sidecar 桥接 `OCTO_KB_BASE_URL` / `OCTO_UXR_MCP_URL` / `OCTO_UPLOAD_ENDPOINT` 三个同款变量，加 `OCTO_REPORT_BASE_URL` 即可。
 
----
+于是 D3 把发送器挪到 `summary.ts` 的 `summarize` 之后（`tracking/report.ts`）——一次性、准确、无生命周期问题；B 方案的 baseline / showGenerating 守卫 / 1500ms debounce 三层补丁全部删除，「切走会话漏报」类偏差连根消失。
 
-## 7. 落地清单
+遗留观察点（非阻塞）：`datas[].path` 服务端合成 `http://localhost/insight/<sessionID>`（复刻前端路由形态）、`browserName:"server"`——上线前与打点面板侧确认这两个字段不触发过滤/解析异常即可；已确认 extend 自带 `sessionId`，会话归属不依赖 path 解析。
+
+## 7. 落地清单（D3 实施形态）
 
 | 文件（相对 UXAI 仓根） | 改动 |
 |------|------|
-| `packages/app/octoapp/pages/insight/components/insight-turn.tsx` | +2 import（`UserMessage` / `isSessionArtifactPath`）、`resolveOutputType` 从 `type-only` 改 value import、+artifact-output / artifact-output-outside 两个 effect（~50 行）；**artifact-file-write / artifact-file-edit / artifact-mcp-return 三条现有 effect 同步改 per-file 发射**（去重键不变），删 `aggregateByFileType` / `aggregateByFileTypeWithTool`（改后无调用方） |
-| `packages/app/octoapp/pages/insight/utils/worktree-layout.ts` | +1 导出 `isSessionArtifactPath` + 单测 |
-| `packages/app/octoapp/pages/insight/docs/tracking-plan.md` | 加「批次 6」一节，只记 name / extend / 落点与 per-file 粒度约定，论证引本 spec |
-| `packages/app/octoapp/pages/insight/docs/tracking.md` | §十 四行 extend 描述更新 + 新增 `artifact-output-outside` 行 |
-| （可选）`packages/opencode/src/session/summary.ts` | `:128` 写入 diffs 前走一次 `unquoteGitPath`，根治 §5 第四条 |
+| `packages/opencode/src/tracking/report.ts` | **新增**：协议复刻（`/record/logger/interaction`）、`isSessionArtifactPath` 服务端判据、`outputTypeOf` 六值枚举镜像、`reportDiffs` 分桶 per-file 发送、未配 base URL 时 mock 日志 |
+| `packages/opencode/src/session/summary.ts` | summarize 挂钩：`agent === "octo_insight"` 守卫 + `forkIn(scope)` 发送；另含 msgDiffs 落库前 `unquoteGitPath`（引号文件名修复） |
+| `packages/opencode/src/session/extras.ts` | **新增**：sessionExtras 下放叶子模块（prompt.ts 与 tracking 都要读，避免与 summary.ts 成环） |
+| `packages/opencode/test/tracking/report.test.ts` | **新增**：分桶 7 条断言（镜像原前端用例）+ outputTypeOf + payload 同构断言 |
+| `packages/app/octoapp/pages/insight/components/insight-turn.tsx` | **删** artifact-output/outside 前端 effect（~75 行）及 imports，留迁移指引注释；write/edit/mcp 三条 per-file effect（D2）保留 |
+| `packages/app/octoapp/pages/insight/utils/worktree-layout.ts` / `.test.ts` | **删** `isSessionArtifactPath` 前端副本及 7 条测试（判据随事件迁服务端） |
+| `packages/desktop/electron.vite.config.ts` / `src/main/env.d.ts` / `src/main/server.ts` / `.env.example` | `OCTO_REPORT_BASE_URL` 桥接（照抄 `OCTO_UPLOAD_ENDPOINT` 模式：define + createSidecarEnv + 类型 + 文档） |
+| `packages/app/octoapp/pages/insight/docs/tracking-plan.md` / `tracking.md` | 批次 6 / §十 落点改服务端，D3 决策记录 |
 
 ---
 
@@ -248,30 +228,32 @@ createEffect(() => {
 
 ### 8.1 外网验证
 
-纯渲染端改动走 HMR，**无需重启**；若同时做 §7 的可选项（改 `summary.ts`），属服务端改动，**验证前先重启 opencode server 进程**，否则改动不生效。
+**属服务端改动：验证前先重启 opencode server 进程**（渲染端 HMR 不覆盖 sidecar / server 代码）。
 
-1. `isSessionArtifactPath` 单测：会话内路径 / 仓库子目录下的 `.octo/` / 别的 sessionId / `.octo/artifacts/make/` 四类断言。追加进现有 `worktree-layout.test.ts`（当前 5 pass），在 `packages/app` 下跑——**根目录跑不了测试**（根 `test` 脚本是 `exit 1`），且 `test:unit` 只扫 `./src`、不含 `octoapp/`，须显式给相对路径：
+1. 服务端单测（`packages/opencode` 下）：
    ```bash
-   cd packages/app && bun test --preload ./happydom.ts ./octoapp/pages/insight/utils/worktree-layout.test.ts
+   cd packages/opencode && bun test test/tracking/report.test.ts
    ```
 2. 仓库根 `bun run typecheck`
-3. 仓库根 `bun run dev`，按下表逐个跑，terminal 看 `[octo:tracker-mock]` payload 核对 `name` / `extend`
+3. 仓库根 `bun run dev`，按下表逐个跑，**opencode server 终端**看 `[octo:tracker-server] mock` payload 核对 `name` / `extend`（注意：不再是前端终端的 `[octo:tracker-mock]`——事件由服务端发）
 
-| # | 场景 | 操作 | 预期 `artifact-output`（per-file） |
+| # | 场景 | 操作 | 预期 `artifact-output`（per-file，服务端发） |
 |---|------|------|----------------------|
-| 1 | write 工具创建文件 | 「创建 test.md」 | **1 条**：`{messageId, file, type:"markdown", status:"added"}` |
+| 1 | write 工具创建文件 | 「创建 test.md」 | **1 条**：`{sessionId, messageId, file, type:"markdown", status:"added"}` |
 | 2 | bash 创建文件 | 「用 echo 创建一个 a.txt」 | **1 条**：`type:"code"`（tool part 口径**漏报**、diff 兜住） |
-| 3 | **多步 turn** | 「先分析附件，再写一份 md 报告」（工具调用 → write 至少两步） | write 产物的那**几条都有**；若只有第一步的部分 diff 即为触发时机写错 |
-| 4 | **打开历史会话** | 切到一个有 5 条历史产物 turn 的会话 | **一条都不报**（baseline 生效）；报了即为缺 baseline |
+| 3 | **多步 turn** | 「先分析附件，再写一份 md 报告」（工具调用 → write 至少两步） | 每 finish-step 一轮、只发当轮新增；turn 结束时 write 产物的**几条全有** |
+| 4 | **打开历史会话** | 切到一个有 5 条历史产物 turn 的会话 | **一条都不报**（服务端在生成时刻发，打开历史不触发任何东西） |
 | 5 | F5 刷新 | 刷新已有产物的会话 | 同 #4，一条都不报 |
-| 6 | 快速切会话 | write 完成后 2s 以上再切走 | 正常上报（<1.5s 切走属已知漏报） |
+| 6 | **生成中切走会话（D3 核心验收）** | 发完消息**立刻**切到别的会话 / 关窗口 | **照常上报**——前端组件卸载与服务端发送无关；这是 D3 迁移的直接验收点（B 方案在此场景漏报，见 §9.1） |
 | 7 | 纯 edit | 「修改 test.md 第 1 行」 | **1 条**：`status:"modified"` |
 | 8 | 并发污染 | insight 生成期间用 Make 模块产出文件 | Make 的文件不进 `artifact-output`，报 **1 条** `artifact-output-outside:{outside:1}` |
 | 9 | **gitignore 忽略** | projectDir 为 git 仓且 `.gitignore` 含 `.octo/` | `diffs` 为空 → 不上报；确认与 `artifact-file-write` 的口径差异可解释 |
-| 10 | **per-file 粒度** | 「一次创建 3 个文件」（write×3 或 bash 批量） | **3 条** `artifact-output`，面板行数=文件数（旧的聚合口径只显示 1，见 §9 决策 D2） |
+| 10 | **per-file 粒度** | 「一次创建 3 个文件」（write×3 或 bash 批量） | **3 条** `artifact-output`，面板行数=文件数（旧的聚合口径只显示 1，见 §9.2 D2） |
 | 11 | 同名覆盖写 | turn 内两次 write 同一文件 | 2 条（added + modified 各一），file 相同、status 不同——`group by messageId,file` 取最新即正确终态 |
+| 12 | **未登录态** | 无 `userInfo.account`（隐身/清存储）时发消息 | 整批跳过 + server 终端 `[octo:tracker-server] account missing` warn（不造空 account 脏数据） |
+| 13 | **make 不误报** | 用 Make 模块产文件 | **零条**（agent 守卫：只报 `octo_insight` 会话） |
 
-以上 11 条均不依赖内网真实服务或数据（本地 worktree + mock tracker 即可复现），**无内网验证节**；上线后在内网按 `bun run dev:beta` 确认命中真实域名即可，属常规打点流程（见 [tracking.md](tracking.md)），不额外列。
+以上 13 条均不依赖内网真实服务或数据（本地 worktree + mock 日志即可复现），**无内网验证节**；上线后在内网配 `OCTO_REPORT_BASE_URL`（.env.beta / .env.prod），Network / 服务端日志确认命中真实域名即可，属常规打点流程（见 [tracking.md](tracking.md)），不额外列。
 
 ---
 
@@ -302,5 +284,15 @@ createEffect(() => {
 - 验证用例从 9 条扩到 11 条（新增 #10 per-file 粒度、#11 同名覆盖写）
 
 （D1 为 2026-08-28 评审确立的「选 B 折中」整体决策，见 §2 / §6，不在此重复。）
+
+**D3（2026-08-29）发射器从前端 effect 迁服务端，B → C。**
+起因：用户问「生成一个文件马上切走，原会话会打点吗」——B 方案答案是「不会，已知漏报」。复核「等内网打点服务开放 server 侧上报」这个前置时发现**它是个伪前提**：所谓「纯浏览器 SDK」实为仓内 162 行本地文件、裸 fetch 无鉴权（§6 三条查证）。遂直接落地 C 形态：
+
+- 发送器：opencode `src/tracking/report.ts`（协议复刻 + 分桶 + `outputTypeOf` 镜像 + mock 日志），`summary.ts` summarize 挂钩（`octo_insight` 守卫 + `forkIn`）
+- **删除**前端 artifact-output/outside effect 及 baseline / showGenerating 守卫 / 1500ms debounce 三层补丁；前端 `isSessionArtifactPath` 副本同步删除（口径由服务端单测锁定）
+- at-least-once：每 finish-step 一轮、只发新增（`messageID:file` 已发集），下游按幂等键去重取最新——多步 turn 不再依赖「等终态」，因为每一轮都是离散的服务端事实
+- account 从 sessionExtras 读（knowledge_search 同源），缺失整批跳过；`OCTO_REPORT_BASE_URL` 经 desktop `createSidecarEnv` 桥接（`OCTO_UPLOAD_ENDPOINT` 同款）
+- 验收核心：**生成中切走会话 / 关窗口照样上报**（#6）；打开历史 / F5 零虚报（#4/#5）
+- B 方案时代的 D2 per-file 粒度、幂等键设计**原样保留**（D3 只换发射器，不动口径）
 
 未采纳但记录在案的建议：`artifact-` 前缀下 4 个事件口径互相重叠、需靠相减推断，分析侧难解释；更清爽的形态是**只留一个 turn 级事件、来源作维度进 extend**（`bySource: {write, edit, mcp, other}`）。改动面大，留待打点体系整体收敛时再议。
