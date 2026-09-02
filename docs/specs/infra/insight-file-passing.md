@@ -6,6 +6,8 @@
 >
 > 依赖：[SPEC-INS-014](insight-worktree-layout.md)（源文件拷进 `insight/sources`，已实现）。
 > 取代：原「MCP 文件按需上传 / lazy-upload」草案——那只是本 spec ④ 一支的时机细节，框窄了。
+>
+> **2026-09-02 修订（③ 图片去 S3）**：图片改走本地路径 + 服务端读盘转 base64，与 ①② 同链路导入 worktree（§1 路由表 ③ 行、§4、§6 已更新）。决策与理由见 [ADR-017](../../adr/017-insight-image-local-path-base64.md)（推翻 [ADR-015](../../adr/015-file-passing-architecture.md) 决策 2 在 insight 场景的适用，因 opencode server 是本机 sidecar）。实现 UXAI [PR #754](https://github.com/MyHeavenDyf/UXAI/pull/754)（评审中，图片大小上限一条待补）。
 
 ---
 
@@ -26,16 +28,16 @@
 |---|---|---|---|---|---|
 | ① | **非 ②③ 的一切文本类**（md / txt / csv / json / log / html / 无扩展名…） | 模型**读** | `FilePart(file://…, text/plain)`；opencode 组 prompt 时自动调 Read 把正文内联（2000 行 / 50KB 上限，超出附 `offset` 续读提示） | 否 | — |
 | ② | docx / xlsx / pdf / pptx | 模型**读** | 附件清单给本地路径（§2）+ 模型调 `extract_document(path)` 读出文本 | 否 | — |
-| ③ | 图片 | 模型**看** | `FilePart{ type:file, mime:image/*, url:S3 }` 走 vision | **是** | **change 即传**（选/拖/粘当下） |
+| ③ | 图片 | 模型**看** | `FilePart{ type:file, mime:image/*, url:file://… }` 走 vision，**服务端读盘转 base64 落库**（2026-09 去 S3，见 §4 / [ADR-017](../../adr/017-insight-image-local-path-base64.md)） | **否** | — （与 ①② 同链路导入 worktree） |
 | ④ | 任意 | 喂 **MCP 工具** | 模型在工具参数里填**文件名** → 插件按需上传换 url（§3） | 是 | **调 MCP 工具那一刻** |
 
 要点：
 
 - **① 的判定是反向排除，不是正向白名单**（2026-08-20 修订）：上游 `read` 支持的是「任何非二进制文本」（[tool/read.ts](../../../packages/opencode/src/tool/read.ts) `isBinaryFile` = 二进制扩展名黑名单 + 内容嗅探），不是固定清单。客户端 `isTextInlineFile` 因此只排掉**有专门通道的**格式（②的 office/pdf、③的图片），其余一律交给服务端 `read` 判定。**好处**：上传格式放开（如 json / csv 进 `ALLOWED_EXT`）时无需再同步一次内联清单，判定口径与 opencode 原生一致。排除集之外若真是二进制（如 `@` 一个 .zip 产物），`read` 返回 `Cannot read binary file` 进上下文——响亮失败，不做客户端预判（嗅探要读文件字节，是服务端的活）。
   - ~~原 `TEXT_INLINE_EXT = {txt, md}`~~：正向白名单，恰好等于当时 `ALLOWED_EXT` 里的全部文本类，于是把「模型能读什么」和「附件栏允许传什么」两件无关的事耦合在了一起。
-- **① 的来源含附件栏文件 + `@` 引用的会话文件**（2026-08-20，SPEC-INS-023 §7.2）：两个入口合并后传入同一入参，按 path 去重（同一文件既是本轮附件又被 `@` 引用时只内联一次）。`@` 的**图片**仍不走 ③——vision 需要 S3 url，而 `@` 的本地图片没有；目前只在 `[引用文件]` 清单里给路径，需要时另议。
+- **① 的来源含附件栏文件 + `@` 引用的会话文件**（2026-08-20，SPEC-INS-023 §7.2）：两个入口合并后传入同一入参，按 path 去重（同一文件既是本轮附件又被 `@` 引用时只内联一次）。`@` 的**图片**目前仍不走 ③，只在 `[引用文件]` 清单里给路径。**2026-09 注**：当初不走的理由是「vision 需要 S3 url，而 `@` 的本地图片没有」——③ 去 S3 后这条理由**已不成立**（新链路要的正是本地路径，`@` 的会话文件天然有）。接上去只是把 `@` 图片并进 `imageFiles` 分流，成本很低，**待办**（同时要一并适用 §4 的图片大小上限）。
 - **载体各自独立、可叠加**：一个 docx 可同时被 ②（extract_document 读）和 ④（MCP 分析）使用，两条互不排斥。
-- **图片只走 ③**：不进附件清单、不进 ④。图片对"本地读正文 / 喂 MCP"无意义，模型只能"看"——给它本地路径或 handle 它理解不了，必须是它能 vision 的 url。
+- **图片只走 ③**：不进附件清单、不进 ④、不占内联预算。图片对"本地读正文 / 喂 MCP"无意义，模型只能"看"。**2026-09 修订**：图片的**导入链路**与 ①② 合流（同样导入 worktree 拿本地路径），但**载体仍然独立**——③ 产出 vision `FilePart{url:file://…}` 由服务端转 base64，不进 `[附件]` 清单，也不参与 SPEC-INS-032 的内联字节预算（否则一张照片就能触发整批文档的子代理分治）。
 - ②的 `extract_document` 工具**本体见 [SPEC-INS-016](insight-extract-document.md)**（已实现：docx=mammoth / pdf=unpdf / xlsx=exceljs）；本 spec 只负责接线（agent 工具表登记 + 提示词路由 office 走它）。
 
 ---
@@ -79,10 +81,15 @@
 
 ## 4. ③ 图片细则
 
-- **change 即传**：选取 / 拖拽 / 粘贴当下就异步上传 S3（业界通行做法；图片必然要上传，不存在"是否调 MCP"的不确定，无须等发送）。
-- **缩略图**：`URL.createObjectURL(file)` 立刻渲染 `<img>`，本地秒显、不等上传；上传后台并行。发出的消息卡片改用 S3 url 渲染。
-- **发送**：产出 `FilePart{ type:"file", mime, url:S3, filename }` 进 user 消息 → 交多模态模型 vision 通道。非多模态模型由 opencode `stripMedia` 自动换占位，不影响。
-- **前提**：provider 能 GET 到该 S3 url（内网模型 ↔ 内网 S3 通即可）；将来若接公网模型够不到内网 S3，那条 case 退回 base64 / Files API（[ADR-015 决策 2]），不动本骨架。
+> **2026-09 改版（去 S3）**：决策与理由见 [ADR-017](../../adr/017-insight-image-local-path-base64.md)（推翻 ADR-015 决策 2 在 insight 场景的适用）。实现 UXAI [PR #754](https://github.com/MyHeavenDyf/UXAI/pull/754)。改版前的形态（change 即传 S3 → `FilePart{url:S3}`）保留在 ADR-015 决策 2 里作为回退方案。
+
+- **导入而非上传**：选取 / 拖拽 / 粘贴当下与非图片附件**同链路**导入 worktree（`.octo/tmps/`，发送时 rename 进 `.octo/<sessionId>/uploads/`），拿本地绝对路径。无网络依赖，失败可重试。剪贴板粘贴的内存 blob（截图）拿不到源路径，走字节版 IPC（`write-file-to-worktree`）写进同一落点，落名清洗 / 撞名规则与 `copy-file-to-worktree` 同源。
+- **缩略图**：`URL.createObjectURL(file)` 立刻渲染 `<img>`，本地秒显。发出后的气泡缩略图由服务端 part 事件（SSE）到达后渲染（本地 sidecar，延迟 <1s）——**不做 optimistic 镜像**：服务端落库的是 `data:` URL，与本地 `file://` 形态不同，按 url 去重会失效而画两张图。
+- **发送**：产出 `FilePart{ type:"file", mime, url:"file://"+encodeFilePath(path), filename }`（编码与 ① txt/md 内联同源）。服务端 `prompt.ts` 的 `resolvePart` 走 `file:` 分支：非 `text/plain`、非目录 → **读盘转 `data:<mime>;base64,…` 落库**，这是 opencode 原生行为，**服务端零改动**。历史轮用落库的 `data:` URL，不依赖本地文件存活。非多模态模型由 `stripMedia` 自动换占位，不影响。
+- **前提（必须显式记住）**：**opencode server 与客户端同机**（本机 sidecar，共享文件系统），服务端才读得到客户端写的路径。insight 的 ①②④ 本来就吃这个假设，故一致；但若 server 出现远程 / 多机部署形态，③ 会静默断（读不到文件）——届时按 ADR-015 决策 2 回退到 S3，不动本骨架。
+- **必须有图片大小上限**：base64 会落进 message part 存储、每轮历史带着走、前端还要拿 data: URL 当 `img src`。原 S3 链路存的是一个 url，没有这个约束，新链路下它是**必需的**。上限只对 insight 的 base64 链路成立，**不能加在 `validateFile` / `uploadFile` 这类与 make 页共用的函数里**（make 仍走 S3，不该被波及）。
+- **已知回退**：非桌面（web）形态无 Electron IPC → 图片附件不可用，标 error 且 `retriable:false`（环境性条件，重试必然同错）。判定可接受：insight 的产品形态是桌面端，web 仅 `__dev` 调试场景。
+- **副作用**：服务端每张图会在 base64 part 之前插一条 synthetic text `Called the Read tool with the following input: {"filePath":"…"}`，把本地绝对路径带进模型上下文（UI 不渲染 synthetic）。原 S3 链路没有这条。
 
 ---
 
@@ -92,14 +99,15 @@
 |---|---|---|
 | 提交 / 查询 / resource_link 形态、工具入参契约 | MCP 团队 | **一行不改** |
 | 何时上传、附件清单格式、文件名→url 替换 | 我们侧（自有上传服务 + 插件） | 否 |
-| 图片改走 vision FilePart | 我们侧 | 否 |
+| 图片改走 vision FilePart（2026-09 起 `file://` + 服务端 base64） | 我们侧 | 否（`DOC_EXT_RE` 本就不含图片扩展名，④ 行为不变） |
 
 ---
 
 ## 6. 降级（无 projectDir / 非桌面 / 内存 blob）
 
-- **非图片**：拿不到真实本地路径 → 不进附件清单 → 该文件 ②④ 均不可用（本地读 + MCP 都摸不到）。生产桌面端 projectDir 恒在（INS-012），不出现；`__dev` 仅 UI 调试，忽略。
-- **图片**：凭内存 File 直接上传 S3（不依赖本地路径）→ ③ 正常。
+- **非图片**：拿不到真实本地路径 → `done` 但无 path → 不进附件清单 → 该文件 ②④ 均不可用（本地读 + MCP 都摸不到）。不报错（不破坏 `__dev`），打点 `localized:false`。生产桌面端 projectDir 恒在（INS-012），不出现；`__dev` 仅 UI 调试，忽略。
+- **图片（2026-09 改版后）**：无 path = 发送时必然静默丢，故**响亮失败**——标 `error` + `retriable:false`（无 projectDir / 非桌面 / preload 未暴露 IPC 都是环境性条件，重试必然同错），文案引导改走文件选择器。改版前是「凭内存 File 直接上传 S3、不依赖本地路径」，故当时无此降级。
+- **内存 blob 不再是降级路径**：剪贴板粘贴走字节版 IPC 落盘（§4），与本地选择的文件收敛到同一落点、同一套规则。
 
 ---
 
@@ -123,8 +131,12 @@
 | 2 | 选 docx + 让模型读（不调 MCP） | 无 S3 上传；模型正确调 `extract_document(path)` 拿到正文（工具本体见 [SPEC-INS-016](insight-extract-document.md)） |
 | 3 | 选 docx + 走预置 → 调 MCP | 工具执行前才上传（`dev.log` 见 `[octo:inject] lazy-upload ok`）；MCP 拿 url 正常出结果 |
 | 4 | 同会话多次调同一文件 | 只上传一次（插件缓存命中） |
-| 5 | 粘贴 / 选图片 | change 即传 S3；缩略图本地秒显；发送后多模态模型能"看"到图 |
-| 6 | 上传服务不可用 + 调 MCP | 工具失败、错误回灌模型；不影响纯本地 ①②ad对话 |
+| 5 | 选 / 拖图片 | **无 S3 上传**；导入 `.octo/tmps/` 拿本地 path；缩略图本地秒显；发送后多模态模型能"看"到图 |
+| 5b | **粘贴截图**（剪贴板内存 blob） | 走字节版 IPC 落 `.octo/tmps/`（与 #5 同落点同规则）；不再报「无法获取本地路径」 |
+| 5c | **发送后历史轮回看** | 图片仍在（落库的是 `data:` URL）；**手工删掉 `.octo/<sid>/uploads/` 里那张图后重开会话，历史轮图片照常显示**（不依赖本地文件存活） |
+| 5d | **上传服务不可用 + 只发图片** | 图片链路完全不受影响（无网络依赖）——这是 2026-09 改版的主要收益 |
+| 5e | **超上限的大图** | 在附件栏就被拦下（error chip），**不进发送链路**；make 页上传同尺寸图片不受影响 |
+| 6 | 上传服务不可用 + 调 MCP | 工具失败、错误回灌模型；不影响纯本地 ①②③ 对话 |
 
 ---
 

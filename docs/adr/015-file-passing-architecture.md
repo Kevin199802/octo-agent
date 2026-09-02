@@ -4,6 +4,8 @@
 
 已采纳（2026-06-29）· 已落地（SPEC-INS-015，UXAI PR #251）
 
+> ⚠️ **2026-09-02：决策 2（图片走 S3 URL、不走 base64）已被 [ADR-017](017-insight-image-local-path-base64.md) 推翻**（限 insight 场景）。insight 图片改走本地路径 + 服务端读盘转 base64——因为 opencode server 是**本机 sidecar**，决策 2 列的主因「跨进程边界」在此形态下不成立。**本 ADR 的分流骨架（决策 1、决策 3）与 MCP 按需上传不变**，make 页图片仍走 S3。下方决策 2 全文保留作为决策依据与回退方案。
+
 **2026-07-03 修订**：分支 ④（任意文件 → MCP 工具）的**触发方由模型隐式改为用户显式**（输入框 chip，见 [SPEC-INS-017](../specs/infra/insight-mcp-explicit-entry.md)）；MCP 工具（含未对接的 `search_reports`）退出模型常驻工具集。理由：弱模型隐式选工具的命中率风险整类消除、MCP 仪式段落退出常驻提示词、用户对排队知情。插件按需上传机制（文件名→URL 注入）**不变**。
 
 > **本 ADR 只记「为什么这样分流」的决策与理由。具体规则 / 载体 / 时机 / 实现以 [SPEC-INS-015 文件传参机制](../specs/infra/insight-file-passing.md) 为唯一真相源**（避免两处漂移）。下方分流骨架保留作决策依据。
@@ -52,8 +54,21 @@ insight 让用户附带文件（docx/xlsx/pdf/图片/纯文本…），文件要
 
 ### 2. 有存储后端 → 图片走 S3 URL，不走 base64
 
-我们有 S3 上传服务，图片转 base64 会让请求体暴涨（几 MB 文件 base64 ≈ 数百万字符 / 上百万 token，任何上下文窗口都装不下）、且每轮重发。故图片用 `FilePart{url: S3 url}`，与 MCP 文件共用同一 S3。base64 只对小图勉强可接受，文档类**绝不** base64 给模型。
-**前提**：模型 provider 能访问该 S3 URL（内网模型↔内网 S3 通即可）。若将来接公网云模型够不到内网 S3，那条 case 才退回 base64 / Files API——届时按 provider 能力分支，不改本分流骨架。
+> **本条已被 [ADR-017](017-insight-image-local-path-base64.md) 推翻（2026-09-02，限 insight）**：下方「跨进程边界（主因）」在 insight 的实际形态下不成立——opencode server 是与客户端同机的本地 sidecar，客户端到 server 这一跳不需要第三方存储。全文保留：make 页仍照此执行，且它是 ADR-017 的回退方案。
+
+我们有 S3 上传服务，图片用 `FilePart{url: S3 url}`，与 MCP 文件共用同一 S3。
+
+**依据（2026-08-14 修正）**：本条原先的理由写的是「base64 会让 token 暴涨、任何上下文窗口都装不下」——**该理由是错的，已作废**。图片的 base64 走 vision 解码通道，在进 tokenizer 之前就被 decode 回字节，**不占上下文窗口**；同一张图用 URL 传和用 base64 传，进模型的 image token 数完全相同（只由分辨率决定）。详见 [learning/file-passing-to-models.md §2 关键澄清](../learning/file-passing-to-models.md)。
+
+**结论不变**，但真实理由是工程侧的：
+
+- **跨进程边界**（主因）：图片在 Electron 客户端手里，provider 在服务端，字节无论如何都要先搬到 provider 够得到的地方；
+- 请求体不膨胀（×1.33）、发送方零内存占用（base64 峰值 ≈ 原图 ×4~5）；
+- 请求体可留档复查，base64 的请求体日志现实中只能关掉。
+
+**前提**：模型 provider 能访问该 S3 URL（内网模型↔内网 S3 通即可）。若将来接公网云模型够不到内网 S3，那条 case 退回 base64 / Files API——届时按 provider 能力分支，不改本分流骨架。**该退路在模型效果上无任何损失**，只是发送方要按 base64 重算内存与 body 上限。
+
+> 「文档类绝不 base64 给模型」这条仍然成立，但原因同样不是超窗，而是**多模态通道不解码 docx/xlsx**（与体积无关），必须走抽文本（模式 A）或交工具（模式 C）。
 
 > **落地（SPEC-INS-015）**：图片走 S3 URL（不 base64）已从「塞进 handle 块、模型看不到图」纠正为**vision `FilePart{url}`**——change 即传 S3、发送时作为图像随消息发给多模态模型。base64 仅存在于上游 chat（[prompt-input/attachments.ts](../../packages/app/octoapp/components/prompt-input/attachments.ts)），insight 不复用。细则见 [SPEC-INS-015 §4](../specs/infra/insight-file-passing.md)。
 
