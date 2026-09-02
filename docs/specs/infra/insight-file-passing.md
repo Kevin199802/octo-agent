@@ -7,7 +7,7 @@
 > 依赖：[SPEC-INS-014](insight-worktree-layout.md)（源文件拷进 `insight/sources`，已实现）。
 > 取代：原「MCP 文件按需上传 / lazy-upload」草案——那只是本 spec ④ 一支的时机细节，框窄了。
 >
-> **2026-09-02 修订（③ 图片去 S3）**：图片改走本地路径 + 服务端读盘转 base64，与 ①② 同链路导入 worktree（§1 路由表 ③ 行、§4、§6 已更新）。决策与理由见 [ADR-017](../../adr/017-insight-image-local-path-base64.md)（推翻 [ADR-015](../../adr/015-file-passing-architecture.md) 决策 2 在 insight 场景的适用，因 opencode server 是本机 sidecar）。实现 UXAI [PR #754](https://github.com/MyHeavenDyf/UXAI/pull/754)（评审意见已全部处理，待内网验证后合入）。
+> **2026-09-02 修订（③ 图片去 S3）**：图片改走本地路径 + 服务端读盘转 base64，与 ①② 同链路导入 worktree（§1 路由表 ③ 行、§4、§6 已更新）。决策与理由见 [ADR-017](../../adr/017-insight-image-local-path-base64.md)（推翻 [ADR-015](../../adr/015-file-passing-architecture.md) 决策 2 在 insight 场景的适用，因 opencode server 是本机 sidecar）。实现 UXAI [PR #754](https://github.com/MyHeavenDyf/UXAI/pull/754) **已合入 dev**（`993e64bae`，2026-09-02），内网验证待做。
 
 ---
 

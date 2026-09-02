@@ -25,7 +25,7 @@
 | 012 | Insight 对话目录归属（跟随所选目录） | 已落地 | ui/insight | [insight-directory-scoping.md](ui/insight-directory-scoping.md) |
 | 013 | Insight 会话列表服务端分页 | 草案 | ui/insight + infra/session | [insight-session-list-pagination.md](ui/insight-session-list-pagination.md) |
 | 014 | Insight 本地工作目录布局（worktree 文档本地化） | 草案（v3，UI 打磨对齐 Design） | infra/insight | [insight-worktree-layout.md](infra/insight-worktree-layout.md) |
-| 015 | Insight Agent 文件传参机制（上传 / 路由）；**2026-09-02 修订**：③ 图片去 S3，改走本地路径 + 服务端读盘转 base64（[ADR-017](../adr/017-insight-image-local-path-base64.md) 推翻 ADR-015 决策 2 在 insight 的适用——opencode server 是本机 sidecar） | 草案；①②④ 已落地，③ 改版实现在 UXAI [#754](https://github.com/MyHeavenDyf/UXAI/pull/754)（评审意见已全部处理，待内网验证后合入） | infra/insight/agent | [insight-file-passing.md](infra/insight-file-passing.md) |
+| 015 | Insight Agent 文件传参机制（上传 / 路由）；**2026-09-02 修订**：③ 图片去 S3，改走本地路径 + 服务端读盘转 base64（[ADR-017](../adr/017-insight-image-local-path-base64.md) 推翻 ADR-015 决策 2 在 insight 的适用——opencode server 是本机 sidecar） | 草案；①②④ 已落地，③ 改版已合入 dev（UXAI [#754](https://github.com/MyHeavenDyf/UXAI/pull/754)，`993e64bae`），内网验证待做 | infra/insight/agent | [insight-file-passing.md](infra/insight-file-passing.md) |
 | 016 | `extract_document` 工具（office → 文本） | 已实现，内网验证中（UXAI PR #272） | infra/insight/tool | [insight-extract-document.md](infra/insight-extract-document.md) |
 | 017 | MCP 显式入口（输入框 chip 触发） | ✅ 已实现（外网，分支 `feat/mcp-explicit-entry`） | infra/ui/insight | [insight-mcp-explicit-entry.md](infra/insight-mcp-explicit-entry.md) |
 | 018 | 本地解析 v1（长上下文直喂，观点解析先行） | 草案（2026-07-11 修订：工具面拆出至 021、锚点+校验器、能力形态定案） | infra/insight | [insight-local-analysis-v1.md](infra/insight-local-analysis-v1.md) |

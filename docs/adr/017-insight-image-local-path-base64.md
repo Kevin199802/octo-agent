@@ -2,7 +2,7 @@
 
 ## 状态
 
-已采纳（2026-09-02）· 实现在 UXAI [PR #754](https://github.com/MyHeavenDyf/UXAI/pull/754)（评审意见已全部处理，待内网验证后合入）
+已采纳（2026-09-02）· **已落地**：UXAI [PR #754](https://github.com/MyHeavenDyf/UXAI/pull/754) 已合入 dev（merge commit `993e64bae`，2026-09-02）· 内网验证待做（见下方「代价 / 依赖」里那条未决的 5MB 口径）
 
 **推翻 [ADR-015](015-file-passing-architecture.md) 决策 2「有存储后端 → 图片走 S3 URL，不走 base64」在 insight 场景的适用性。** ADR-015 的分流骨架（决策 1、决策 3）与 MCP 按需上传（[ADR-014](014-url-injection-via-plugin.md)）**完全不变**；make 页图片仍走 S3，不受本 ADR 影响。
 
