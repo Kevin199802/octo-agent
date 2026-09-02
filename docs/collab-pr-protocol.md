@@ -29,10 +29,17 @@ PR 跟踪的是**分支**,开着没合期间任何推到该分支的 commit 都�
 
 ---
 
-## 2. cherry-pick / rebase 后要核对
+## 2. cherry-pick / rebase / revert 后要核对净 diff
 
 `cherry-pick` 把原 commit 的 diff 重新应用一遍,**不携带**你之前针对旧 base 做的手工冲突解决。
 cherry-pick / rebase 到新 base 后,必须重新核对当初手工解决过的点是否还在,别假设"改过就一定还在"。
+
+**revert 同理,而且更容易骗过自己**:一次 revert 多个提交时,commit message 里列的回退范围是**声明**,
+不是事实。改完跑一次 `git diff <base>...<head> --stat` 核对——净 diff 才是这个 PR 真正要合进去的东西。
+
+> 踩过的坑(2026-08~09,UXAI PR #750):一个 revert 提交声明回退 6 个 commit(含另一个提交里的
+> `showGenerating` 守卫移除),实际漏退了那一条,于是一个**未被声明的行为变更**被夹带进一个自称
+> "净 diff 仅 1 个 CSS 文件"的 PR。写 PR 描述的人和审的人都按 commit message 理解,没人看净 diff。
 
 ---
 
@@ -75,5 +82,10 @@ cherry-pick / rebase 到新 base 后,必须重新核对当初手工解决过的�
 
 ## 7. owner 怎么审
 
+- **先看净 diff,再看描述**:`git diff <base>...<head> --stat` 是唯一事实,PR 描述和 commit
+  message 都是转述。两者对不上时以 diff 为准,并把差异当成一个待澄清项提出来(见 §2 的坑)
 - **意图线**:diff 改的内容是不是 owner 当初要的——提 PR 时一句话说清意图即可
 - **一致性线**:有没有引入死链、跟现有 spec / ADR 冲突、重复造文档
+- **验证线**:PR 声称"测试全过 / typecheck 绿"时,在**分支合上最新 base 之后**复跑一次。分支落后
+  base 较多时,直接在分支 HEAD 上跑出来的失败可能与本 PR 无关(base 上的接口/类型已经变了),
+  反过来也可能掩盖真实冲突
