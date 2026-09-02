@@ -7,7 +7,7 @@
 > 依赖：[SPEC-INS-014](insight-worktree-layout.md)（源文件拷进 `insight/sources`，已实现）。
 > 取代：原「MCP 文件按需上传 / lazy-upload」草案——那只是本 spec ④ 一支的时机细节，框窄了。
 >
-> **2026-09-02 修订（③ 图片去 S3）**：图片改走本地路径 + 服务端读盘转 base64，与 ①② 同链路导入 worktree（§1 路由表 ③ 行、§4、§6 已更新）。决策与理由见 [ADR-017](../../adr/017-insight-image-local-path-base64.md)（推翻 [ADR-015](../../adr/015-file-passing-architecture.md) 决策 2 在 insight 场景的适用，因 opencode server 是本机 sidecar）。实现 UXAI [PR #754](https://github.com/MyHeavenDyf/UXAI/pull/754)（评审中，图片大小上限一条待补）。
+> **2026-09-02 修订（③ 图片去 S3）**：图片改走本地路径 + 服务端读盘转 base64，与 ①② 同链路导入 worktree（§1 路由表 ③ 行、§4、§6 已更新）。决策与理由见 [ADR-017](../../adr/017-insight-image-local-path-base64.md)（推翻 [ADR-015](../../adr/015-file-passing-architecture.md) 决策 2 在 insight 场景的适用，因 opencode server 是本机 sidecar）。实现 UXAI [PR #754](https://github.com/MyHeavenDyf/UXAI/pull/754)（评审意见已全部处理，待内网验证后合入）。
 
 ---
 
@@ -87,7 +87,11 @@
 - **缩略图**：`URL.createObjectURL(file)` 立刻渲染 `<img>`，本地秒显。发出后的气泡缩略图由服务端 part 事件（SSE）到达后渲染（本地 sidecar，延迟 <1s）——**不做 optimistic 镜像**：服务端落库的是 `data:` URL，与本地 `file://` 形态不同，按 url 去重会失效而画两张图。
 - **发送**：产出 `FilePart{ type:"file", mime, url:"file://"+encodeFilePath(path), filename }`（编码与 ① txt/md 内联同源）。服务端 `prompt.ts` 的 `resolvePart` 走 `file:` 分支：非 `text/plain`、非目录 → **读盘转 `data:<mime>;base64,…` 落库**，这是 opencode 原生行为，**服务端零改动**。历史轮用落库的 `data:` URL，不依赖本地文件存活。非多模态模型由 `stripMedia` 自动换占位，不影响。
 - **前提（必须显式记住）**：**opencode server 与客户端同机**（本机 sidecar，共享文件系统），服务端才读得到客户端写的路径。insight 的 ①②④ 本来就吃这个假设，故一致；但若 server 出现远程 / 多机部署形态，③ 会静默断（读不到文件）——届时按 ADR-015 决策 2 回退到 S3，不动本骨架。
-- **必须有图片大小上限**：base64 会落进 message part 存储、每轮历史带着走、前端还要拿 data: URL 当 `img src`。原 S3 链路存的是一个 url，没有这个约束，新链路下它是**必需的**。上限只对 insight 的 base64 链路成立，**不能加在 `validateFile` / `uploadFile` 这类与 make 页共用的函数里**（make 仍走 S3，不该被波及）。
+- **图片大小上限 `INSIGHT_IMAGE_MAX = 5MB`**：base64 会落进 message part 存储、每轮历史带着走、前端还要拿 data: URL 当 `img src`，且多数 provider 单图 base64 有 ~5MB 量级硬上限——超限图**发送必失败且消息已落库**，之后每轮重发都撞墙。原 S3 链路存的是一个 url，没有这个约束，新链路下它是**必需的**。
+  - **加在两个附件入口的调用点**（`addAttachments` / `addInsightFileToSession`），**不能加在 `validateFile` / `uploadFile` 这类与 make 页共用的函数里**——make 走 S3 无此约束，共用会误伤。判据：这个约束属于**载体**（base64 链路），不属于通用文件校验。
+  - 超限的 UI 与各自入口的既有失败模式一致：附件栏入口走 error chip（`retriable:false`，重试同错）、文件管理「添加至会话区」走 toast + 不进附件栏；`UPLOAD_HINT` tooltip 一并标注。
+  - **待内网确认的口径**：5MB 拦的是**原始文件字节**，送到 provider 的是 base64 后数据（×1.33）。若 provider 上限按 base64 后大小算（Anthropic 即此口径），4.9MB 的图仍会被拒；届时阈值降到 ≈3.7MB。
+- **mime 必须按扩展名精确兜底**（`imageMimeFor` 查表）：粘贴 / 部分拖拽源的 `File.type` 为空，笼统给 `image/png` 会把 jpg/gif/webp 错标，落库成 `data:image/png;base64,<jpeg 字节>`——media_type 与实际字节不符，provider 侧可能解析失败或拒绝。
 - **已知回退**：非桌面（web）形态无 Electron IPC → 图片附件不可用，标 error 且 `retriable:false`（环境性条件，重试必然同错）。判定可接受：insight 的产品形态是桌面端，web 仅 `__dev` 调试场景。
 - **副作用**：服务端每张图会在 base64 part 之前插一条 synthetic text `Called the Read tool with the following input: {"filePath":"…"}`，把本地绝对路径带进模型上下文（UI 不渲染 synthetic）。原 S3 链路没有这条。
 

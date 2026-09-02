@@ -2,7 +2,7 @@
 
 ## 状态
 
-已采纳（2026-09-02）· 实现在 UXAI [PR #754](https://github.com/MyHeavenDyf/UXAI/pull/754)（评审中，「图片大小上限」一条待补，见下方代价）
+已采纳（2026-09-02）· 实现在 UXAI [PR #754](https://github.com/MyHeavenDyf/UXAI/pull/754)（评审意见已全部处理，待内网验证后合入）
 
 **推翻 [ADR-015](015-file-passing-architecture.md) 决策 2「有存储后端 → 图片走 S3 URL，不走 base64」在 insight 场景的适用性。** ADR-015 的分流骨架（决策 1、决策 3）与 MCP 按需上传（[ADR-014](014-url-injection-via-plugin.md)）**完全不变**；make 页图片仍走 S3，不受本 ADR 影响。
 
@@ -66,8 +66,10 @@ insight 的图片附件与非图片附件**走同一条链路**：
 
 **代价 / 依赖**（前三条是本 ADR 相对 ADR-015 的**净新增风险**，必须记住）：
 
-- **base64 落进 message part 存储**，每张图 ×1.33 常驻会话，历史轮反复加载，前端还要拿 data: URL 当 `img src`。**所以图片必须有大小上限**——原 S3 链路存一个 url，没有这个约束；新链路下它是必需的。PR #754 的 Commit 3 把共用的 `IMAGE_MAX_SIZE` 整个删掉（理由正确：不该波及 make 的 S3 链路），但没在 insight 侧补回，图片回落到共用的 100MB 上限。这条已在 PR 评论区提出，**合入前必须补 insight 专属上限**。
-- **依赖 server 与客户端同机（本地 sidecar）**。这是本 ADR 成立的根基。insight 现有的 `[附件]` 清单、`extract_document` 本来就吃这个假设，所以现状一致；但一旦 server 出现远程部署形态，图片链路会静默断（读不到文件）。**这条前提应在 [SPEC-INS-015](../specs/infra/insight-file-passing.md) 里显式写明，不要留作隐含依赖。**
+- **base64 落进 message part 存储**，每张图 ×1.33 常驻会话，历史轮反复加载，前端还要拿 data: URL 当 `img src`。**所以图片必须有大小上限**——原 S3 链路存一个 url，没有这个约束；新链路下它是必需的。
+  - **落地形态**：`INSIGHT_IMAGE_MAX = 5MB`，加在 insight 的两个附件入口（`addAttachments` / `addInsightFileToSession`）**调用点**，不进共用的 `validateFile` / `uploadFile`——那两个函数 make 页也在用，make 走 S3 没有这个约束，加进去会误伤。这个「约束属于载体、不属于文件校验」的分界值得记住：同一个「图片太大」判断，在 base64 链路成立、在 S3 链路不成立，所以它的归属是链路而非通用校验器。
+  - **未决**：5MB 拦的是**原始文件字节**，而送到 provider 的是 base64 后的数据（×1.33）。若内网 provider 的单图上限按 base64 后大小算（Anthropic 即此口径），4.9MB 的图仍会被拒。内网验证时需确认口径，按 base64 算则阈值应降到 ≈3.7MB。
+- **依赖 server 与客户端同机（本地 sidecar）**。这是本 ADR 成立的根基。insight 现有的 `[附件]` 清单、`extract_document` 本来就吃这个假设，所以现状一致；但一旦 server 出现远程部署形态，图片链路会静默断（读不到文件）。已在 [SPEC-INS-015 §4](../specs/infra/insight-file-passing.md) 写成显式前提（PR #754 描述的「已知限制」同步列出），不留作隐含依赖。
 - **每张图会多一条 synthetic text 进模型上下文**：`prompt.ts` 在 base64 part 之前插一条 `Called the Read tool with the following input: {"filePath":"…"}`，把本地绝对路径喂给模型（UI 不渲染 synthetic，气泡上看不见）。原 S3 链路没有这条。
 - **web 形态图片附件不可用**：新链路依赖 Electron IPC，纯浏览器环境无此能力，图片会标 error。旧 S3 链路在 web 下理论可用，**这是一个已知功能回退**——判定可接受的依据是 insight 的产品形态就是桌面端（octoapp 打包进 Electron），web 仅有 `__dev` 调试场景。
 - `.octo/tmps/` 的残留文件（选了不发 / 校验失败）族群变大，属既有问题，未在此解。
