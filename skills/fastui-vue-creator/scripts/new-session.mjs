@@ -30,18 +30,7 @@ if (!exists(P.depsModules)) {
   fail("ENV_MISSING", `共享依赖池不存在: ${P.depsModules}`, { hint: "先跑 ensure-env.mjs" })
 }
 
-// ① 依赖链接建在会话根(outputs 的父级)
-let linkState
-try {
-  mkdirSync(S.sessionRoot, { recursive: true })
-  linkState = ensureDirLink(S.link, P.depsModules)
-} catch (e) {
-  fail("LINK_FAILED", `建依赖链接失败: ${e.message}`, {
-    hint: process.platform === "win32" ? "确认目标盘是 NTFS 且路径无中文以外的特殊字符" : undefined,
-  })
-}
-
-// ② 复制工程骨架。已存在则整体跳过 —— 绝不覆盖用户/模型已经写过的东西。
+// ① 复制工程骨架。已存在则整体跳过 —— 绝不覆盖用户/模型已经写过的东西。
 let reused = false
 if (exists(projectDir)) {
   reused = true
@@ -53,6 +42,16 @@ if (exists(projectDir)) {
   } catch (e) {
     fail("COPY_FAILED", `复制模板失败: ${e.message}`)
   }
+}
+
+// ② 依赖链接建在工程根 —— 标准布局,`yarn serve` 在产物目录里直接可用(v12)
+let linkState
+try {
+  linkState = ensureDirLink(path.join(projectDir, "node_modules"), P.depsModules)
+} catch (e) {
+  fail("LINK_FAILED", `建依赖链接失败: ${e.message}`, {
+    hint: process.platform === "win32" ? "确认目标盘是 NTFS 且路径无中文以外的特殊字符" : undefined,
+  })
 }
 
 // ③ 分配端口。已有状态文件且那个端口还空着就沿用,免得每次调用都换端口。
@@ -88,6 +87,6 @@ ok({
   PORT: port,
   DEPS_DIR: P.depsModules,
   SESSION_STATE: S.state,
-  LINK: `${S.link} -> ${P.depsModules} (${linkState})`,
+  LINK: `${path.join(projectDir, "node_modules")} -> ${P.depsModules} (${linkState})`,
   REUSED: reused,
 })

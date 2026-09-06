@@ -13,7 +13,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-MANIFEST=""; ENV_DIR=""; FROM_LOCAL=""; REGISTRY=""; UPGRADE=""; SKIP_NODE=""
+MANIFEST=""; ENV_DIR=""; FROM_LOCAL=""; REGISTRY=""; UPGRADE=""; SKIP_NODE=""; STRICT_CERT=""
 for a in "$@"; do
   case "$a" in
     --manifest=*)   MANIFEST="${a#*=}" ;;
@@ -22,11 +22,16 @@ for a in "$@"; do
     --registry=*)   REGISTRY="${a#*=}" ;;
     --upgrade)      UPGRADE=1 ;;
     --skip-node)    SKIP_NODE=1 ;;
+    --strict-cert)  STRICT_CERT=1 ;;
     *) echo "RESULT: FAIL | BAD_USAGE: 未知参数 $a"; exit 2 ;;
   esac
 done
 
-fail() { echo "RESULT: FAIL | $1: $2"; [ -n "${3:-}" ] && echo "HINT: $3"; exit 1; }
+fail() { echo "RESULT: FAIL | $1: $2"; [ -n "${3:-}" ] && echo "DETAIL: $3"; [ -n "${4:-}" ] && echo "HINT: $4"; exit 1; }
+
+# 内网证书基本都是自签名的,默认放行 —— 传 --strict-cert 才严格校验。
+# 完整性靠下载后的 sha256 比对保证,那比 TLS 证书链更强(校验的是文件内容本身)。
+CURL_INSECURE="-k"; [ -n "$STRICT_CERT" ] && CURL_INSECURE=""
 
 PY="$(command -v python3 || true)"
 [ -z "$PY" ] && fail NO_PYTHON "找不到 python3,无法解析 manifest.json" "安装 Xcode Command Line Tools: xcode-select --install"
@@ -56,7 +61,7 @@ else
     [ -n "$MANIFEST" ] || fail NO_MANIFEST "没有 manifest 地址" "传 --manifest=<url> 或 --from-local=<目录>"
     MJSON="$TMP/manifest.json"
     # 加时间戳破缓存 —— 服务端没设 no-store,升级后别读到旧的(§4.4.4)
-    curl -fsSL -H 'Cache-Control: no-cache' "$MANIFEST?t=$(date +%s)" -o "$MJSON" \
+    curl $CURL_INSECURE -fsSL -H 'Cache-Control: no-cache' "$MANIFEST?t=$(date +%s)" -o "$MJSON" \
       || fail DOWNLOAD_FAILED "拉不到 manifest: $MANIFEST"
     BASE="$(dirname "$MANIFEST")"
   fi
@@ -79,7 +84,7 @@ EOF
     cp "$BASE/$FILE" "$PKG" || fail NO_LOCAL_PKG "离线目录里没有 $FILE"
   else
     echo "[download] $BASE/$FILE" >&2
-    curl -fSL "$BASE/$FILE" -o "$PKG" || fail DOWNLOAD_FAILED "下载 node 包失败: $BASE/$FILE"
+    curl $CURL_INSECURE -fSL "$BASE/$FILE" -o "$PKG" || fail DOWNLOAD_FAILED "下载 node 包失败: $BASE/$FILE"
   fi
 
   # sha256 十六进制大小写不敏感,统一转小写再比 —— 否则会把完全正确的包判成损坏

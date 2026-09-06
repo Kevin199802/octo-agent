@@ -113,6 +113,19 @@ if (!args.restart && dev?.pid && dev.projectDir === projectDir && pidAlive(dev.p
   port = dev.port
   pid = dev.pid
   log(`[reuse] dev server pid=${pid} port=${port}`)
+} else if (dev?.pid && pidAlive(dev.pid)) {
+  // 走到这里说明「有一个活着的旧 dev server,但这次不打算用它」——
+  // 要么 --restart,要么它半死(进程在、端口不应答)。**必须先杀掉它**:
+  // 不杀的话每次 --restart 都会多留一个 webpack dev server(每个吃数百 MB),
+  // 端口还会一路往上爬。实测:连跑三次后 8082 与 8083 上各留了一个僵尸。
+  try {
+    process.kill(dev.pid)
+    log(`[kill] 结束旧 dev server pid=${dev.pid} port=${dev.port}`)
+    // 给它一点时间释放端口,否则紧接着的 probe 可能还认为端口被占
+    await new Promise((r) => setTimeout(r, 800))
+  } catch (e) {
+    log(`[warn] 结束旧 dev server pid=${dev.pid} 失败: ${e.message}`)
+  }
 }
 
 if (!reused) {

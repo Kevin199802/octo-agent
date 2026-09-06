@@ -40,6 +40,18 @@ export function envDir(override) {
   return path.join(process.env.XDG_DATA_HOME || path.join(homedir(), ".local", "share"), "OctoAgent", "fastui-env")
 }
 
+/**
+ * 共享池里的 node/yarn 优先,没有就用系统的 —— 能跑起来最重要。
+ * 真正不可替代的是 deps/(1GB 内网组件库),不是运行时本身。
+ */
+export function resolveRuntime(P) {
+  const sysNode = process.execPath
+  return {
+    node: existsSync(P.nodeBin) ? P.nodeBin : sysNode,
+    nodeIsSystem: !existsSync(P.nodeBin),
+  }
+}
+
 export const envPaths = (dir) => ({
   root: dir,
   node: path.join(dir, "node"),
@@ -57,8 +69,14 @@ export function platformKey() {
 }
 
 /**
- * 会话布局(§3.2):[Artifact Folder] 就是 .octo/<sid>/outputs,
- * 依赖链接建在它的父级 —— 产物目录里因此零链接。
+ * 会话布局(§3.2)。[Artifact Folder] 就是 .octo/<sid>/outputs。
+ *
+ * v12:依赖链接建在**工程根**(`outputs/<产物名>/node_modules`),即标准布局。
+ * v6~v11 建在会话根(outputs 的父级),为的是"产物目录零链接、随手压缩安全",
+ * 代价是产物目录里 `yarn serve` 跑不起来(yarn 只从工程根的 node_modules/.bin 找命令)。
+ * 那个代价会落到最不该承担它的人身上 —— 设计师拉产线开发对接时,对方第一件事就是
+ * `yarn serve`,跑不起来会被直接判定成"生成的代码有问题"。压缩体积是小事,交付信任不是。
+ * 干净交付包改由 export-zip 产出(排除 node_modules),那才是设计师拿走代码的主路径。
  */
 export function sessionPaths(artifactDir) {
   const outputs = path.resolve(artifactDir)
@@ -66,7 +84,6 @@ export function sessionPaths(artifactDir) {
   return {
     outputs,
     sessionRoot,
-    link: path.join(sessionRoot, "node_modules"),
     state: path.join(sessionRoot, ".octo-fastui.json"),
     devserver: path.join(sessionRoot, ".devserver.json"),
     devserverLog: path.join(sessionRoot, "devserver.log"),
