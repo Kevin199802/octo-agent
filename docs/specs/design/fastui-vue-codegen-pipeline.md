@@ -1269,23 +1269,143 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
 
 位置：文档仓新建 `skills/` 目录。
 
-### 8.6 UXAI 仓要做的三件事（Design 页面侧，不是 skill）
+### 8.6 UXAI 仓要做的四件事（Design 模块，不是 skill）
 
-skill 管不了常驻进程，也画不了按钮。这三件必须在 UXAI 的 `pages/make/` 里做。
+skill 管不了常驻进程，也画不了按钮。这四件必须在 UXAI 侧做。
 
-> **三件都必须是增量式兼容改造，不得影响 Design 现有功能。** 具体到每一项：② 只加 gate 不改 srcdoc 路径上的任何既有行为；③ 是新增接口与新增状态，不碰现有 tab / renderer 逻辑；① 是 ActionBar 新增一个按钮。任何一项若发现必须改动既有代码路径才能做成，停下来先对齐，不要顺手改。
+> **四件都必须是增量式兼容改造，不得影响 Design 现有功能。** 具体到每一项：② 只加 gate 不改 srcdoc 路径上的任何既有行为；③ 除了退出钩子里追加一行，其余全是新文件与新 handler；① 是 ActionBar 新增一个按钮；④ 是新增一个 message 监听。任何一项若发现必须改动既有代码路径才能做成，停下来先对齐，不要顺手改。
 
-| # | 事项 | 说明 |
+| # | 事项 | 状态 |
 |---|---|---|
-| ① | **导出代码包按钮** | 预览器 ActionBar 上加一个，调 `export-zip.mjs`（或直接在前端打包）。这是设计师拿走交付物的**主路径** —— 比让他去文件管理里翻目录可靠得多 |
+| ③ | **dev server 由宿主起并持有** | **唯一的链路阻塞项**，详见 §8.6.1 |
+| ① | **导出代码包按钮** | 预览器 ActionBar 上加一个，调 `export-zip.mjs`。链接改回工程根之后（§2.5），这是设计师拿到干净代码的**唯一正确路径** —— 不做的话他右键压缩会得到 1GB |
 | ② | **external URL tab 的编辑类功能 gate** | `shouldUseExternalUrl()` 为真时，inspect / manual-edit / draw / comment 依赖 `contentDocument`，跨源会抛。先看是否已 gate；没有则**只加 gate、不改 srcdoc 路径上的既有行为** |
-| ③ | **dev server 生命周期** | skill 起的进程在 agent 结束后仍活着，必须由宿主管：读 `.octo/<sid>/.devserver.json`（`verify` 写入 `{port, pid, projectDir, logPath, startedAt}`）→ 内存维护 `会话 → port → pid` → **Agent 退出统一清理** + **软上限 3 个**（webpack dev server 每实例数百 MB，不设限会拖垮机器）。不做精细的挂载/卸载回收——设计师来回切 tab 时反复重启体验很差。**宿主只需要 pid，不需要持有进程**；若内网实测发现 Windows 下 dev server 跟着脚本死，退路见 §6.3 末 |
+| ④ | **运行时错误 bridge 的监听端** | 模板侧已内置 bridge（§3.4-5），**宿主侧现在不监听、空转**。做 §7.4 第三层时补上 `message` 监听。内网实测已证明它有用：模型漏 import 组件时，编译通过但浏览器里 `Failed to resolve component` —— 那正是这条通道该捕获的 |
 
-**预览本身不需要新增 renderer**（§7.5）—— 现有 `text/link` → external URL iframe 链路直接可用。
+**预览本身不需要新增 renderer**（§7.5）—— 现有 `text/link` → external URL iframe 链路直接可用，已内网实测。
 
-| ④ | **运行时错误 bridge 的监听端**（第三层做时才需要） | 模板侧这次一并定版内置了 bridge（`window.onerror` + `app.config.errorHandler` → `postMessage`，§3.4-5），但**宿主侧现在不监听，它是空转的**。这是有意的——先埋着避免模板版本分叉。做 §7.4 第三层时，宿主要加 `message` 监听并把运行时错误喂回 agent。**记在这里是为了那时不用临时排期。** |
+---
 
-> ⚠️ `pages/make/` 属 Design 模块，改动需按 [collab-pr-protocol](../../collab-pr-protocol.md) 走，并与该模块负责同事对齐。
+#### 8.6.1 dev server 由宿主起并持有（③ 的完整方案）
+
+##### 为什么必须是宿主
+
+内网实测（2026-09-06）：`verify.mjs` 用 `detached` 起的 dev server，**脚本一退出就没了**（`Get-Process -Id <pid>` 无返回）。根因在上游代码里 —— `packages/opencode/src/tool/shell.ts:296`：
+
+```ts
+if (process.platform === "win32" && Shell.ps(shell)) {
+  return ChildProcess.make(shell, [...], { detached: false })   // ← Windows 下有意不脱离
+}
+return ChildProcess.make(command, [], { detached: process.platform !== "win32" })
+```
+
+整条链 `opencode → PowerShell → verify.mjs → dev server` 在同一个 Job Object 里，shell 工具收尾时整棵树被清掉。而 shell 工具的参数只有 `command / cwd / env / timeout / shell`，**没有 `background`**（不像 Claude Code 的 `run_in_background`）。
+
+**主流 agent 的做法都是「让一个长命进程持有它」，不是「让子进程脱离」。** Octo 缺的正是这个能力，而 Electron 主进程正好是那个长命进程。
+
+> **附带解决的体验问题**：现在每次起服务都弹一个空的 node 窗口。这不是配置问题，是父进程类型决定的 —— PowerShell 是 console 应用，子进程继承 console；**Electron 主进程是 GUI 应用，根本没有 console**，`spawn(..., { windowsHide: true })` 直接就没窗口。
+
+##### 时序
+
+```
+new-session.mjs
+  └─ 写 .octo/<sid>/.octo-fastui.json { projectDir, port, depsDir, envDir, … }
+        │
+        ▼
+pages/make 侧监听到这个文件(或在建会话的同一处主动触发)
+  └─ IPC → 主进程 spawn dev server(持有它)
+        └─ 写 .octo/<sid>/.devserver.json { port, pid, projectDir, logPath, startedAt }
+        └─ stdout/stderr → .octo/<sid>/devserver.log
+        │
+        ▼
+[模型写代码]        ← 这段时间 webpack 已经在编译 _example 并进入 watch
+        │
+        ▼
+verify.mjs --port=<port>
+  └─ 只做编译判定:读 devserver.log,按 §5.5.1 的三条规则采信最后一轮
+  └─ 顺带跑漏 import 静态检查(§7.2)
+        │
+        ▼
+<artifact type="text/link">http://127.0.0.1:<port></artifact>
+```
+
+**免费的性能优化**：别等模型写完再起服务。`new-session` 一写出状态文件就起 —— 那时 `views/` 下只有 `_example`，编译很快；**模型写代码的几十秒里 webpack 已经编完在 watch 了**。等 `verify` 时只剩一次增量编译（几秒），而不是干等 1–3 分钟的首次编译。首次编译与模型写代码并行。
+
+##### 文件契约（skill 侧已固定，宿主按这个读写）
+
+| 文件 | 谁写 | 谁读 | 内容 |
+|---|---|---|---|
+| `.octo/<sid>/.octo-fastui.json` | `new-session` | **宿主** | `{name, projectDir, writeDir, port, envDir, depsDir, createdAt, updatedAt}` |
+| `.octo/<sid>/.devserver.json` | **宿主** | `verify`（回退路径） | `{port, pid, projectDir, logPath, startedAt}` |
+| `.octo/<sid>/devserver.log` | **宿主**（子进程 stdio 重定向） | `verify` | dev server 原始输出 —— **编译判定的唯一数据源** |
+
+> ⚠️ **日志路径必须是 `.octo/<sessionId>/devserver.log`**，不能换地方 —— `verify` 靠读它做编译判定，路径不对就只能超时。
+
+##### 启动参数（照抄，四个点都不能少）
+
+```ts
+const portalDir = join(state.projectDir, "packages", "portal")
+const cli = join(state.depsDir, "@turboui", "turbo-ui-cli-service", "bin", "turbo-ui-cli-service.js")
+const nodeBin = process.platform === "win32"
+  ? join(state.envDir, "node", "node.exe")
+  : join(state.envDir, "node", "bin", "node")
+
+const logFd = openSync(join(sessionDir, "devserver.log"), "a")
+const child = spawn(nodeBin, [cli, "serve", "--replace-policy=dev", "--target=esnext"], {
+  cwd: portalDir,
+  env: { ...process.env, OCTO_DEPS: state.depsDir, OCTO_PORT: String(state.port) },  // ① 缺一不可
+  windowsHide: true,                                                                  // ② 无窗口
+  stdio: ["ignore", logFd, logFd],                                                    // ③ 日志落盘
+})
+```
+
+| # | 点 | 不做会怎样 |
+|---|---|---|
+| ① | `OCTO_DEPS` + `OCTO_PORT` 两个都传 | 缺 `OCTO_DEPS` 则 copy-webpack-plugin 找不到拷贝源，`Failed to compile`（§2.2）；缺 `OCTO_PORT` 则回落 8081，多会话必撞 |
+| ② | `windowsHide: true` | 弹空的 console 窗口 |
+| ③ | stdio 重定向到那个固定路径 | `verify` 没有数据源，只能 `COMPILE_TIMEOUT` |
+| ④ | `app.on("will-quit")` 里全 kill + 软上限 3 个 | webpack dev server 每实例数百 MB，设计师做几个页面就把机器拖垮 |
+
+**不做精细的挂载/卸载回收** —— 设计师来回切 tab 时反复重启 webpack 体验很差（§6.3）。
+
+##### 改动清单
+
+| 文件 | 改动 | 性质 |
+|---|---|---|
+| `packages/desktop/src/main/fastui-devserver.ts` | 新文件 ~120 行：`ensure` / `stop` / `stopAll` + 内存 `Map<sessionId, {pid, port}>` + 软上限 | **新增** |
+| `packages/desktop/src/main/ipc.ts` | +2 个 `ipcMain.handle`（~12 行） | 追加，不动现有 handler |
+| `packages/desktop/src/preload/{index,types}.ts` | +2 个方法与类型（~10 行） | 追加 |
+| `packages/desktop/src/main/index.ts` | `will-quit` 回调里 **+1 行** `stopAll()` | ⚠️ **唯一碰既有代码处**（追加一句，不替换） |
+| `packages/app/octoapp/context/platform.tsx` | 类型透传（~4 行） | 追加 |
+| `packages/app/octoapp/pages/make/index.tsx` | 建会话处（约 `:1603` 写 `.octo/<id>/outputs/.gitkeep` 那一带）挂钩（~30 行） | 追加 |
+
+约 180 行，6 个文件，**5 个是纯追加**。
+
+> `sidecar.ts` 是主进程管长命子进程的现成参照，但它用 `worker_thread`（`parentPort`）而非 `spawn`，逻辑不能直接复用 —— 可借鉴的是它的形态：start / stop / 退出清理 / 错误上报。
+
+##### skill 侧对应的降级
+
+`verify` 的启动策略按可靠性排序：
+
+1. **`--port=<n>` 接管** —— 显式指定用哪个端口上已有的服务
+2. **读 `.devserver.json` 复用** —— 宿主起好的那个
+3. **等宿主启动（最多 15 秒）** —— 宿主监听状态文件、异步 spawn，这里给它时间；**不等的话两边会各起一个 dev server 打架**
+4. **自己 spawn（回退）** —— 输出 `[fallback]` 提示，说明这条路在 Windows 上活不过本次调用
+
+第 4 条保留是为了脱离宿主也能调试（内网调脚本、外网 V0），它在 Windows 上失效属于**已知的模式差异，不是 bug**。
+
+##### 平台差异：mac 同样需要宿主，理由不同
+
+| | Windows | macOS |
+|---|---|---|
+| skill 自己 spawn 的进程 | **活不过本次调用**（Job Object 连坐） | 能活（`shell.ts` 在非 win32 下用 `detached: true`，Unix 也没有 Job 连坐） |
+| 空的 node 窗口 | 有（PowerShell 是 console 应用，子进程继承 console） | 无 |
+| 要不要宿主接管 | **必须** —— 否则起不来 | **同样要** —— 不是为了"活下来"，是为了**有人回收**：那些进程会活到没人管，设计师做几个页面就攒一堆常驻 webpack，每个数百 MB |
+
+**宿主方案两个平台通用，不做平台分支。**
+
+> ⚠️ `pages/make/` 与 `packages/desktop/` 属 Design 模块，改动需按 [collab-pr-protocol](../../collab-pr-protocol.md) 走。
+> **若发现任何一项必须改动既有代码路径才能做成，停下来先对齐** —— 尤其 `index.tsx` 有 5600+ 行，在里面加东西要克制。
 
 ---
 

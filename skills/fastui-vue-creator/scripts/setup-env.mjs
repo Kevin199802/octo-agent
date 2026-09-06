@@ -11,11 +11,13 @@
 import { execFileSync } from "node:child_process"
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
-import { ok, fail, log, parseArgs } from "./lib/result.mjs"
+import { setLogSink, ok, fail, log, parseArgs } from "./lib/result.mjs"
 import { TEMPLATE_DIR, envDir, envPaths, readManifest, readJson, exists } from "./lib/paths.mjs"
 import { sha256File, sameHash } from "./lib/hash.mjs"
 
 const args = parseArgs()
+// 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查
+setLogSink(path.join(envDir(args["env-dir"]), "octo-fastui.log"))
 const manifest = readManifest()
 const P = envPaths(envDir(args["env-dir"]))
 const isUpgrade = Boolean(args.upgrade)

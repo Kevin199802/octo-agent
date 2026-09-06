@@ -10,11 +10,13 @@
  */
 import { readFileSync, readdirSync, lstatSync, statSync } from "node:fs"
 import path from "node:path"
-import { ok, fail, usage, log, parseArgs } from "./lib/result.mjs"
-import { readJson, sessionPaths } from "./lib/paths.mjs"
+import { setLogSink, ok, fail, usage, log, parseArgs } from "./lib/result.mjs"
+import { envDir, readJson, sessionPaths } from "./lib/paths.mjs"
 import { writeZip } from "./lib/zip.mjs"
 
 const args = parseArgs()
+// 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查
+setLogSink(path.join(envDir(args["env-dir"]), "octo-fastui.log"))
 
 let sessionRoot = args["session-dir"] ? path.resolve(String(args["session-dir"])) : null
 if (!sessionRoot && args["project-dir"]) {

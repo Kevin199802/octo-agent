@@ -6,6 +6,35 @@
  * 中文可能显示成乱码,但错误码是 ASCII,截图出来仍然可读(§8.4)。
  */
 
+/**
+ * 契约行同时落盘一份。
+ *
+ * 宿主 UI 未必把脚本 stdout 原样展示给人看(Octo 的 agent 侧做过大量改造),
+ * 于是"失败信息自包含可截图"这个前提在真实环境里不成立 —— 人根本看不到那几行。
+ * 落到一个路径固定、可预测的文件里,事后能查。
+ */
+let LOG_SINK = null
+export function setLogSink(p) {
+  LOG_SINK = p
+}
+
+function persist(text) {
+  if (!LOG_SINK) return
+  try {
+    const { appendFileSync, mkdirSync } = require_fs()
+    mkdirSync(dirname_(LOG_SINK), { recursive: true })
+    appendFileSync(LOG_SINK, `\n===== ${new Date().toISOString()} ${process.argv.slice(1).join(" ")}\n${text}`)
+  } catch {
+    /* 落盘失败绝不能影响脚本本身 */
+  }
+}
+// 顶层 import 会让这个模块依赖 fs,而它被每个脚本引用 —— 用惰性引入保持它足够薄
+function require_fs() {
+  return globalThis.__octoFs ?? (globalThis.__octoFs = fsMod)
+}
+import * as fsMod from "node:fs"
+import { dirname as dirname_ } from "node:path"
+
 /** @param {Record<string, string|number|undefined>} fields */
 export function ok(fields = {}) {
   const lines = ["RESULT: OK"]
@@ -13,7 +42,9 @@ export function ok(fields = {}) {
     if (v === undefined || v === null) continue
     lines.push(`${k}: ${v}`)
   }
-  process.stdout.write(lines.join("\n") + "\n")
+  const text = lines.join("\n") + "\n"
+  persist(text)
+  process.stdout.write(text)
   process.exit(0)
 }
 
@@ -30,7 +61,9 @@ export function fail(code, reason, opts = {}) {
     if (v === undefined || v === null) continue
     lines.push(`${k}: ${v}`)
   }
-  process.stdout.write(lines.join("\n") + "\n")
+  const text = lines.join("\n") + "\n"
+  persist(text)
+  process.stdout.write(text)
   process.exit(1)
 }
 

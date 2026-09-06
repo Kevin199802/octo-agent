@@ -12,12 +12,15 @@
 import { spawn } from "node:child_process"
 import { existsSync, openSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import path from "node:path"
-import { ok, fail, usage, log, block, parseArgs } from "./lib/result.mjs"
+import { setLogSink, ok, fail, usage, warn, log, block, parseArgs } from "./lib/result.mjs"
 import { envDir, envPaths, readManifest, readJson, sessionPaths } from "./lib/paths.mjs"
 import { findFreePort, isServing } from "./lib/port.mjs"
 import { parseRounds, extractErrors } from "./lib/compile.mjs"
+import { lintMissingImports } from "./lib/lint.mjs"
 
 const args = parseArgs()
+// 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查
+setLogSink(path.join(envDir(args["env-dir"]), "octo-fastui.log"))
 const manifest = readManifest()
 const timeoutMs = (Number(args.timeout) || 300) * 1000
 const settleMs = Number(manifest.compileSettleMs) || 800
@@ -79,19 +82,41 @@ function latestMtime(dir) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+// Windows 的 Start-Process 不允许 stdout/stderr 重定向到同一个文件,
+// 于是 stderr 落在 <log>.err —— 判定时两份都要看(编译错误可能走 stderr)
+const LOG_FILES = process.platform === "win32" ? [S.devserverLog, S.devserverLog + ".err"] : [S.devserverLog]
+
+function readLogs() {
+  return LOG_FILES.map((f) => {
+    try {
+      return readFileSync(f, "utf8")
+    } catch {
+      return ""
+    }
+  }).join("\n")
+}
+
 const logSize = () => {
-  try {
-    return statSync(S.devserverLog).size
-  } catch {
-    return -1
+  let total = -1
+  for (const f of LOG_FILES) {
+    try {
+      total = Math.max(total, 0) + statSync(f).size
+    } catch {
+      /* 还没生成 */
+    }
   }
+  return total
 }
 const logMtime = () => {
-  try {
-    return statSync(S.devserverLog).mtimeMs
-  } catch {
-    return 0
+  let newest = 0
+  for (const f of LOG_FILES) {
+    try {
+      newest = Math.max(newest, statSync(f).mtimeMs)
+    } catch {
+      /* 还没生成 */
+    }
   }
+  return newest
 }
 const pidAlive = (pid) => {
   try {
@@ -128,7 +153,42 @@ if (!args.restart && dev?.pid && dev.projectDir === projectDir && pidAlive(dev.p
   }
 }
 
+// --port:接管一个已经在跑的 dev server(不管是谁起的),只做编译判定。
+// 存在的意义是把「dev server 起不起得来」和「编译判定/预览链路通不通」拆成两件事分别验证 ——
+// Windows 下 detached 失效时(实测:关掉 PowerShell 窗口进程就被收走),
+// 这条路让后面几段仍然可调,不至于卡在第一步。
+if (args.port) {
+  const attach = Number(args.port)
+  if (!(await isServing(attach))) {
+    fail("ATTACH_FAILED", `${attach} 端口上没有在跑的服务`, {
+      hint: `先手工起 dev server(在 ${portalDir} 下跑 yarn serve),再用 --port=${attach} 接管`,
+    })
+  }
+  reused = true
+  port = attach
+  pid = dev?.port === attach ? dev.pid : null
+  log(`[attach] 接管 127.0.0.1:${attach} 上已有的 dev server`)
+}
+
+// 宿主(Electron 主进程)可能正在起 —— 它监听 .octo-fastui.json,出现即 spawn(§8.6.1)。
+// 这里等它一会儿再决定自己动手,否则两边会各起一个 dev server 打架。
+if (!reused && !args.restart) {
+  for (let i = 0; i < 30; i++) {
+    const d = readJson(S.devserver)
+    if (d?.pid && d.projectDir === projectDir && pidAlive(d.pid) && (await isServing(d.port))) {
+      reused = true
+      port = d.port
+      pid = d.pid
+      log(`[host] 宿主已起好 dev server pid=${pid} port=${port}`)
+      break
+    }
+    if (i === 0) log("[wait] 等宿主启动 dev server(最多 15 秒)…")
+    await sleep(500)
+  }
+}
+
 if (!reused) {
+  log("[fallback] 宿主没有接管,由本脚本自己启动 —— Windows 下这个进程活不过本次调用(§6.3),属已知模式差异")
   const cli = resolveCliService()
   if (!cli) {
     fail("CLI_SERVICE_NOT_FOUND", `共享池里找不到 @turboui/turbo-ui-cli-service 的入口`, { hint: "先跑 ensure-env.mjs" })
@@ -141,22 +201,51 @@ if (!reused) {
     if (!free) fail("NO_FREE_PORT", `从 ${port} 起找不到空闲端口`)
     port = free
 
-    const fd = openSync(S.devserverLog, "a")
-    // detached + stdio 全部重定向 + unref:脚本退出后 dev server 继续活着,
-    // 由宿主按 .devserver.json 里的 pid 回收(§6.3 / §8.6③)。
-    // ⚠️ Windows 下的 detached 语义与 Unix 不同,待内网实测(§6.3 末)。
-    const child = spawn(P.nodeBin, [cli, "serve", "--replace-policy=dev", "--target=esnext"], {
-      cwd: portalDir,
-      env: { ...process.env, OCTO_DEPS: P.depsModules, OCTO_PORT: String(port) },
-      detached: true,
-      windowsHide: true,
-      stdio: ["ignore", fd, fd],
-    })
-    child.unref()
-    pid = child.pid
+    const cliArgs = [cli, "serve", "--replace-policy=dev", "--target=esnext"]
+    const childEnv = { ...process.env, OCTO_DEPS: P.depsModules, OCTO_PORT: String(port) }
+
+    if (process.platform === "win32") {
+      // Windows 下 Node 的 detached **不足以**脱离 —— 实测:verify 退出(或宿主的
+      // bash 工具收尾)后 dev server 被一起收走,`Get-Process -Id <pid>` 查不到。
+      // 根因是父进程所在的 Job Object 被关闭时会连坐整棵进程树,而 detached 只是
+      // 新建进程组,并不脱离 Job。
+      // PowerShell 的 Start-Process 创建的是真正独立的进程,不在调用者的 Job 里。
+      const q = (v) => `'${String(v).replace(/'/g, "''")}'`
+      const psScript = [
+        `$env:OCTO_DEPS=${q(P.depsModules)}`,
+        `$env:OCTO_PORT=${q(String(port))}`,
+        `$p = Start-Process -FilePath ${q(P.nodeBin)}` +
+          ` -ArgumentList @(${cliArgs.map(q).join(",")})` +
+          ` -WorkingDirectory ${q(portalDir)}` +
+          ` -RedirectStandardOutput ${q(S.devserverLog)}` +
+          ` -RedirectStandardError ${q(S.devserverLog + ".err")}` +
+          ` -WindowStyle Hidden -PassThru`,
+        `$p.Id`,
+      ].join("; ")
+      try {
+        const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", psScript], {
+          encoding: "utf8",
+          windowsHide: true,
+        })
+        pid = Number(String(out).trim().split(/\s+/).pop())
+      } catch (e) {
+        fail("SPAWN_FAILED", `Start-Process 启动 dev server 失败: ${e.message}`, { log: S.devserverLog })
+      }
+    } else {
+      const fd = openSync(S.devserverLog, "a")
+      const child = spawn(P.nodeBin, cliArgs, {
+        cwd: portalDir,
+        env: childEnv,
+        detached: true,
+        windowsHide: true,
+        stdio: ["ignore", fd, fd],
+      })
+      child.unref()
+      pid = child.pid
+    }
 
     await sleep(1500)
-    const tail = existsSync(S.devserverLog) ? readFileSync(S.devserverLog, "utf8").slice(-4000) : ""
+    const tail = readLogs().slice(-4000)
     if (/EADDRINUSE/i.test(tail)) {
       log(`[retry ${attempt}] 端口 ${port} 被抢占,换一个`)
       port += 1
@@ -209,7 +298,7 @@ while (Date.now() - t0 < timeoutMs) {
   }
 
   // 规则 2:必须匹配到完整的一对「开始 → 结束」
-  const text = readFileSync(S.devserverLog, "utf8")
+  const text = readLogs()
   const all = parseRounds(text)
   roundsSeen = all.length
   const rounds = all.filter((r) => r.outcome !== null)
@@ -224,6 +313,12 @@ while (Date.now() - t0 < timeoutMs) {
     if (!(await isServing(port))) {
       await sleep(500)
       continue
+    }
+    // 编译通过不等于页面能渲染:漏 import 的组件 webpack 编不出错,
+    // 但浏览器里会 `Failed to resolve component` 然后整页白屏。这是 verify 唯一
+    // 能在"返回 OK"之前替模型兜住的一类运行时错误,不查白不查。
+    for (const r of lintMissingImports(writeDir)) {
+      warn(`${path.relative(projectDir, r.file)} 用了 ${r.missing.join(" / ")} 但没有 import —— 页面会白屏,必须补上`)
     }
     ok({
       PREVIEW_URL: `http://127.0.0.1:${port}`,
@@ -247,7 +342,7 @@ while (Date.now() - t0 < timeoutMs) {
 // 所以这里把定位所需的东西全部内联进输出 —— 阶段 + 识别到的轮次 + 日志尾部。
 const tailLines = (() => {
   try {
-    return readFileSync(S.devserverLog, "utf8").split(/\r?\n/).filter((l) => l.trim()).slice(-40).join("\n")
+    return readLogs().split(/\r?\n/).filter((l) => l.trim()).slice(-40).join("\n")
   } catch {
     return "(日志文件读不到)"
   }

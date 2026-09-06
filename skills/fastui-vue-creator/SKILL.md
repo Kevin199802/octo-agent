@@ -69,6 +69,13 @@ node scripts/new-session.mjs --artifact-dir="<[Artifact Folder] 绝对路径>" -
 node scripts/verify.mjs --session-dir="<[Artifact Folder] 的上一级>"
 ```
 
+dev server 起不来时(比如宿主环境不允许后台进程存活),可以让用户手工起一个,再用 `--port` 接管:
+
+```bash
+# 用户在 <PROJECT_DIR>/packages/portal 下跑 yarn serve,记下端口
+node scripts/verify.mjs --session-dir="…" --port=8081
+```
+
 - `RESULT: OK` → 拿 `PREVIEW_URL` 走第 ⑤ 步
 - `RESULT: FAIL | COMPILE_ERROR` → **读 `ERRORS_BEGIN`…`ERRORS_END` 之间的原文**,里面有 `file:line`,
   按它改代码,然后**再跑一次 verify**。改完必须重新验证,不要凭感觉判断
@@ -140,6 +147,52 @@ node scripts/export-zip.mjs --session-dir="<[Artifact Folder] 的上一级>"
 
 - **lake 组件从 `'$/xxx'` 引入** —— `$` 是本脚手架的 webpack alias,**不是 npm 包名**,不要写成 `@lake/xxx`
 - element-plus 走正常包名
+
+**模板里用到的每一个组件,都必须在 `<script setup>` 里 import。** 这个脚手架**没有全局注册**
+element-plus 或 lake 的组件:
+
+```vue
+<script lang="ts" setup>
+// 用了 ElTable / ElTableColumn / ElTag / ElInput,四个都得 import
+import { ElTable, ElTableColumn, ElTag, ElInput } from 'element-plus'
+</script>
+```
+
+**模板里的组件标签一律写 PascalCase**(`<ElTable>` 而不是 `<el-table>`):
+
+```vue
+<!-- ✅ 对 -->
+<script lang="ts" setup>
+import { ElTable, ElTableColumn, ElTag } from 'element-plus'
+</script>
+<template>
+  <ElTable :data="rows">
+    <ElTableColumn prop="name" label="设备名称" />
+    <ElTableColumn label="状态">
+      <template #default="{ row }"><ElTag>{{ row.status }}</ElTag></template>
+    </ElTableColumn>
+  </ElTable>
+</template>
+
+<!-- ❌ 错(内网实测真实踩过):ElButton import 了,el-table 没有 —— -->
+<!--    编译照样通过,页面白屏,console 里 Failed to resolve component: el-table -->
+<script lang="ts" setup>
+import { ElButton } from 'element-plus'
+</script>
+<template>
+  <ElButton>新增</ElButton>
+  <el-table :data="rows"><el-table-column prop="name" /></el-table>
+</template>
+```
+
+> **为什么强调大小写形式**:kebab-case 的 `<el-table>` 看起来像原生 HTML 标签,很容易被当成"不需要 import"
+> ——上面那个真实错误就是这么来的(PascalCase 的 `ElButton` 记得 import,kebab-case 的 `el-table` 忘了)。
+> 统一写 PascalCase,标签本身就在提醒你"这是个组件,需要 import"。
+>
+> ⚠️ **漏 import 编译不会报错,页面会白屏。** webpack 不知道模板里 `<el-table>` 指的是什么,
+> 编译照过;要到浏览器里才会看到 `[Vue warn]: Failed to resolve component`,然后整页炸掉。
+> `verify` 会做一次静态检查并输出 `WARN: … 用了 X 但没有 import`,**看到这个警告必须回去补 import,
+> 不能因为 `RESULT: OK` 就当作做完了**。
 
 具体有哪些组件、各自的 API,查本 skill `vendor/` 下那三份组件文档。
 

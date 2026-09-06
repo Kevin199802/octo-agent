@@ -9,12 +9,14 @@
  */
 import { cpSync, mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
-import { ok, fail, usage, log, parseArgs } from "./lib/result.mjs"
+import { setLogSink, ok, fail, usage, log, parseArgs } from "./lib/result.mjs"
 import { TEMPLATE_DIR, envDir, envPaths, readManifest, sessionPaths, readJson, exists } from "./lib/paths.mjs"
 import { claimPort, findFreePort } from "./lib/port.mjs"
 import { ensureDirLink } from "./lib/link.mjs"
 
 const args = parseArgs()
+// 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查
+setLogSink(path.join(envDir(args["env-dir"]), "octo-fastui.log"))
 if (!args["artifact-dir"]) usage("缺少 --artifact-dir=<[Artifact Folder] 绝对路径>")
 
 const manifest = readManifest()
