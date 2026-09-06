@@ -1,0 +1,154 @@
+---
+name: fastui-vue-creator
+description: 用 fastui/lake 组件库生成 Vue 页面,在真实脚手架里编译渲染并交付可运行的工程。当用户要做页面、要改页面、要看效果、要拿代码时使用。
+version: 0.1.0
+---
+
+# fastui-vue-creator
+
+把设计师的自然语言需求变成 `.vue` 页面,**在真实脚手架里编译**,再把预览地址交给 Design 渲染。
+
+交付物是开发能直接 `yarn install && yarn serve` 跑起来的标准工程,不是任何中间产物。
+
+---
+
+## 工作流
+
+```
+① ensure-env   →  ② new-session  →  ③ 写代码  →  ④ verify  →  ⑤ 输出预览
+                                        ↑             │
+                                        └── 编译失败 ──┘  循环至通过
+```
+
+脚本都在本 skill 的 `scripts/` 下。**用共享池里的 node 跑**(路径由 `ensure-env` 的 `ENV_DIR` 给出),
+或在环境已就绪时直接 `node scripts/xxx.mjs`。
+
+所有脚本的输出都是固定格式,**先读 `RESULT:` 那一行再决定下一步**:
+
+```
+RESULT: OK
+KEY: value …
+
+RESULT: FAIL | <CODE>: <原因>
+HINT: <可直接执行的下一步>
+```
+
+### ① `ensure-env.mjs` —— 每个会话开头跑一次
+
+```bash
+node scripts/ensure-env.mjs
+```
+
+| `RESULT: FAIL` 的 CODE | 怎么办 |
+|---|---|
+| `ENV_MISSING` / `ENV_OUTDATED` / `ENV_NODE_MISMATCH` | **直接执行 `HINT:` 里那条命令**(安装/升级脚本),完成后重跑 `ensure-env`。这一步可能要几分钟,告诉用户在装环境 |
+| `SKILL_NOT_ASSEMBLED` | 停下。这是 skill 没在内网组装好,**不是用户能解决的问题**,如实说明并给出 `HINT` 里的路径 |
+| `WARN:` 开头的行 | 不阻塞,不用管,更不要转述给用户 |
+
+### ② `new-session.mjs` —— 每个会话建一次工程(幂等)
+
+```bash
+node scripts/new-session.mjs --artifact-dir="<[Artifact Folder] 绝对路径>" --name="<产物名>"
+```
+
+`--artifact-dir` 用系统给的 **[Artifact Folder]** 原值。`--name` 用一个简短的英文/拼音工程名。
+
+记住返回的三个值,后面都要用:
+
+- `WRITE_DIR` —— **你唯一可以新建文件的目录**
+- `ENTRY_FILE` —— 聚合入口,**唯一允许你修改的既有文件**
+- `PORT` —— 预览端口
+
+### ③ 写代码 —— 边界见下面「硬约束」
+
+### ④ `verify.mjs` —— 编译门禁
+
+```bash
+node scripts/verify.mjs --session-dir="<[Artifact Folder] 的上一级>"
+```
+
+- `RESULT: OK` → 拿 `PREVIEW_URL` 走第 ⑤ 步
+- `RESULT: FAIL | COMPILE_ERROR` → **读 `ERRORS_BEGIN`…`ERRORS_END` 之间的原文**,里面有 `file:line`,
+  按它改代码,然后**再跑一次 verify**。改完必须重新验证,不要凭感觉判断
+- 首次编译要 1–3 分钟,属正常
+
+### ⑤ 输出预览
+
+编译通过后,输出这一行(把端口换成 `PREVIEW_URL`):
+
+```
+<artifact type="text/link">http://127.0.0.1:8081</artifact>
+```
+
+Design 会把它渲染成预览面板。**不要用别的形式给链接**,只有这个标签会被识别。
+
+---
+
+## 硬约束
+
+### 1. 编译不通过就不算做完
+
+**这是最重要的一条。** 不允许在 `verify` 没有返回 `RESULT: OK` 的情况下告诉用户"做好了"。
+编译失败就读错误、改代码、重跑 verify,直到通过。
+
+### 2. 只碰这两个地方
+
+| 允许 | 路径 |
+|---|---|
+| ✅ 新建 | `<WRITE_DIR>/<页面名>/` 下的任何文件 —— 一个页面一个目录,主文件叫 `index.vue`,拆出来的子组件、样式放同目录 |
+| ✅ 修改 | `<ENTRY_FILE>`(即 `views/index.vue`)—— 加一行 import、加一个标签,把新页面挂上去 |
+| ❌ 不动 | `src/` 下的 `app.vue`、`index.vue`、`main.vue`、`i18n/`、`interfaces/`、`utils/`,以及工程根的所有配置文件 |
+
+那些是脚手架的壳,改了会让整个工程起不来,而且它们和交付给开发的结构强相关。
+
+多个页面时,在 `<ENTRY_FILE>` 里怎么组织(tab 切换、纵向排列)按用户的实际要求来,不必预设。
+
+### 3. 组件引入方式
+
+- **lake 组件从 `'$/xxx'` 引入** —— `$` 是本脚手架的 webpack alias,**不是 npm 包名**,不要写成 `@lake/xxx`
+- element-plus 走正常包名
+
+具体有哪些组件、各自的 API,查本 skill `vendor/` 下那三份组件文档。
+
+### 4. golden example
+
+`<WRITE_DIR>/_example/index.vue` 是一个**真实编译通过**的最小示例,写第一个页面前先读它:
+
+```vue
+<script lang="ts" setup>
+// Octo golden example —— 唯一目的是示范本脚手架特有的引入方式:
+//   lake 组件从 '$/xxx' 引入($ 是本脚手架的 webpack alias,不是 npm 包名);
+//   element-plus 走正常包名。
+// 生成页面时替换掉 views/index.vue 里对它的引用即可,本文件不必保留。
+import { ElButton } from 'element-plus'
+import { LakeIcon } from '$/lake-basic-component'
+</script>
+
+<template>
+  <ElButton type="primary">
+    <LakeIcon name="Add" />
+    新增
+  </ElButton>
+</template>
+
+<style></style>
+```
+
+**照它示范的引入方式写,但不要照抄它的形态** —— 它只是示范约定,不是页面模板。
+
+---
+
+## 交给用户的话怎么说
+
+- 装环境时:说在准备环境、需要几分钟,不要贴命令和路径
+- 编译失败自己修时:**不要每轮都汇报**,修好了一起说
+- 做完时:说页面已生成、可以在预览里看;产物目录路径可以给
+- `SKILL_NOT_ASSEMBLED` 这类用户解决不了的问题:如实说明是环境配置问题,不要试图绕过
+
+---
+
+## 已知边界
+
+- 预览是 `http://127.0.0.1:<port>`,与 Design 页面**跨源** —— 选中元素、手动编辑这类功能在预览里不可用,第一版只做纯预览
+- 编译通过 ≠ 渲染正确。样式错位、布局不合设计意图,机器判断不了,要设计师自己看
+- 产物目录里没有 `node_modules`,设计师可以直接压缩带走
