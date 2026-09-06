@@ -54,7 +54,7 @@
 
 | 编号 | 标题 | 状态 | 领域 | 文件 |
 |---|---|---|---|---|
-| 001 | fastui/lake 组件代码生成：预览与交付管道 —— 设计师用自然语言生成基于内网 fastui/lake 组件库的 `.vue`，在**真实脚手架**里编译渲染（不做轻量模拟预览，因组件与微组件框架深度耦合），交付开发可直接 `yarn install && yarn serve` 的工程。核心机制：**共享依赖池 + 依赖外置**——依赖每台机器只装一份，链接建在会话根而非工程内，直连 cli-service 启动绕过 yarn/lerna，`turboui.config.js` 三处环境变量注入全部带回退（交付给开发无需改回）；**产物目录零链接**，压缩与文件管理天然安全 | 草案（v11，第一版脚本完成、本地 V0 全通过，可进内网调试） | infra/design | [fastui-vue-codegen-pipeline.md](design/fastui-vue-codegen-pipeline.md) |
+| 001 | fastui/lake 组件代码生成：预览与交付管道 —— 设计师用自然语言生成基于内网 fastui/lake 组件库的 `.vue`，在**真实脚手架**里编译渲染（不做轻量模拟预览，因组件与微组件框架深度耦合），交付开发可直接 `yarn install && yarn serve` 的工程。核心机制：**共享依赖池 + 依赖外置**——依赖每台机器只装一份，链接建在会话根而非工程内，直连 cli-service 启动绕过 yarn/lerna，`turboui.config.js` 三处环境变量注入全部带回退（交付给开发无需改回）；**产物目录零链接**，压缩与文件管理天然安全 | 草案（v12，内网首次全流程跑通，按实测反转链接位置并补 export-zip） | infra/design | [fastui-vue-codegen-pipeline.md](design/fastui-vue-codegen-pipeline.md) |
 
 ---
 

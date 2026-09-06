@@ -1,6 +1,6 @@
 # SPEC-DES-001 — fastui/lake 组件代码生成：预览与交付管道
 
-> 状态：草案（v11，第一版脚本完成、本地 V0 全通过，**可进内网调试**） · 优先级 P1 · 规模 [L] · 领域 infra/design
+> 状态：草案（v12，**内网首次全流程跑通**，按实测反转链接位置并补 export-zip） · 优先级 P1 · 规模 [L] · 领域 infra/design
 >
 > 上游已实现：✗ —— 本 spec 全部为 Design 侧新增；参考实现是 ICT 的 `ict-component-creator` skill（外部，React + 自制 mini bundler），**其管道分层可借鉴、具体实现不可照搬**（理由见 §1.3）
 >
@@ -9,6 +9,8 @@
 ---
 
 > ## 修订记录
+>
+> **2026-09-06：v12(内网首次全流程跑通 + 反转链接位置 + 放宽运行时限制)**——内网一遍跑通(设备列表页,46 条数据、分页、状态标签),但过程暴露三件事,两件是设计问题。① **链接位置从会话根改回工程根(反转 v6 的 ②),§2.5 记录完整权衡**:实测发现产物目录里 `yarn serve` 跑不起来(`'lerna' 不是内部或外部命令`——yarn 只从工程根的 `node_modules/.bin` 找命令)。v6 换来的"设计师随手压缩安全"是**虚的收益**:设计师恰恰是不懂开发环境、不会去磁盘折腾的那类用户,他拿代码走的是导出按钮。而代价是**实的**且落在最不该承担的人身上——设计师拉产线开发对接时对方第一件事就是 `yarn serve`,跑不起来会被判定成"生成的代码有问题",否定的是整个方案的可信度。压缩体积是小事,交付信任不是。② **`export-zip` 从"延后的便利性"提为"第一版的正确性"**(§5.6):链接改回工程根后整目录压缩会跟随链接,干净交付包只能由它产出;已实现并实测(中文产物名/页面名、UTF-8 flag、CRC、跳过链接、包内无 node_modules)。③ **撤回 v11 加的"禁止用系统 node/yarn"**:那是我为控制调试变量加的限制,不是用户需要的——对设计师来说能跑起来最重要,而真正不可替代的是共享池那 1GB 内网组件库,不是运行时本身;脚本改为共享池优先、回退系统。④ **模型两次绕过 skill**(装环境失败就用本地 node、verify 失败就自己前台跑 yarn serve),后者导致没输出 artifact 卡片——SKILL.md 新增排在最前面的硬约束「不要绕过脚本」,并把第 ⑤ 步输出 artifact 标为"不能省,与编译不通过同级"。⑤ **安装脚本:TLS 1.2 显式启用 + 证书校验默认放行**(内网自签名;完整性判据是 sha256,比证书链更强)+ 失败详情从 HINT 拎出来单独成 `DETAIL:` 行。⑥ 新风险记入 §2.5:产物目录里跑 `yarn add`/`upgrade` 会写穿链接污染共享池,写进 HANDOFF.md 并由 `lockfileHash` 兜底。
 >
 > **2026-09-06：v11(收口:生产包瘦身 + 版本字段合一 + 失败可定位)**——内网调试前的最后一轮。① **`ASSEMBLE.md` 从 skill 包移除,组装说明收进 §8.3**:skill 是生产包,凡不是设计师使用场景要用到的东西都不进去;`assemble.mjs` 也确定不做——组装就是复制两个目录,本地路径每次不同,脚本换不来更省的事。`PLACEHOLDER.md` 保留(它是 `ensure-env` 的哨兵,组装后删),内容精简成一句话 + 指向本 spec。② **版本字段从三个合并成一个**:`envVersion` / `templateVersion` / `requiredEnvVersion` 在 v9(template 不进共享池)之后承载的是同一件事,而依赖树本身已被 `lockfileHash` 严格约束——只留 `template/package.json` 里的 `octoTemplateVersion`,`env.lock.json` 的 `envVersion` 取自它,`requiredEnvVersion` 作为死字段删除。**格式用语义化版本 `0.1.0`,不用日期**:日期要手工改、容易忘,忘了比没有更误导。③ **§3.4 补 `HANDOFF.md` 全文**(英文静态,给拿到交付包的开发看,含"OCTO_DEPS/OCTO_PORT 你不需要也不用删"这一条)。④ **verify 超时改为自包含诊断**:输出 `STAGE`(卡在等输出/等稳定/等轮次哪一步)+ `ROUNDS_SEEN` + 分阶段 HINT + `LOG_TAIL` 尾部 40 行——超时是最难排查的一种失败,而日志在内网带不出来(§8.4),定位所需的东西必须全部内联。实测:MARKERS 对不上时直接输出"大概率是 MARKERS 与实际输出对不上,把 LOG_TAIL 里表示编译成功/失败的那几行发给开发"。⑤ **修一个实测出的解析 bug**:错误块会把下一轮的 `Compiled successfully` 混进来——`parseRounds` 在 outcome 定下之后仍继续收行(为了接住"结束标志在前、明细在后"的形态),但必须在下一轮 start 处硬停,并限 40 行预算。⑥ 本地 V0 全部通过,含 detached 存活、复用、连改两次的竞态、编译失败原文回传。
 >
@@ -60,14 +62,15 @@
 | 2 | `ensure-env.mjs` | 环境没装好时给出确定的下一步，否则失败形态千奇百怪（§5.2） |
 | 3 | `new-session.mjs` | 建链接、复制模板、分端口 —— 会话工程的地基（§5.3） |
 | 4 | `verify.mjs` | **整套东西可靠性的分水岭**，没有它模型会一直说"我改好了"（§7.3） |
-| 5 | `SKILL.md` | 没有它 agent 不知道何时调什么、失败怎么办（§8.5） |
+| 5 | `export-zip.mjs` | v12 提入：链接改到工程根后，干净交付包只能由它产出（§2.5 / §5.6） |
+| 6 | `SKILL.md` | 没有它 agent 不知道何时调什么、失败怎么办（§8.5） |
 
 **第一版不做的**
 
 | 延后项 | 理由 |
 |---|---|
 | `register.mjs` | **砍掉**，聚合入口交回模型（§3.3） |
-| `export-zip.mjs` | 产物目录零链接，随手压缩就是安全的；便利性不是正确性（§5.6） |
+| ~~`export-zip.mjs`~~ | **v12 提回第一版** —— 链接改到工程根后，干净交付包只能由它产出（§5.6） |
 | `assemble.mjs` | **不做**。组装就是复制两个目录，本地路径每次不同，脚本换不来更省的事；步骤写在 §8.3 |
 | `--probe` 真实探针 | 装完手工跑一次 dev server 看得见，不必先脚本化（§5.2） |
 | 运行时错误 bridge 的**宿主侧监听** | 模板侧先埋上（§3.4-5），宿主侧等第三层再做（§8.6④） |
@@ -148,7 +151,7 @@ ICT 的 `build.mjs` 用正则剥 import、拼 IIFE，305 行。它之所以要�
 | # | 要素 | 作用 |
 |---|---|---|
 | ① | **依赖只装一份**，放共享池；会话根用目录链接指过去 | 1GB 每台机器只占一次 |
-| ② | **链接建在会话根**（`.octo/<sid>/node_modules`，即 `outputs/` 的父级） | 产物目录里零链接 → 压缩安全、文件管理扫盘安全 |
+| ② | **链接建在工程根**（`outputs/<产物名>/node_modules`，即标准布局）<br>~~v6–v11：建在会话根~~ | 产物是标准工程，`yarn install && yarn serve` 直接可用（v12 反转，理由见 §2.5） |
 | ③ | **直连 cli-service 启动**，绕过 `yarn` + `lerna` | 消除 §1.6 那两道坎；附带输出干净、启动更快 |
 
 链接机制：Windows 目录联接 junction（`mklink /J`，**普通用户可建，不需要管理员权限**）；macOS symlink（POSIX 标准，同样无需权限）。
@@ -158,12 +161,10 @@ ICT 的 `build.mjs` 用正则剥 import、拼 IIFE，305 行。它之所以要�
 ```
 outputs/<产物名>/packages/portal   ← webpack context
   ↑ packages
-  ↑ <产物名>
-  ↑ outputs
-  ↑ .octo/<sessionId>/node_modules  ← 命中(链接)
+  ↑ <产物名>/node_modules           ← 命中(链接),v12 起在这一层
 ```
 
-Node / webpack 的 enhanced-resolve 逐级向上找 `node_modules`，跨两层无碍 —— 实测 `35% building 209/227 modules`、loader 正常从共享池解析。
+Node / webpack 的 enhanced-resolve 逐级向上找 `node_modules`。v6–v11 把链接放在再往上两层的会话根，实测也能解析（`35% building 209/227 modules`）—— 但 v12 改回工程根之后，这就是**标准布局**，连"能不能跨层解析"都不再是问题，`yarn` / `lerna` 也一并恢复可用（§1.6 那两道坎随之消失）。
 
 ### 2.2 三处环境变量注入（全部带回退）
 
@@ -191,6 +192,41 @@ Node / webpack 的 enhanced-resolve 逐级向上找 `node_modules`，跨两层�
 ```
 
 **交付不受影响**：产物里 `package.json` 的 `scripts` 原样保留，开发那边照旧 `yarn install && yarn serve`。直连只是我们预览时的启动方式。
+
+---
+
+
+### 2.5 链接位置为什么从会话根改回工程根（v12 反转 v6 的 ②）
+
+v6 把链接放在会话根（`outputs/` 的父级），换来"产物目录里零链接 → 设计师随手压缩安全"。
+内网首次实测（2026-09-06）暴露了它的真实代价：**产物目录里 `yarn serve` 跑不起来**
+（`'lerna' 不是内部或外部命令` —— yarn 只从工程根的 `node_modules/.bin` 找命令，父级有也没用）。
+
+重新权衡两边：
+
+| | 收益 | 代价 |
+|---|---|---|
+| 链接在会话根（v6–v11） | 设计师随手压缩不会带出 1GB | 产物目录不是标准工程，`yarn serve` 失败 |
+| 链接在工程根（v12） | 标准工程，`yarn install && yarn serve` 直接可用 | 整目录压缩会跟随链接 → 必须由 `export-zip` 产出交付包 |
+
+**v6 那个收益是虚的**：它假设"设计师会去文件管理里随手压缩产物目录"，而设计师恰恰是**不懂开发环境、
+不会去磁盘折腾**的那类用户 —— 他拿代码的路径是点导出按钮或说一句"帮我导出代码"，不是右键压缩。
+
+**而代价是实的**，且落在最不该承担它的人身上：
+
+1. **交付信任**：设计师拉产线开发对接时，对方第一件事就是 `yarn serve`。跑不起来会被直接判定成
+   "生成的代码有问题" —— 这是最坏的失败模式，因为它**否定的是整个方案的可信度**，而不只是一个环境细节
+2. **排查受限**：连我们自己去帮设计师定位问题，都不能在产物目录里跑起来
+
+**压缩体积是小事，交付信任不是。** 于是 v12 改回标准布局，干净交付包改由 `export-zip` 产出（§5.6，
+从"延后的便利性"提为"第一版的正确性"），并在 UXAI 侧配一个导出按钮（§8.6①）。
+
+即使有人真的右键压缩了整个目录，失败模式也只是 §1.5 表格里那条：**包变成 1GB —— 难看、传得慢，
+但开发解压就能跑**。这比"包很小但跑不起来"好得多。
+
+> **新引入的风险**：产物目录里的 `node_modules` 是链接，有人在里面跑 `yarn add` / `yarn upgrade`
+> 会写进**共享池**，污染所有会话。`yarn install`（按 lockfile 复现）无害。这条写进 `HANDOFF.md`，
+> 并由 §5.2.1 的 `lockfileHash` 校验兜底 —— 真被改了，下次 `ensure-env` 会报 `ENV_OUTDATED`。
 
 ---
 
@@ -225,9 +261,9 @@ fastui-env/
 
 ```
 <projectDir>/.octo/<sessionId>/
-├─ node_modules      ⇢ 链接到 fastui-env/deps/node_modules   ← 在 outputs 外面
 └─ outputs/                              ← skill 收到的 [Artifact Folder]
-    └─ <产物名>/                          ← 工程本体,模型直接写这里,零链接
+    └─ <产物名>/                          ← 工程本体,模型直接写这里
+        ├─ node_modules  ⇢ 链接到 fastui-env/deps/node_modules   ← v12:标准位置
         ├─ package.json  yarn.lock  .npmrc  .yarnrc  lerna.json …
         ├─ HANDOFF.md                    ← 模板里的静态文件,说明如何运行
         └─ packages/portal/
@@ -242,7 +278,9 @@ fastui-env/
                     └─ <页面名>/index.vue ← ★ 模型新建页面写这里 ★
 ```
 
-**产物目录里没有任何链接** —— 设计师随手压缩安全、文件管理扫盘安全、模型写的就是交付物本身，**不需要同步步骤**。
+**产物就是标准工程** —— `yarn install && yarn serve` 在里面直接可用，模型写的就是交付物本身，不需要同步步骤。
+唯一的链接是工程根的 `node_modules`（指向共享池，省掉每个会话重装 1GB），**干净交付包由 `export-zip` 产出**（§5.6）。
+理由与权衡见 §2.5。
 
 工作路径由 `[Artifact Folder]` 直接得到，链接位置由它推导上一级。
 
@@ -348,6 +386,18 @@ That's all. No extra setup, no environment variables required.
 
 `views/_example/` is a reference snippet showing how lake components are
 imported (`$/...`). Safe to delete.
+
+## If you are looking at the generated workspace (not the exported zip)
+
+`node_modules` there is a **symlink into a shared dependency pool**, so that every
+generated project does not have to install 1 GB of its own. Two consequences:
+
+- `yarn install` / `yarn serve` work normally — go ahead
+- **Do not run `yarn add` or `yarn upgrade` there.** Those write through the link
+  into the shared pool and affect every other generated project on the machine.
+  Need a new dependency? Export the zip first, then add it there.
+
+The exported zip has no symlink and no `node_modules` at all — it is a plain project.
 
 ## About OCTO_DEPS / OCTO_PORT
 
@@ -609,9 +659,9 @@ ensure-env  ──►  new-session  ──►  [模型写 views/<页面名>/* �
 每会话首次(幂等)                                              循环至通过
 ```
 
-**agent 只需要调 `ensure-env` / `new-session` / `verify` 三个。**
+**主流程只有 `ensure-env` / `new-session` / `verify` 三个**；`export-zip` 由"帮我导出代码"这类提示词或预览器的导出按钮（§8.6①）触发。
 
-v9 的两处删减：`register` 砍掉（§3.3，聚合入口交回模型）；`export-zip` 延后（§5.6，产物目录零链接，设计师直接压缩即可）。
+v9 砍掉了 `register`（§3.3，聚合入口交回模型）；`export-zip` 在 v9 延后、v12 又提回第一版（§2.5）。
 
 ### 5.1.1 统一输出契约（所有脚本）
 
@@ -883,9 +933,10 @@ dev server 是常驻 watch 的，模型写文件的过程中 webpack 就会被�
 
 超时上限仍是 §6.2④ 的 5 分钟（首次编译 1–3 分钟）。
 
-### 5.6 `export-zip.mjs` — 按需打交付包（**v9：延后，不进第一版**）
+### 5.6 `export-zip.mjs` — 打交付包（**v12：提为第一版，正确性需求**）
 
-> **v9 延后的理由**：单区布局（§3.2）的直接收益就是**产物目录零链接，设计师在文件管理里随手压缩就是安全的**。这个脚本提供的是便利性，不是正确性 —— 而它要写的 ZIP 容器（含 UTF-8 flag、CRC32、DOS 时间戳）约 200 行，还要配中文文件名的跨平台单测。第一版先不做，等端到端跑通、确有"设计师找不到产物"的反馈再补。下面的设计保留备查。
+> **v9 曾判它为"便利性"而延后**，前提是"产物目录零链接、随手压缩就安全"。v12 把链接改回工程根之后（§2.5），
+> 这个前提没了：**整目录压缩会跟随链接把 1GB 依赖打进去，干净交付包只能由这个脚本产出**。于是它从便利性变成正确性，提进第一版。
 
 单区下产物本来就在 `outputs/<产物名>/`，**没有同步步骤**。这个脚本只负责"打个 zip 出来"，两条触发路径：
 
@@ -1249,9 +1300,9 @@ skill 管不了常驻进程，也画不了按钮。这三件必须在 UXAI 的 `
 - **V0-a 端口探测与重试**：并发起 5 个进程抢同一起始端口，断言各自拿到不同端口、无 `EADDRINUSE` 逃逸
 - **V0-b symlink 布局**：任取一个 vue3 工程，把 `node_modules` 移到别处建 symlink，断言 `dev` 正常
 - **V0-c 脚本契约**：各脚本的 `RESULT:` 输出、幂等性、失败路径
-- **V0-d 产物目录干净**：断言 `outputs/<产物名>/` 任何层级都无 `node_modules`、无链接，整目录压缩后 < 1MB
+- **V0-d 交付包干净**：`export-zip` 产出的 zip 里任何层级都无 `node_modules`、无链接（v12 起产物目录本身有工程根那一个链接，干净的是 zip）
 - **V0-e 回退语义**：不设 `OCTO_DEPS` / `OCTO_PORT` 时，配置回退到原路径与 8081
-- ~~V0-f ZIP 中文文件名~~：随 `export-zip` 一起延后（§5.6）
+- **V0-f ZIP 中文文件名**：产物名与页面名都用中文，断言 UTF-8 flag 已置、CRC 校验通过、包内无 `node_modules`、链接被跳过（v12 实测通过）
 - **V0-g 编译判定不 flaky**（v8 新增）：连续快速改两次文件，断言 `verify` 采信的是**最后一次**编译结果而非中间态；再断言"复用已跑的 dev server"时不会读到上一轮的成功记录（§5.5.1）
 - **V0-h 升级链路能被触发**（v8 新增）：改动 `<skillDir>/template/yarn.lock` 后重跑 `ensure-env`，断言返回 `ENV_OUTDATED` —— 这条直接验的是 §5.2.1 那个跨边界比对，比错了整条升级链是死的
 
