@@ -53,6 +53,10 @@ put("SKILL_TEMPLATE_LOCKFILE", exists(path.join(TEMPLATE_DIR, "yarn.lock")) ? sh
 const lock = readJson(P.lockFile)
 put("ENV_LOCK_JSON", lock ? `OK(envVersion=${lock.envVersion})` : "MISSING")
 
+// 日志在哪 —— 找不到日志是最常见的二次求助,直接打出来
+put("LOG_INSTALL", path.join(P.root, "octo-fastui.log"))
+put("LOG_PER_SESSION", "<项目>/.octo/<会话id>/octo-fastui.log(脚本) 与 devserver.log(dev server 输出)")
+
 // ── 系统 node/yarn(不是必需,但知道有没有对排查有用)────────────────
 for (const [name, bin] of [["SYSTEM_NODE", "node"], ["SYSTEM_YARN", "yarn"], ["SYSTEM_NPM", "npm"]]) {
   try {

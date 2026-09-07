@@ -35,6 +35,55 @@
 
 ---
 
+## 0.0 当前进度与待办（改动后随手更新这一节）
+
+> **翻这份 spec 先看这里。** 下面每一项都直接链到对应章节，不用全文找。
+
+### 已跑通（内网实测）
+
+| | 状态 |
+|---|---|
+| 环境安装（共享池 node + deps） | ✅ Windows / macOS arm64 各一遍（[§4.1](#41-v1-路线分发-portable-node--模板本机安装依赖)、[§4.4](#44-内网托管要准备什么怎么放离线操作手册)） |
+| 会话工程创建（链接 + 复制模板 + 端口） | ✅ [§3.2](#32-会话布局沿用-design-现有约定)、[§5.3](#53-new-sessionmjs--创建会话工程) |
+| 编译门禁（起 dev server + 判定 + 错误回传） | ✅ [§5.5](#55-verifymjs--编译门禁) |
+| 预览卡片（`text/link` → iframe） | ✅ 零改动，[§7.5](#75-预览容器现有-textlink-链路已支持预计零改动) |
+| 导出代码包（`export-zip`） | ✅ 中文名 / UTF-8 flag / 跳链接，[§5.6](#56-export-zipmjs--打交付包v12提为第一版正确性需求) |
+| dev server 宿主化 | ✅ UXAI PR #801 已合，[§8.6.1](#861-dev-server-由宿主起并持有-的完整方案) |
+| 运行时错误 bridge（模板侧） | ✅ 已内置并实测，宿主侧待接，[§8.6.4](#864-运行时错误-bridge-的监听端-的协议) |
+
+### 待办
+
+**UXAI 侧五件**（[§8.6](#86-uxai-仓要做的五件事design-模块不是-skill)，Design 模块，走 PR 协议）
+
+| # | 事项 | 优先级 | 落点 |
+|---|---|---|---|
+| ① | 导出代码包按钮 | **高** —— 设计师拿代码的主路径 | [§8.6.2](#862-导出代码包按钮-的落点与契约) |
+| ⑤ | 预览就绪前不要挂 iframe | **高** —— 重启后必现白屏 | [§8.6.5](#865-重启后预览白屏iframe-早于-dev-server-就绪-新增) |
+| ② | external URL tab 的编辑功能 gate | 低 —— 先查现状，可能不用改 | [§8.6.3](#863-external-url-tab-的编辑功能-gate-的判据) |
+| ④ | bridge 监听端 | 低 —— 等第三层 | [§8.6.4](#864-运行时错误-bridge-的监听端-的协议) |
+| ③ | ~~dev server 宿主化~~ | ✅ 已完成 | — |
+
+> **①⑤ 落在同一层**（subtype handler / html-renderer 的 external 分支），建议一起做。
+
+**验证覆盖缺口**（[§9.2](#92-内网验证)）
+
+| 缺口 | 为什么要补 |
+|---|---|
+| **完全没装过 node 的机器** | 前几次实测机上都有系统 node，portable node 的**下载路径从没被真正走过** —— 而它上面挂着最多没验过的代码（下载 / sha256 / 解压 strip / `npm i -g yarn`），且首装正是设计师会遇到的路径 |
+| **Intel Mac（`darwin-x64`）** | manifest 里有这个平台的包，没人验过 |
+
+**跟外部团队的开口**
+
+| # | 事项 | 状态 |
+|---|---|---|
+| Q4 | fastui 发版后谁触发重打、怎么通知设计师升级 | 机制已定（[§5.2.2](#522-升级机制lockfile-驱动的增量升级)），**流程待与 fastui 团队约定**，不阻塞 |
+
+### 明确不做
+
+二次编辑回环（选中元素 → 属性面板 → 改 `.vue` → 重编译）、`vendor/` 里三份组件 skill 的内容与组织 —— 见[文末「明确不在本 spec 范围」](#明确不在本-spec-范围)。
+
+---
+
 ## 0. 这份 spec 解决什么
 
 设计师在 Design 里描述需求 → 模型生成 `.vue` → **在真实脚手架里编译渲染**（不是模拟、不是近似）→ 设计师看到效果 → 交付一个开发能直接 `yarn install && yarn dev` 跑起来的工程。
@@ -723,6 +772,20 @@ ERRORS_END
 | `.octo/<sid>/devserver.log` | `verify` | dev server 的 stdout/stderr，编译判定的数据源 |
 
 **环境目录可被 `OCTO_FASTUI_ENV_DIR` 覆盖** —— 外网 V0 验证要用假共享池，没有这个开关本地一步都跑不了。
+
+##### 日志落在哪（v13 统一）
+
+宿主 UI 未必把脚本 stdout 展示给人看，所以契约行同时落盘。**落点按"有没有会话上下文"分成两处，只有两处**：
+
+| 文件 | 谁写 | 里面是什么 |
+|---|---|---|
+| `.octo/<sid>/octo-fastui.log` | `new-session` / `verify` / `export-zip` | 这些脚本的全部契约行，带时间戳与完整命令行 |
+| `.octo/<sid>/devserver.log`（Windows 另有 `.err`） | 宿主（子进程 stdio 重定向） | dev server 原始输出，**编译判定的数据源** |
+| `<envDir>/octo-fastui.log` | `ensure-env` / `setup-env` / `doctor` | 首装与诊断 —— 这几个可能在还没有任何会话时跑 |
+
+**跑起来之后出的问题，日志全在会话目录一处**；只有装不上那类问题才去共享池找。`doctor` 会把这两个路径都打印出来（`LOG_INSTALL` / `LOG_PER_SESSION`），找不到日志时先跑它。
+
+> 主进程侧另有一份：Electron 的 electron-log，搜 `[fastui]` 前缀，定位方式见 [find-local-logs.md](../../find-local-logs.md)。那份记的是"宿主起没起 dev server"，与脚本侧互补。
 
 ### 5.2 `ensure-env.mjs` — 环境就绪校验
 
@@ -1434,32 +1497,6 @@ const child = spawn(nodeBin, [cli, "serve", "--replace-policy=dev", "--target=es
 
 ---
 
-#### 8.6.5 重启后预览白屏：iframe 早于 dev server 就绪（⑤ 新增）
-
-**现象**（2026-09-07 内网实测）：重启 agent 后点预览卡片是白屏，**但切到「文件管理」再切回该 tab 就正常渲染了**。
-
-**这个"切走再切回就好"恰恰是判据** —— 它说明 dev server 本身是好的（否则切回来也不会好），问题只在**加载时机**：
-
-```
-重启 agent
-  → params.id effect 触发 → arm → ensure → spawn dev server
-  → webpack 开始首次编译（几秒到 1–3 分钟）
-  → 与此同时用户点开预览卡片
-  → iframe src = http://127.0.0.1:<port> → 此刻还没 listen → ERR_CONNECTION_REFUSED → 白屏
-  → iframe **不会自己重试**，就一直白着
-  → 切走再切回 = iframe 重新挂载 = 重新请求 → 这时通了 → 正常
-```
-
-**修法**：external URL 分支下，端口未就绪时不要直接把 `src` 挂上去。§7.5 已经查明 `externalUrl()` 会把 `refreshKey` 拼成 `?_octo_v=N`，前端**已有现成的刷新机制**，所以只需要：
-
-1. 打开 external URL tab 时先探测端口（或直接向宿主要一次 `ensure`，它会返回 `port`）
-2. 未就绪则显示"正在准备预览环境…"，并轮询（1 秒一次、上限与首次编译同量级）
-3. 通了之后 bump `refreshKey` 让 iframe 加载
-
-**不要只加 `iframe.onerror` 重试** —— 跨源 iframe 的加载失败未必触发 `onerror`，拿不到可靠信号；主动探测端口才是确定的判据。
-
-> 这条与 §8.6.2（导出按钮）落在同一层（subtype handler / html-renderer 的 external 分支），建议一起做。
-
 #### 8.6.2 导出代码包按钮（① 的落点与契约）
 
 > **落点已勘查（2026-09-07），实现时不用重找。**
@@ -1533,6 +1570,32 @@ window.parent.postMessage({
 > ⚠️ 别忘了 iframe 是跨源的，`event.origin` 会是 `http://127.0.0.1:<port>`。过滤时按 `channel` 字段判断即可，不要按 origin 白名单（端口每个会话都不同）。
 
 ---
+
+#### 8.6.5 重启后预览白屏：iframe 早于 dev server 就绪（⑤ 新增）
+
+**现象**（2026-09-07 内网实测）：重启 agent 后点预览卡片是白屏，**但切到「文件管理」再切回该 tab 就正常渲染了**。
+
+**这个"切走再切回就好"恰恰是判据** —— 它说明 dev server 本身是好的（否则切回来也不会好），问题只在**加载时机**：
+
+```
+重启 agent
+  → params.id effect 触发 → arm → ensure → spawn dev server
+  → webpack 开始首次编译（几秒到 1–3 分钟）
+  → 与此同时用户点开预览卡片
+  → iframe src = http://127.0.0.1:<port> → 此刻还没 listen → ERR_CONNECTION_REFUSED → 白屏
+  → iframe **不会自己重试**，就一直白着
+  → 切走再切回 = iframe 重新挂载 = 重新请求 → 这时通了 → 正常
+```
+
+**修法**：external URL 分支下，端口未就绪时不要直接把 `src` 挂上去。§7.5 已经查明 `externalUrl()` 会把 `refreshKey` 拼成 `?_octo_v=N`，前端**已有现成的刷新机制**，所以只需要：
+
+1. 打开 external URL tab 时先探测端口（或直接向宿主要一次 `ensure`，它会返回 `port`）
+2. 未就绪则显示"正在准备预览环境…"，并轮询（1 秒一次、上限与首次编译同量级）
+3. 通了之后 bump `refreshKey` 让 iframe 加载
+
+**不要只加 `iframe.onerror` 重试** —— 跨源 iframe 的加载失败未必触发 `onerror`，拿不到可靠信号；主动探测端口才是确定的判据。
+
+> 这条与 §8.6.2（导出按钮）落在同一层（subtype handler / html-renderer 的 external 分支），建议一起做。
 
 ## 9. 验证
 

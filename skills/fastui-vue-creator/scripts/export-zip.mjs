@@ -15,7 +15,10 @@ import { envDir, readJson, sessionPaths } from "./lib/paths.mjs"
 import { writeZip } from "./lib/zip.mjs"
 
 const args = parseArgs()
-// 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查
+// 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查。
+// 有会话上下文的脚本一律写**会话目录**,和 devserver.log 放在一起 ——
+// 排查时只需要看一个目录,不用在共享池和会话目录之间来回找(§5.1.1)。
+// 会话目录此刻可能还没解析出来,先挂共享池,解析出来后再改指向。
 setLogSink(path.join(envDir(args["env-dir"]), "octo-fastui.log"))
 
 let sessionRoot = args["session-dir"] ? path.resolve(String(args["session-dir"])) : null
@@ -25,6 +28,8 @@ if (!sessionRoot && args["project-dir"]) {
 if (!sessionRoot) usage("缺少 --session-dir=<.octo/<sessionId>> 或 --project-dir=")
 
 const S = sessionPaths(path.join(sessionRoot, "outputs"))
+// 会话目录已知,日志改写这里 —— 与 devserver.log 同目录,一处就能看全
+setLogSink(path.join(S.sessionRoot, "octo-fastui.log"))
 const state = readJson(S.state)
 const projectDir = args["project-dir"] ? path.resolve(String(args["project-dir"])) : state?.projectDir
 if (!projectDir) fail("NO_SESSION", `找不到会话状态 ${S.state}`, { hint: "先跑 new-session.mjs" })

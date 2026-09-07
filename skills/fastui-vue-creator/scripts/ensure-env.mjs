@@ -14,7 +14,8 @@ import { SKILL_DIR, TEMPLATE_DIR, VENDOR_DIR, envDir, envPaths, readJson, exists
 import { sha256File, sameHash } from "./lib/hash.mjs"
 
 const args = parseArgs()
-// 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查
+// 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查。
+// 这个脚本可能在还没有任何会话时跑(首装),所以落共享池(§5.1.1)。
 setLogSink(path.join(envDir(args["env-dir"]), "octo-fastui.log"))
 const dir = envDir(args["env-dir"])
 const P = envPaths(dir)
