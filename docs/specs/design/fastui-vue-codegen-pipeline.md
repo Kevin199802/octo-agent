@@ -1293,9 +1293,9 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
 
 位置：文档仓新建 `skills/` 目录。
 
-### 8.6 UXAI 仓要做的四件事（Design 模块，不是 skill）
+### 8.6 UXAI 仓要做的五件事（Design 模块，不是 skill）
 
-skill 管不了常驻进程，也画不了按钮。这四件必须在 UXAI 侧做。
+skill 管不了常驻进程，也画不了按钮。这五件必须在 UXAI 侧做。
 
 > **四件都必须是增量式兼容改造，不得影响 Design 现有功能。** 具体到每一项：② 只加 gate 不改 srcdoc 路径上的任何既有行为；③ 除了退出钩子里追加一行，其余全是新文件与新 handler；① 是 ActionBar 新增一个按钮；④ 是新增一个 message 监听。任何一项若发现必须改动既有代码路径才能做成，停下来先对齐，不要顺手改。
 
@@ -1305,6 +1305,7 @@ skill 管不了常驻进程，也画不了按钮。这四件必须在 UXAI 侧�
 | ① | **导出代码包按钮** | **下一步做**。链接改回工程根之后（§2.5），这是设计师拿到干净代码的**唯一正确路径** —— 不做的话他右键压缩会得到 1GB。落点已勘查，见 §8.6.2 |
 | ② | **external URL tab 的编辑类功能 gate** | 先查现状，可能不用改（内网预览未崩），判据见 §8.6.3 |
 | ④ | **运行时错误 bridge 的监听端** | 做 §7.4 第三层时补，协议见 §8.6.4。模板侧已内置并实测通过，宿主侧现在空转 |
+| ⑤ | **预览就绪前不要挂 iframe** | 重启后点卡片白屏、切走再切回就好 —— iframe 早于 dev server 就绪且不会自己重试。落在与 ① 同一层，建议一起做，见 §8.6.5 |
 
 **预览本身不需要新增 renderer**（§7.5）—— 现有 `text/link` → external URL iframe 链路直接可用，已内网实测。
 
@@ -1432,6 +1433,32 @@ const child = spawn(nodeBin, [cli, "serve", "--replace-policy=dev", "--target=es
 > **若发现任何一项必须改动既有代码路径才能做成，停下来先对齐** —— 尤其 `index.tsx` 有 5600+ 行，在里面加东西要克制。
 
 ---
+
+#### 8.6.5 重启后预览白屏：iframe 早于 dev server 就绪（⑤ 新增）
+
+**现象**（2026-09-07 内网实测）：重启 agent 后点预览卡片是白屏，**但切到「文件管理」再切回该 tab 就正常渲染了**。
+
+**这个"切走再切回就好"恰恰是判据** —— 它说明 dev server 本身是好的（否则切回来也不会好），问题只在**加载时机**：
+
+```
+重启 agent
+  → params.id effect 触发 → arm → ensure → spawn dev server
+  → webpack 开始首次编译（几秒到 1–3 分钟）
+  → 与此同时用户点开预览卡片
+  → iframe src = http://127.0.0.1:<port> → 此刻还没 listen → ERR_CONNECTION_REFUSED → 白屏
+  → iframe **不会自己重试**，就一直白着
+  → 切走再切回 = iframe 重新挂载 = 重新请求 → 这时通了 → 正常
+```
+
+**修法**：external URL 分支下，端口未就绪时不要直接把 `src` 挂上去。§7.5 已经查明 `externalUrl()` 会把 `refreshKey` 拼成 `?_octo_v=N`，前端**已有现成的刷新机制**，所以只需要：
+
+1. 打开 external URL tab 时先探测端口（或直接向宿主要一次 `ensure`，它会返回 `port`）
+2. 未就绪则显示"正在准备预览环境…"，并轮询（1 秒一次、上限与首次编译同量级）
+3. 通了之后 bump `refreshKey` 让 iframe 加载
+
+**不要只加 `iframe.onerror` 重试** —— 跨源 iframe 的加载失败未必触发 `onerror`，拿不到可靠信号；主动探测端口才是确定的判据。
+
+> 这条与 §8.6.2（导出按钮）落在同一层（subtype handler / html-renderer 的 external 分支），建议一起做。
 
 #### 8.6.2 导出代码包按钮（① 的落点与契约）
 

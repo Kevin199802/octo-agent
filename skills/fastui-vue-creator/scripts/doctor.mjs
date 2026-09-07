@@ -13,13 +13,15 @@
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import path from "node:path"
-import { log, parseArgs } from "./lib/result.mjs"
+import { setLogSink, log, parseArgs } from "./lib/result.mjs"
 import { SKILL_DIR, TEMPLATE_DIR, VENDOR_DIR, envDir, envPaths, readManifest, readJson, exists } from "./lib/paths.mjs"
 import { sha256File } from "./lib/hash.mjs"
 
 const args = parseArgs()
 const manifest = readManifest()
 const P = envPaths(envDir(args["env-dir"]))
+// 同样落盘 —— 宿主 UI 未必把 stdout 展示出来,而 doctor 的输出恰恰是最需要事后能翻到的
+setLogSink(path.join(P.root, "octo-fastui.log"))
 const lines = []
 const put = (k, v) => lines.push(`${k}: ${v}`)
 
@@ -101,5 +103,13 @@ if (url) {
   }
 }
 
-process.stdout.write("OCTO_FASTUI_DOCTOR\n" + lines.join("\n") + "\n")
-log("\n把上面整段截图或复制出来即可 —— 每一行都是自解释的,不需要再补充上下文。")
+const report = "OCTO_FASTUI_DOCTOR\n" + lines.join("\n") + "\n"
+try {
+  const { appendFileSync, mkdirSync } = await import("node:fs")
+  mkdirSync(P.root, { recursive: true })
+  appendFileSync(path.join(P.root, "octo-fastui.log"), `\n===== ${new Date().toISOString()} doctor\n${report}`)
+} catch {
+  /* 落盘失败不影响诊断本身 */
+}
+process.stdout.write(report)
+log(`\n整段截图或复制出来即可 —— 每行自解释,不需要再补充上下文。同一份也写到了 ${path.join(P.root, "octo-fastui.log")}`)

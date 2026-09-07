@@ -45,6 +45,16 @@ node scripts/ensure-env.mjs
 |---|---|
 | `ENV_MISSING` / `ENV_OUTDATED` / `ENV_NODE_MISMATCH` | **直接执行 `HINT:` 里那条命令**(安装/升级脚本),完成后重跑 `ensure-env`。这一步可能要几分钟,告诉用户在装环境 |
 | `SKILL_NOT_ASSEMBLED` | 停下。这是 skill 没在内网组装好,**不是用户能解决的问题**,如实说明并给出 `HINT` 里的路径 |
+
+**装不上时先跑 `doctor`,再报给用户** —— 别让用户自己去猜是网络、代理还是证书:
+
+```bash
+node scripts/doctor.mjs
+```
+
+它一次打印平台、skill 组装状态、共享池各部件、系统 node/yarn、**代理环境变量**、manifest 的 HTTP 状态与耗时、返回的是不是 JSON(代理错误页会在这里现形)。
+
+**把 `OCTO_FASTUI_DOCTOR` 开头那整段原样贴给用户**,并指出其中异常的那几行(比如 `MANIFEST_HTTP_STATUS` 不是 200、`PROXY_*` 有值、`MANIFEST_HAS_MY_PLATFORM: NO`)。这些是环境问题,该由人处理,你绕不过去 —— 见硬约束 0。
 | `WARN:` 开头的行 | 不阻塞,不用管,更不要转述给用户 |
 
 ### ② `new-session.mjs` —— 每个会话建一次工程(幂等)
