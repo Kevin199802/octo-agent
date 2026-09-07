@@ -41,7 +41,7 @@
 
 **认准真身:按修改时间(mtime)排序,最新的那个就是当前在跑的。** 别按名字猜。
 
-## 日志清单(4 类)
+## 日志清单(6 类)
 
 | # | 日志 | 内容 | macOS 位置 | Windows / Linux 位置 |
 |---|---|---|---|---|
@@ -49,9 +49,47 @@
 | ② | **renderer 转发** `insight-debug.log` | **渲染进程 console 全量转发**(SPEC-INS-011 阶段3)。5MB 滚动、7 天清。**成品包没 DevTools 时,renderer 日志就落在这**。对象参数:新版生产构建已 JSON 序列化落盘;旧版本是 `[object Object]`(见 [insight-debugging.md](./insight-debugging.md) §「全量兜底」) | ✅ `~/Library/Logs/<appName>/insight-debug.log` | 📄 `<userData>/logs/insight-debug.log` |
 | ③ | **opencode sidecar** | server 端**结构化日志**(elog,行内有 `service=` 字段:`[octo:mcp]` 连接、`toolsForAgent` 等)。每次启动新建**时间戳** `.log`,自动清旧。⚠️ **`[octo:inject]` / `[octo:extract]` 不在这里**——它们是插件/工具里的裸 `console.log`,跟随 sidecar **stdout**:成品包被主进程 pipe 进 ①`main.log`(2026-07-08 内网实证),run dev 打在外部 server 终端 | 见下「③ 落点分两种」 | 同左 |
 | ④ | crash dump(可能有) | 崩溃转储 | 📄 `<userData>/Crashpad/` | 📄 `<userData>/Crashpad/` |
+| ⑤ | **fastui skill 脚本** `octo-fastui.log` | `fastui-vue-creator` 各脚本的 `RESULT:` / `HINT:` / `DETAIL:` 契约行,带时间戳与完整命令行。**落点分两处**,见下「⑤ fastui 分两处」 | 见下 | 见下 |
+| ⑥ | **fastui dev server** `devserver.log` | webpack dev server 的原始输出,**`verify` 判定编译成功/失败就是读它**。编译报错的原文在这里 | ✅ `<项目>/.octo/<会话id>/devserver.log` | 📄 同左(Windows 另有 `devserver.log.err`,stderr 单独一份) |
 
 - `<appName>` = 显示名(dev=`Octo AI Dev`);electron-log 在 macOS 固定用 `~/Library/Logs/<appName>/`,Win/Linux 才用 `<userData>/logs/`。
 - `<userData>` = `<appData>/<appId>`。`<appData>`:macOS `~/Library/Application Support` · Windows `%APPDATA%`(`…\AppData\Roaming`)· Linux `~/.config`。
+
+### ⑤ fastui 分两处(按「出问题时有没有会话」分)
+
+`fastui-vue-creator` 的脚本日志落在哪，取决于出问题的时候**有没有会话上下文**：
+
+| 什么时候 | 位置 | 里面是什么 |
+|---|---|---|
+| **装不上 / 环境有问题**(还没有任何会话) | macOS `~/Library/Application Support/OctoAgent/fastui-env/octo-fastui.log`<br>Windows `%LOCALAPPDATA%\OctoAgent\fastui-env\octo-fastui.log` | `ensure-env` / `setup-env` / `doctor` 的输出 |
+| **跑起来之后出问题**(已有会话) | `<项目目录>/.octo/<会话id>/octo-fastui.log` | `new-session` / `verify` / `export-zip` 的输出 |
+
+**跑起来之后的问题，⑤⑥ 两份日志在同一个会话目录里**，看一处就够；只有装不上那类才去共享池找。
+
+> ⚠️ Windows 用 `%LOCALAPPDATA%`(`…\AppData\Local`)**不是 `%APPDATA%`**(Roaming)——共享池有 1GB 依赖，放 Roaming 会被域环境的漫游配置同步，登录时卡死。这与上面 ①②④ 的 `<userData>` 规则**不同**，别套用。
+
+```powershell
+# 内网 Windows / PowerShell —— 装不上时先看这份
+Get-Content "$env:LOCALAPPDATA\OctoAgent\fastui-env\octo-fastui.log" -Tail 60
+```
+```bash
+# macOS —— 装不上时先看这份
+tail -60 ~/Library/Application\ Support/OctoAgent/fastui-env/octo-fastui.log
+
+# 已有会话时:两份日志都在会话目录,直接摊开看最新的
+find <项目目录>/.octo -name '*.log' -exec ls -lt {} +
+```
+
+**不确定就先跑诊断**，它会把上面两个路径连同环境状态一起打印出来：
+
+```
+node <skill 目录>/scripts/doctor.mjs
+```
+
+`<skill 目录>` = `<项目目录>/.octo/skills/fastui-vue-creator`(自定义技能与平台技能位置一致)。
+诊断报告本身也会追加到共享池那份 `octo-fastui.log` 里。
+
+真相源:[SPEC-DES-001 §5.1.1](./specs/design/fastui-vue-codegen-pipeline.md)。
 
 ### ③ sidecar 落点分两种(别找错 —— 这就是"run dev 和成品包日志不在一起")
 

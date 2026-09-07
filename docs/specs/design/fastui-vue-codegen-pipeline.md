@@ -785,7 +785,9 @@ ERRORS_END
 
 **跑起来之后出的问题，日志全在会话目录一处**；只有装不上那类问题才去共享池找。`doctor` 会把这两个路径都打印出来（`LOG_INSTALL` / `LOG_PER_SESSION`），找不到日志时先跑它。
 
-> 主进程侧另有一份：Electron 的 electron-log，搜 `[fastui]` 前缀，定位方式见 [find-local-logs.md](../../find-local-logs.md)。那份记的是"宿主起没起 dev server"，与脚本侧互补。
+> 主进程侧另有一份：Electron 的 electron-log，搜 `[fastui]` 前缀。那份记的是"宿主起没起 dev server"，与脚本侧互补。
+>
+> **按平台展开的绝对路径、可直接粘贴的查看命令，写在 [find-local-logs.md](../../find-local-logs.md) 的 ⑤⑥ 两类里**（那份是全 app 通用的「日志在磁盘哪儿」指南，查日志去那边，不要在本 spec 里找）。
 
 ### 5.2 `ensure-env.mjs` — 环境就绪校验
 
