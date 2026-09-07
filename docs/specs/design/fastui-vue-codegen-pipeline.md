@@ -1277,10 +1277,10 @@ skill 管不了常驻进程，也画不了按钮。这四件必须在 UXAI 侧�
 
 | # | 事项 | 状态 |
 |---|---|---|
-| ③ | **dev server 由宿主起并持有** | **唯一的链路阻塞项**，详见 §8.6.1 |
-| ① | **导出代码包按钮** | 预览器 ActionBar 上加一个，调 `export-zip.mjs`。链接改回工程根之后（§2.5），这是设计师拿到干净代码的**唯一正确路径** —— 不做的话他右键压缩会得到 1GB |
-| ② | **external URL tab 的编辑类功能 gate** | `shouldUseExternalUrl()` 为真时，inspect / manual-edit / draw / comment 依赖 `contentDocument`，跨源会抛。先看是否已 gate；没有则**只加 gate、不改 srcdoc 路径上的既有行为** |
-| ④ | **运行时错误 bridge 的监听端** | 模板侧已内置 bridge（§3.4-5），**宿主侧现在不监听、空转**。做 §7.4 第三层时补上 `message` 监听。内网实测已证明它有用：模型漏 import 组件时，编译通过但浏览器里 `Failed to resolve component` —— 那正是这条通道该捕获的 |
+| ③ | **dev server 由宿主起并持有** | ✅ **已实现并内网实测通过**（Windows + macOS arm64 各一遍过），方案见 §8.6.1；UXAI PR #801 |
+| ① | **导出代码包按钮** | **下一步做**。链接改回工程根之后（§2.5），这是设计师拿到干净代码的**唯一正确路径** —— 不做的话他右键压缩会得到 1GB。落点已勘查，见 §8.6.2 |
+| ② | **external URL tab 的编辑类功能 gate** | 先查现状，可能不用改（内网预览未崩），判据见 §8.6.3 |
+| ④ | **运行时错误 bridge 的监听端** | 做 §7.4 第三层时补，协议见 §8.6.4。模板侧已内置并实测通过，宿主侧现在空转 |
 
 **预览本身不需要新增 renderer**（§7.5）—— 现有 `text/link` → external URL iframe 链路直接可用，已内网实测。
 
@@ -1409,6 +1409,80 @@ const child = spawn(nodeBin, [cli, "serve", "--replace-policy=dev", "--target=es
 
 ---
 
+#### 8.6.2 导出代码包按钮（① 的落点与契约）
+
+> **落点已勘查（2026-09-07），实现时不用重找。**
+
+##### 不要改 `action-bar.tsx`，注册一个 subtype handler
+
+`action-bar.tsx` 有 1115 行且已有完整的下载链路，但**它有扩展点**：
+
+```ts
+// action-bar.tsx:533
+const handler = getSubtypeHandler(props.tab.subtype)
+if (handler?.handleDownload) { … }
+```
+
+```ts
+// subtype-handlers/types.ts:78
+handleDownload?: (ctx: SubtypeHandlerContext, option?: string) => Promise<boolean | void>
+// :89 声明且长度 > 1 时，action bar 渲染「下载」下拉按钮；每项 value 作为 option 传入
+```
+
+预览 tab 的形态是 `{ type: "html", subtype: "url" }`（§7.5），所以**给 `url` 这个 subtype 注册一个 handler、实现 `handleDownload` 即可，`action-bar.tsx` 零改动**。注册表在 `pages/make/utils/subtype-registry`。
+
+##### 前端不要自己打包
+
+`export-zip.mjs` 已经处理了两件前端不容易做对的事：**用 `lstat` 跳过链接**（工程根的 `node_modules` 是指向共享池的链接，跟随就把 1GB 打进去）、**置 ZIP 的 UTF-8 flag**（不置的话中文产物名在 Windows 解压全是乱码，而内网中文命名概率很高）。
+
+所以走 IPC 调脚本，与 §8.6.1 的 `fastui-devserver` 同一个模式：
+
+```ts
+// 主进程新增,与 fastui-devserver.ts 平级
+ipcMain.handle("fastui-export-zip", (_e, sessionDir: string) => { … })
+//   → spawn(<envDir>/node, [<skillDir>/scripts/export-zip.mjs, `--session-dir=${sessionDir}`])
+//   → 解析 stdout 的 RESULT: / ZIP_PATH: 契约行(§5.1.1)
+//   → 返回 { ok, zipPath, bytes } 给渲染进程
+```
+
+`skillDir` 与 `envDir` 从 `.octo/<sid>/.octo-fastui.json` 读（`envDir` 字段已有；`skillDir` 需要 `new-session` 补写一个字段，或由主进程按 `.octo/skills/fastui-vue-creator` 推导）。
+
+##### 拿到 zip 之后
+
+`handleDownload` 返回后，用 `getDesktopApi()` 的现成能力把文件给用户（`saveFilePicker` + 复制，或 `showItemInFolder`）—— `action-bar.tsx` 里 `downloadBlob` / `DownloadCancelledError` 那套是给内容型 tab 用的，工程 zip 已经在磁盘上，不必再走 blob。
+
+#### 8.6.3 external URL tab 的编辑功能 gate（② 的判据）
+
+**先查，可能不用改。** 内网实测预览没崩，说明要么已经 gate、要么那些功能在 external 分支下根本没被触发。
+
+查法：`html-renderer.tsx` 里 `shouldUseExternalUrl()`（约 `:853`）为真的分支，看 `InspectPanel` / `ManualEditPanel` / `DrawOverlay` / comment 这几处是否已经被条件挡住。它们都读 `iframe.contentDocument`，而 `127.0.0.1:<port>` 与宿主**跨源**，直接访问会抛。
+
+若确实没 gate：**只加条件、不改 srcdoc 路径上的任何既有行为**。srcdoc 是 Design 现有的主路径，任何回归都不可接受。
+
+#### 8.6.4 运行时错误 bridge 的监听端（④ 的协议）
+
+模板侧已内置并**内网实测通过**（window 级与 promise 级都收到了消息），宿主侧现在不监听、空转。协议是固定的：
+
+```js
+window.parent.postMessage({
+  channel: "octo:runtime-error",
+  type: "vue" | "window" | "unhandledrejection",
+  message, stack,
+  component,      // type=vue 时有
+  info,           // type=vue 时有,Vue 给的位置,如 "render function"
+  source, line, col,   // type=window 时有
+  at,             // Date.now()
+}, "*")
+```
+
+宿主侧要做的是：`window.addEventListener("message")` 过滤 `channel === "octo:runtime-error"`，然后把错误喂回 agent。
+
+**这条通道的价值已经被实测证明**：模型漏 import 组件时编译通过、页面白屏，浏览器 console 里是 `Failed to resolve component: el-table` —— `verify` 的静态检查能抓到大部分（§7.2），但抓不到的那些正是要靠这条通道。
+
+> ⚠️ 别忘了 iframe 是跨源的，`event.origin` 会是 `http://127.0.0.1:<port>`。过滤时按 `channel` 字段判断即可，不要按 origin 白名单（端口每个会话都不同）。
+
+---
+
 ## 9. 验证
 
 > **不攒到最后统一验证。** 四个阶段各自独立可验，前一阶段不过不进下一阶段。
@@ -1434,7 +1508,9 @@ const child = spawn(nodeBin, [cli, "serve", "--replace-policy=dev", "--target=es
 3. **`flushdns` + 断网**后重跑，页面仍能渲染 lake 组件 ✅ *（已验证）*
 4. Windows / macOS 各做一遍
 
-**阶段 2 — 会话布局与端口** ✅ *（核心机制已于 2026-09-03 内网实测通过）*
+**阶段 2 — 会话布局与端口** ✅ *（核心机制已于 2026-09-03 内网实测通过；dev server 宿主化于 2026-09-07 在 Windows + macOS arm64 各跑通一遍）*
+
+> **两个平台尚未覆盖的组合**：① **完全没装过 node 的机器** —— 前两次实测的机器上都有系统 node，`install` 脚本下载 portable node 那条路径没被真正走过；② **Intel 芯片的 Mac**（`darwin-x64`）—— manifest 里有这个平台的包，但没人验过。两条都不阻塞当前进度，但**首装体验正是设计师会遇到的那条路径**，补验优先级不低。
 1. 依赖链接建在会话根、产物目录零链接，直连 cli-service 启动，webpack 跨两层解析成功 ✅
 2. `OCTO_PORT` / `OCTO_DEPS` 均生效（端口落在指定值、copy-webpack-plugin 从共享池取源）✅
 3. `new-session` 建三个会话，各自独立端口并行运行，互不干扰
