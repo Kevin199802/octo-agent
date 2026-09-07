@@ -1,4 +1,9 @@
-# fastui-vue-creator 环境安装(Windows) —— SPEC-DES-001 §4.1 / §4.4
+﻿# fastui-vue-creator 环境安装(Windows)
+#
+# ⚠️ 本文件必须以 **UTF-8 with BOM** 保存。
+# PowerShell 5.1(Win10/11 自带的那个)读无 BOM 的 UTF-8 时按系统 ANSI 代码页解释,
+# 内网即 GBK —— 下面的中文注释会被解成乱码字节,其中可能含引号/反引号,
+# 直接把脚本解析坏掉,报一堆看不懂的语法错误。内网实测踩过。 —— SPEC-DES-001 §4.1 / §4.4
 #
 # 本脚本只负责一件事:把 portable node 弄到共享池里。
 # 拿到 node 之后立刻调 setup-env.mjs —— 装 yarn、装依赖、写清单那些跨平台逻辑

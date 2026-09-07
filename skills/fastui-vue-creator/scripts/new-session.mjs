@@ -7,7 +7,7 @@
  * [Artifact Folder] 就是 .octo/<sessionId>/outputs(Design 现行约定,§3.2)。
  * 依赖链接建在它的父级 —— 产物目录里因此零链接,设计师随手压缩是安全的。
  */
-import { cpSync, mkdirSync, writeFileSync } from "node:fs"
+import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, usage, log, parseArgs } from "./lib/result.mjs"
 import { TEMPLATE_DIR, envDir, envPaths, readManifest, sessionPaths, readJson, exists } from "./lib/paths.mjs"
@@ -32,9 +32,33 @@ if (!exists(P.depsModules)) {
   fail("ENV_MISSING", `共享依赖池不存在: ${P.depsModules}`, { hint: "先跑 ensure-env.mjs" })
 }
 
+// 复制完必须齐的关键文件。少一个后面都会以"编译报找不到模块"的形态爆出来,
+// 而那时根因(复制没完成)已经隔了好几步,极难往回追 —— 内网实测踩过一次:
+// 复制中断后 config/index.ts 引用的 ../../../package.json 不存在,报到编译阶段才发现。
+const REQUIRED_FILES = [
+  "package.json",
+  "yarn.lock",
+  "packages/portal/turboui.config.js",
+  "packages/portal/src/main.vue",
+  "packages/portal/src/views/index.vue",
+]
+
+function missingFiles(root) {
+  return REQUIRED_FILES.filter((rel) => !exists(path.join(root, ...rel.split("/"))))
+}
+
 // ① 复制工程骨架。已存在则整体跳过 —— 绝不覆盖用户/模型已经写过的东西。
 let reused = false
 if (exists(projectDir)) {
+  // 但"已存在"不等于"完整":上次复制到一半失败留下的残骸也会走到这里,
+  // 然后被当成正常会话跳过复制,于是**永远修不好**。所以先验一遍。
+  const missing = missingFiles(projectDir)
+  if (missing.length) {
+    fail("PROJECT_INCOMPLETE", `产物目录已存在但缺少 ${missing.length} 个关键文件`, {
+      hint: `多半是上次复制中断留下的残骸。删掉 ${projectDir} 后重跑本脚本即可重建`,
+      extra: { MISSING: missing.join(", ") },
+    })
+  }
   reused = true
   log(`[skip] 产物目录已存在,复用: ${projectDir}`)
 } else {
@@ -42,7 +66,28 @@ if (exists(projectDir)) {
   try {
     cpSync(TEMPLATE_DIR, projectDir, { recursive: true, dereference: false, errorOnExist: true, force: false })
   } catch (e) {
-    fail("COPY_FAILED", `复制模板失败: ${e.message}`)
+    // 复制失败要把半成品删掉,否则下次跑会因为"目录已存在"跳过复制,残缺状态被固化
+    try {
+      rmSync(projectDir, { recursive: true, force: true })
+    } catch {
+      /* 删不掉就让下面的自检去报 */
+    }
+    fail("COPY_FAILED", `复制模板失败: ${e.message}`, {
+      hint: `源: ${TEMPLATE_DIR}\n目标: ${projectDir}\n路径含中文或超长时 Windows 上更容易失败,可先换一个纯英文短路径的项目目录试`,
+    })
+  }
+
+  const missing = missingFiles(projectDir)
+  if (missing.length) {
+    try {
+      rmSync(projectDir, { recursive: true, force: true })
+    } catch {
+      /* 忽略 */
+    }
+    fail("TEMPLATE_INCOMPLETE", `模板复制完成但缺少 ${missing.length} 个关键文件`, {
+      hint: `已清理半成品目录,可直接重跑。若反复出现,检查 ${TEMPLATE_DIR} 本身是否完整(见 SPEC-DES-001 §8.3 的组装自检)`,
+      extra: { MISSING: missing.join(", ") },
+    })
   }
 }
 

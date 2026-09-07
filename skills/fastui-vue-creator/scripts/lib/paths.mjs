@@ -57,6 +57,13 @@ export const envPaths = (dir) => ({
   node: path.join(dir, "node"),
   nodeBin: process.platform === "win32" ? path.join(dir, "node", "node.exe") : path.join(dir, "node", "bin", "node"),
   yarnBin: process.platform === "win32" ? path.join(dir, "node", "yarn.cmd") : path.join(dir, "node", "bin", "yarn"),
+  // yarn 的 JS 入口。Windows 上必须走它,不能直接 spawn yarn.cmd ——
+  // Node 18 起出于命令注入防护(CVE-2024-27980)禁止直接执行 .cmd/.bat,报 EINVAL。
+  // `npm i -g` 在 portable node 下的落点:win 是 <node>/node_modules/,unix 是 <node>/lib/node_modules/
+  yarnJs:
+    process.platform === "win32"
+      ? path.join(dir, "node", "node_modules", "yarn", "bin", "yarn.js")
+      : path.join(dir, "node", "lib", "node_modules", "yarn", "bin", "yarn.js"),
   deps: path.join(dir, "deps"),
   depsModules: path.join(dir, "deps", "node_modules"),
   depsLock: path.join(dir, "deps", "yarn.lock"),

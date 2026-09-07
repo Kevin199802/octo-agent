@@ -35,6 +35,18 @@ const run = (bin, argv, cwd) => {
   return execFileSync(bin, argv, { cwd, stdio: ["ignore", "inherit", "inherit"], env: process.env })
 }
 
+/**
+ * 跑 yarn。**不能直接 spawn `yarn.cmd`** —— Node 18 起出于命令注入防护
+ * (CVE-2024-27980)禁止直接执行 .cmd/.bat,报 EINVAL,内网实测踩过。
+ * 优先用共享池 node 跑 yarn 的 JS 入口(两平台统一、不经 shell);
+ * 找不到 JS 入口再回落到 shell 执行。
+ */
+const runYarn = (argv, cwd) => {
+  if (exists(P.yarnJs)) return run(P.nodeBin, [P.yarnJs, ...argv], cwd)
+  log(`[warn] 找不到 ${P.yarnJs},回落到 shell 执行 ${P.yarnBin}`)
+  return execFileSync(P.yarnBin, argv, { cwd, stdio: ["ignore", "inherit", "inherit"], env: process.env, shell: true })
+}
+
 // ── ③ 装 yarn ────────────────────────────────────────────────────
 // portable node 的 global prefix 落在 node 自己的目录里,不碰 /usr/local,
 // 所以不需要 sudo —— Agent 内执行 sudo 会静默挂住等密码,没有交互通道。
@@ -99,7 +111,7 @@ log(`[deps] 复制了 ${members} 个 workspace 成员的 package.json`)
 // 脚手架自带的 .npmrc / .yarnrc 已配好各 scope 的独立源(@lake / @turboui 等),
 // 传 --registry 会把它们全部覆盖掉,表现是"包找不到",极难往这个方向想。
 try {
-  run(P.yarnBin, ["install"], P.deps)
+  runYarn(["install"], P.deps)
 } catch (e) {
   fail("YARN_INSTALL_FAILED", `依赖安装失败: ${e.message}`, {
     hint: "检查 deps/.npmrc 与 .yarnrc 是否随 template 一起复制过来了",
@@ -119,7 +131,9 @@ if (!sameHash(wantHash, gotHash)) {
 const nodeVersion = execFileSync(P.nodeBin, ["-v"], { encoding: "utf8" }).trim()
 let yarnVersion = ""
 try {
-  yarnVersion = execFileSync(P.yarnBin, ["-v"], { encoding: "utf8" }).trim()
+  yarnVersion = exists(P.yarnJs)
+    ? execFileSync(P.nodeBin, [P.yarnJs, "-v"], { encoding: "utf8" }).trim()
+    : execFileSync(P.yarnBin, ["-v"], { encoding: "utf8", shell: true }).trim()
 } catch {
   /* 诊断字段,拿不到不阻塞 */
 }
