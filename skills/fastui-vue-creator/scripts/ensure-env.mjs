@@ -32,7 +32,7 @@ const placeholders = [path.join(TEMPLATE_DIR, "PLACEHOLDER.md"), path.join(VENDO
 for (const p of placeholders) {
   if (exists(p)) {
     fail("SKILL_NOT_ASSEMBLED", `skill 未完成内网组装,${path.relative(SKILL_DIR, p)} 仍是占位文件`, {
-      hint: "按 SPEC-DES-001 §8.3 用内网的 template/ 与 vendor/ 覆盖占位目录",
+      hint: `把内网脚手架模板复制到 ${TEMPLATE_DIR}、三份组件 skill 复制到 ${VENDOR_DIR},再删掉这两个目录下的 PLACEHOLDER.md`,
     })
   }
 }
@@ -40,7 +40,7 @@ const templatePkg = path.join(TEMPLATE_DIR, "package.json")
 const templateLock = path.join(TEMPLATE_DIR, "yarn.lock")
 if (!exists(templatePkg) || !exists(templateLock)) {
   fail("SKILL_NOT_ASSEMBLED", "skill 的 template/ 缺少 package.json 或 yarn.lock", {
-    hint: "按 SPEC-DES-001 §8.3 用内网脚手架模板覆盖 template/",
+    hint: `把内网脚手架工程(排除根目录 node_modules)复制到 ${TEMPLATE_DIR},其下应直接是 package.json,不要再套一层工程目录`,
   })
 }
 

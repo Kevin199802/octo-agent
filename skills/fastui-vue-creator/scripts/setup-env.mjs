@@ -28,7 +28,7 @@ if (!exists(P.nodeBin)) fail("NODE_MISSING", `共享池里没有 node: ${P.nodeB
 const templatePkgPath = path.join(TEMPLATE_DIR, "package.json")
 const templateLockPath = path.join(TEMPLATE_DIR, "yarn.lock")
 if (!exists(templatePkgPath) || !exists(templateLockPath)) {
-  fail("SKILL_NOT_ASSEMBLED", "skill 的 template/ 缺少 package.json 或 yarn.lock", { hint: "见 SPEC-DES-001 §8.3" })
+  fail("SKILL_NOT_ASSEMBLED", "skill 的 template/ 缺少 package.json 或 yarn.lock", { hint: `把内网脚手架工程(排除根目录 node_modules)复制到 ${TEMPLATE_DIR}` })
 }
 
 const run = (bin, argv, cwd) => {

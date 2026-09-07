@@ -56,7 +56,7 @@ put("ENV_LOCK_JSON", lock ? `OK(envVersion=${lock.envVersion})` : "MISSING")
 // 日志在哪 —— 找不到日志是最常见的二次求助,直接打出来
 put("LOG_INSTALL", path.join(P.root, "octo-fastui.log"))
 put("LOG_PER_SESSION", "<项目目录>/.octo/<会话id>/ 下的 octo-fastui.log 与 devserver.log")
-put("LOG_GUIDE", "按平台展开的路径见 octo-agent 仓 docs/find-local-logs.md 的 ⑤⑥ 两类")
+put("LOG_HINT", "两份日志文件名:octo-fastui.log(脚本输出)、devserver.log(dev server 与编译报错原文)")
 
 // ── 系统 node/yarn(不是必需,但知道有没有对排查有用)────────────────
 for (const [name, bin] of [["SYSTEM_NODE", "node"], ["SYSTEM_YARN", "yarn"], ["SYSTEM_NPM", "npm"]]) {

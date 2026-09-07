@@ -90,7 +90,7 @@ if (exists(projectDir)) {
       /* 忽略 */
     }
     fail("TEMPLATE_INCOMPLETE", `模板复制完成但缺少 ${missing.length} 个关键文件`, {
-      hint: `已清理半成品目录,可直接重跑。若反复出现,检查 ${TEMPLATE_DIR} 本身是否完整(见 SPEC-DES-001 §8.3 的组装自检)`,
+      hint: `已清理半成品目录,可直接重跑。若反复出现,说明模板本身就不完整,检查 ${TEMPLATE_DIR}`,
       extra: { MISSING: missing.join(", ") },
     })
   }
