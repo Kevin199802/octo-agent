@@ -10,7 +10,7 @@
 
 > ## 修订记录
 >
-> **2026-09-07：v13(UXAI 侧 ①②⑤ 收口,按实现订正 §8.6)**——① ⑤ 已实现(UXAI PR #812),② 查明不用改,本版把 §8.6 从"设计稿"改写成"实况"。三处订正都是 v12 勘查与实际代码对不上:① **§8.6.2 的 `handleDownload` 路线走不通**——`SUBTYPE_CONFIG.url.features.download` 是 `false`,下载按钮压根不渲染;而翻成 `true` 是回归,因为 `subtype: "url"` 是**所有 http(s) 链接 tab 的通用形态**(链接卡片、文件管理开外链都走它),任意外链都会长出一个必然失败的下载按钮。改走同一个扩展点的另一条腿 `components.actionBar.extraButtons`,并给按钮加双重判据(URL 指向 loopback + 会话目录下存在 `.octo-fastui.json`),`action-bar.tsx` 上只追加 2 行(自定义按钮的 ctx 补会话信息)。② **`skillDir` 推导路径 v12 猜错了**——skill 实际装在 `~/.config/octo/skill/<name>/` 而不是 `.octo/skills/`,改为按候选逐个 `existsSync`,第一位留给状态文件的 `skillDir` 字段(`new-session` 以后补写即生效)。③ **§8.6.5 的"bump `refreshKey`"未采用**——`refreshKey` 是父组件的 prop,`html-renderer` 手里没有 setter,而且不需要:`src` 从 `undefined` 变成 URL 本身就是一次加载。改为门禁 `src` + `fetch(no-cors)` 探测(单次 5 秒 abort、1 秒轮询、3 分钟上限),**只对 loopback 生效**,其他外链行为一个字没变。④ **§8.6.3 查明关闭**:`url` 的能力表早就把编辑类功能全关了,那些读 `contentDocument` 的代码在 external 分支下没有入口 —— 这解释了内网实测"预览没崩"。
+> **2026-09-07：v13(UXAI 侧 ①②⑤ 收口,按实现订正 §8.6)**——① ⑤ 已实现(UXAI PR #812),② 查明不用改,本版把 §8.6 从"设计稿"改写成"实况"。三处订正都是 v12 勘查与实际代码对不上:① **§8.6.2 的 `handleDownload` 路线走不通**——`SUBTYPE_CONFIG.url.features.download` 是 `false`,下载按钮压根不渲染;而翻成 `true` 是回归,因为 `subtype: "url"` 是**所有 http(s) 链接 tab 的通用形态**(链接卡片、文件管理开外链都走它),任意外链都会长出一个必然失败的下载按钮。改走同一个扩展点的另一条腿 `components.actionBar.extraButtons`,并给按钮加双重判据(URL 指向 loopback + 会话目录下存在 `.octo-fastui.json`),`action-bar.tsx` 上只追加 2 行(自定义按钮的 ctx 补会话信息)。② **`skillDir` 推导路径 v12 猜错了**——skill 实际装在 `~/.config/octo/skill/<name>/` 而不是 `.octo/skills/`,改为按候选逐个 `existsSync`,第一位留给状态文件的 `skillDir` 字段(`new-session` 以后补写即生效)。③ **§8.6.5 的"bump `refreshKey`"未采用**——`refreshKey` 是父组件的 prop,`html-renderer` 手里没有 setter,而且不需要:`src` 从 `undefined` 变成 URL 本身就是一次加载。改为门禁 `src` + `fetch(no-cors)` 探测(单次 5 秒 abort、1 秒轮询、3 分钟上限),**只对 loopback 生效**,其他外链行为一个字没变。④ **§8.6.3 查明关闭**:`url` 的能力表早就把编辑类功能全关了,那些读 `contentDocument` 的代码在 external 分支下没有入口 —— 这解释了内网实测"预览没崩"。 ⑤ **PR review 后补入两条**:门禁**超时必须降级放行 `src`**(否则探测机制一旦在真机上不可用,预览就从"白屏可恢复"变成"永远打不开",比不修更糟;PNA 这条风险恰好落在待内网实测的范围里),覆盖层文案相应改中性——门禁范围是任意 loopback URL,不该写 fastui 专属说法;`skillDir` **由 `new-session` 写进状态文件**,不再让宿主猜——`XDG_CONFIG_HOME` 在 Electron 主进程与 server 子进程之间是分裂的(见 §8.6.2 的告警框),宿主没有可靠推导依据,候选链降级为只兼容老会话。
 
 > **2026-09-06：v12(内网首次全流程跑通 + 反转链接位置 + 放宽运行时限制)**——内网一遍跑通(设备列表页,46 条数据、分页、状态标签),但过程暴露三件事,两件是设计问题。① **链接位置从会话根改回工程根(反转 v6 的 ②),§2.5 记录完整权衡**:实测发现产物目录里 `yarn serve` 跑不起来(`'lerna' 不是内部或外部命令`——yarn 只从工程根的 `node_modules/.bin` 找命令)。v6 换来的"设计师随手压缩安全"是**虚的收益**:设计师恰恰是不懂开发环境、不会去磁盘折腾的那类用户,他拿代码走的是导出按钮。而代价是**实的**且落在最不该承担的人身上——设计师拉产线开发对接时对方第一件事就是 `yarn serve`,跑不起来会被判定成"生成的代码有问题",否定的是整个方案的可信度。压缩体积是小事,交付信任不是。② **`export-zip` 从"延后的便利性"提为"第一版的正确性"**(§5.6):链接改回工程根后整目录压缩会跟随链接,干净交付包只能由它产出;已实现并实测(中文产物名/页面名、UTF-8 flag、CRC、跳过链接、包内无 node_modules)。③ **撤回 v11 加的"禁止用系统 node/yarn"**:那是我为控制调试变量加的限制,不是用户需要的——对设计师来说能跑起来最重要,而真正不可替代的是共享池那 1GB 内网组件库,不是运行时本身;脚本改为共享池优先、回退系统。④ **模型两次绕过 skill**(装环境失败就用本地 node、verify 失败就自己前台跑 yarn serve),后者导致没输出 artifact 卡片——SKILL.md 新增排在最前面的硬约束「不要绕过脚本」,并把第 ⑤ 步输出 artifact 标为"不能省,与编译不通过同级"。⑤ **安装脚本:TLS 1.2 显式启用 + 证书校验默认放行**(内网自签名;完整性判据是 sha256,比证书链更强)+ 失败详情从 HINT 拎出来单独成 `DETAIL:` 行。⑥ 新风险记入 §2.5:产物目录里跑 `yarn add`/`upgrade` 会写穿链接污染共享池,写进 HANDOFF.md 并由 `lockfileHash` 兜底。
 >
@@ -769,7 +769,7 @@ ERRORS_END
 
 | 文件 | 写者 | 内容 |
 |---|---|---|
-| `.octo/<sid>/.octo-fastui.json` | `new-session` | `{name, projectDir, writeDir, port, envDir, depsDir, createdAt, updatedAt}` |
+| `.octo/<sid>/.octo-fastui.json` | `new-session` | `{name, projectDir, writeDir, port, envDir, depsDir, skillDir, createdAt, updatedAt}` |
 | `.octo/<sid>/.devserver.json` | `verify` | `{port, pid, projectDir, logPath, startedAt}` ← §8.6③ 宿主读这个 |
 | `.octo/<sid>/devserver.log` | `verify` | dev server 的 stdout/stderr，编译判定的数据源 |
 
@@ -1429,7 +1429,7 @@ verify.mjs --port=<port>
 
 | 文件 | 谁写 | 谁读 | 内容 |
 |---|---|---|---|
-| `.octo/<sid>/.octo-fastui.json` | `new-session` | **宿主** | `{name, projectDir, writeDir, port, envDir, depsDir, createdAt, updatedAt}` |
+| `.octo/<sid>/.octo-fastui.json` | `new-session` | **宿主** | `{name, projectDir, writeDir, port, envDir, depsDir, skillDir, createdAt, updatedAt}` |
 | `.octo/<sid>/.devserver.json` | **宿主** | `verify`（回退路径） | `{port, pid, projectDir, logPath, startedAt}` |
 | `.octo/<sid>/devserver.log` | **宿主**（子进程 stdio 重定向） | `verify` | dev server 原始输出 —— **编译判定的唯一数据源** |
 
@@ -1585,17 +1585,30 @@ ipcMain.handle("fastui-export-zip", (_e, sessionDir: string) => FastuiExport.exp
 //   → 返回 { ok, zipPath, bytes, fileCount } 给渲染进程
 ```
 
-##### `skillDir` 怎么定位（**v13 订正 v12 的推导路径**）
+##### `skillDir` 怎么定位 —— **由 `new-session` 写进状态文件，不靠宿主猜**
 
-v12 写的"由主进程按 `.octo/skills/fastui-vue-creator` 推导"**是错的** —— skill 的实际扫描位置是 `<octoConfig>/skill/<name>/`，即 `~/.config/octo/skill/fastui-vue-creator/`（`packages/opencode/src/skill/index.ts` 的 `octoSkillDir`，`packages/desktop/src/main/ipc.ts` 里管理 skill 配置用的也是这个目录）。
+v12 写的"由主进程按 `.octo/skills/fastui-vue-creator` 推导"**是错的**：skill 的实际扫描位置是 `<octoConfig>/skill/<name>/`（`packages/opencode/src/skill/index.ts` 的 `octoSkillDir`）。
 
-且 `.octo-fastui.json` **目前没有 `skillDir` 字段**（`new-session` 不写）。所以实现按候选逐个 `existsSync`（是"文件在不在"的确定判断，不是猜路径）：
+但真正的问题不是"猜哪个路径"，而是**宿主根本没有可靠的推导依据**：
+
+> ⚠️ **`XDG_CONFIG_HOME` 在主进程与 server 之间是分裂的。** `packages/desktop/src/main/storage.ts` 的 app-data-fallback 模式会把 `XDG_CONFIG_HOME` 指到 `<userData>/xdg-config`，而这份 env **只在 `sidecar.ts` 传给 server 子进程，没有写回主进程的 `process.env`**。于是那个模式下 server 把 skill 装在 `<userData>/xdg-config/octo/skill/`，主进程却会去 `~/.config/octo/skill/` 找。内网 Windows 域环境恰好是 fallback 模式最可能触发的地方。
+>
+> 这不是导出功能引入的（`main/ipc.ts` 里既有的 `getOctoConfigPath()` 是一模一样的表达式），但导出功能踩上去就是"技能可能未安装"。
+
+**唯一确定知道 skill 装在哪的是脚本自己**（`paths.mjs` 用 `import.meta.url` 往上推）。所以 `new-session` 把它写进状态文件，宿主直接读：
+
+```js
+// new-session.mjs
+const state = { …, skillDir: SKILL_DIR, … }
+```
+
+宿主侧保留候选链只为兼容**升级前建的老会话**（那些状态文件里没有这个字段），按顺序逐个 `existsSync`（"文件在不在"的确定判断，不是猜路径）：
 
 | 顺序 | 候选 | 说明 |
 |---|---|---|
-| 1 | `state.skillDir` | 状态文件里的字段。**`new-session` 以后补写这个字段就直接生效，宿主侧不用再改** |
-| 2 | `~/.config/octo/skill/fastui-vue-creator` | 技能实际安装位置 |
-| 3 | `<sessionDir>/../skills/fastui-vue-creator` | v12 猜的那个位置，留作兜底 |
+| 1 | `state.skillDir` | **正路**，`new-session` 写的 |
+| 2 | `~/.config/octo/skill/fastui-vue-creator` | 老会话兜底；`XDG_CONFIG_HOME` 分裂时会落空 |
+| 3 | `<sessionDir>/../skills/fastui-vue-creator` | 老会话兜底 |
 
 ##### node 用哪个
 
@@ -1683,9 +1696,13 @@ window.parent.postMessage({
   → 切走再切回 = iframe 重新挂载 = 重新请求 → 这时通了 → 正常
 ```
 
-##### 修法：端口没通就先别挂 `src`
+##### 修法：端口没通就先别挂 `src`，**但门禁必须是"尽力而为"而不是"通不过就锁死"**
 
 落在 `html-renderer.tsx` 的 external 分支。**v12 写的"bump `refreshKey` 让 iframe 加载"没有采用**，两个原因：`refreshKey` 是父组件传下来的 prop，`html-renderer` 手里没有 setter；而且**不需要** —— `src` 从 `undefined` 变成一个 URL，本身就是一次加载，不用靠 query 变化去触发。
+
+> ⚠️ **这里有一个必须避开的坑：门禁恒不放行 = 比不修更糟。**
+> 渲染进程的 origin 是自定义 scheme（`oc://renderer`），向 `127.0.0.1` 发跨源子资源请求要过 Chromium 的 **Private Network Access** 那一关，`mode: "no-cors"` 并不豁免它。万一探测在真机上根本不可用（而不是 dev server 没起），"没通就不挂 `src`"会把「白屏但切 tab 能恢复」变成「永远打不开」—— 切回来重新挂门禁、重新失败，没有出路。
+> **所以超时后要降级为直接挂 `src`**，让 iframe 自己去撞 `ERR_CONNECTION_REFUSED`：最坏情况等价于改动前，怎么都不会是回归；而如果只是探测机制不可用、服务其实是通的，降级后反而正常渲染。
 
 实际实现：
 
@@ -1694,7 +1711,8 @@ const needsReadyGate = createMemo(() => shouldUseExternalUrl() && isLocalPreview
 
 const externalUrl = createMemo(() => {
   if (!shouldUseExternalUrl()) return undefined
-  if (needsReadyGate() && !previewReady()) return undefined   // ← 没通之前不挂 src
+  // 没通之前不挂 src;但超时之后一定要放行
+  if (needsReadyGate() && !previewReady() && !previewTimedOut()) return undefined
   …既有逻辑原样保留…
 })
 ```
@@ -1702,13 +1720,14 @@ const externalUrl = createMemo(() => {
 | 点 | 取值 / 做法 | 为什么 |
 |---|---|---|
 | 探测方式 | `fetch(url, { mode: "no-cors", cache: "no-store", signal })` | 跨源 iframe 的加载失败未必触发 `onerror`，拿不到可靠信号；主动探测才是确定的判据。`no-cors` 拿到的是 opaque response，读不了内容，但"连上了"这件事已经确定 |
-| 单次上限 | 5 秒 `AbortController` | 端口开着但不回应时 `fetch` 会一直挂，不设 abort 就再也不会重试 |
+| 单次上限 | 5 秒 `AbortController` | 端口开着但不回应时 `fetch` 会一直挂，不设 abort 就再也不会重试。cleanup 里 `abort()` 在途请求 |
 | 轮询间隔 / 总上限 | 1 秒 / 3 分钟 | 与首次编译同量级（§8.6.1） |
-| 生效范围 | **只对 `127.0.0.1` / `localhost`** | 其他外链行为完全不变。普通外链探通只花一次往返，等于没有延迟；而对一个打不开的公网地址，不该把浏览器自己的错误页换成"正在准备预览环境" |
-| 覆盖层 | 「正在准备预览环境…」，超时后换成提示 + 「重试」 | 重试 bump 一个 nonce 重新起探测循环 |
+| **超时后** | **放行 `src` + 撤掉覆盖层**，日志留一行 | 见上面的坑。重试入口用 action bar 现成的刷新按钮 —— 它 bump `refreshKey`，`externalUrl` 重算出带新 `_octo_v` 的地址，iframe 重新加载 |
+| 生效范围 | **只对 `127.0.0.1` / `localhost`** | 其他外链行为完全不变。普通外链探通只花一次往返，等于没有延迟；而对一个打不开的公网地址，不该把浏览器自己的错误页换成一个等待提示 |
+| 覆盖层文案 | 「正在等待本地预览服务…／服务就绪后会自动加载，首次启动可能需要几分钟。」 | **保持中性**：门禁范围是任意 loopback URL（"等本地服务起来再挂 iframe"对任何本地预览都成立），文案不能写 fastui 专属的说法，否则用户打开别的本地服务时会看到一段与他无关的话 |
 | 覆盖层条件 | 额外加 `props.mode === "preview"` | 该组件的非预览分支是源码 `textarea`，不该被盖住（`url` subtype 的 `modeToggle` 是 false，属防御） |
 
-> 渲染进程 fetch 到 `http://127.0.0.1` 是这个 app 的日常路径（SDK 与本地 opencode server 就这么通信），`oc://renderer` 是 privileged + `supportFetchAPI` 的 scheme，loopback 在 Chromium 里算 potentially trustworthy，不触发混合内容拦截。
+> 渲染进程 fetch 到 `http://127.0.0.1` 是这个 app 的日常路径（SDK 与本地 opencode server 就这么通信），`oc://renderer` 是 privileged + `supportFetchAPI` 的 scheme，loopback 在 Chromium 里算 potentially trustworthy，不触发混合内容拦截；全仓也没有 CSP 配置。剩下的不确定性就是上面说的 PNA，**降级路径就是为它准备的**。
 
 ## 9. 验证
 

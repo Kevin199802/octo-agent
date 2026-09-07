@@ -10,7 +10,7 @@
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, usage, log, parseArgs } from "./lib/result.mjs"
-import { TEMPLATE_DIR, envDir, envPaths, readManifest, sessionPaths, readJson, exists } from "./lib/paths.mjs"
+import { SKILL_DIR, TEMPLATE_DIR, envDir, envPaths, readManifest, sessionPaths, readJson, exists } from "./lib/paths.mjs"
 import { claimPort, findFreePort } from "./lib/port.mjs"
 import { ensureDirLink } from "./lib/link.mjs"
 
@@ -127,6 +127,10 @@ const state = {
   port,
   envDir: P.root,
   depsDir: P.depsModules,
+  // 宿主要调 scripts/export-zip.mjs 打交付包(§8.6.2),得知道 skill 装在哪。
+  // 让它自己去猜是不可靠的:skill 目录随平台/配置而变,而 XDG_CONFIG_HOME 在
+  // Electron 主进程与 server 子进程之间还可能不一致 —— 唯一确定知道这个路径的是脚本自己。
+  skillDir: SKILL_DIR,
   createdAt: prev?.createdAt ?? new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 }
@@ -138,6 +142,7 @@ ok({
   ENTRY_FILE: path.join(writeDir, "index.vue"),
   PORT: port,
   DEPS_DIR: P.depsModules,
+  SKILL_DIR,
   SESSION_STATE: S.state,
   LINK: `${path.join(projectDir, "node_modules")} -> ${P.depsModules} (${linkState})`,
   REUSED: reused,
