@@ -1,6 +1,6 @@
 # SPEC-DES-001 — fastui/lake 组件代码生成：预览与交付管道
 
-> 状态：草案（v12，**内网首次全流程跑通**，按实测反转链接位置并补 export-zip） · 优先级 P1 · 规模 [L] · 领域 infra/design
+> 状态：草案（v13，UXAI 侧 ①②⑤ 收口 —— 导出按钮与预览就绪时序已实现，②查明不用改） · 优先级 P1 · 规模 [L] · 领域 infra/design
 >
 > 上游已实现：✗ —— 本 spec 全部为 Design 侧新增；参考实现是 ICT 的 `ict-component-creator` skill（外部，React + 自制 mini bundler），**其管道分层可借鉴、具体实现不可照搬**（理由见 §1.3）
 >
@@ -10,6 +10,8 @@
 
 > ## 修订记录
 >
+> **2026-09-07：v13(UXAI 侧 ①②⑤ 收口,按实现订正 §8.6)**——① ⑤ 已实现(UXAI PR #812),② 查明不用改,本版把 §8.6 从"设计稿"改写成"实况"。三处订正都是 v12 勘查与实际代码对不上:① **§8.6.2 的 `handleDownload` 路线走不通**——`SUBTYPE_CONFIG.url.features.download` 是 `false`,下载按钮压根不渲染;而翻成 `true` 是回归,因为 `subtype: "url"` 是**所有 http(s) 链接 tab 的通用形态**(链接卡片、文件管理开外链都走它),任意外链都会长出一个必然失败的下载按钮。改走同一个扩展点的另一条腿 `components.actionBar.extraButtons`,并给按钮加双重判据(URL 指向 loopback + 会话目录下存在 `.octo-fastui.json`),`action-bar.tsx` 上只追加 2 行(自定义按钮的 ctx 补会话信息)。② **`skillDir` 推导路径 v12 猜错了**——skill 实际装在 `~/.config/octo/skill/<name>/` 而不是 `.octo/skills/`,改为按候选逐个 `existsSync`,第一位留给状态文件的 `skillDir` 字段(`new-session` 以后补写即生效)。③ **§8.6.5 的"bump `refreshKey`"未采用**——`refreshKey` 是父组件的 prop,`html-renderer` 手里没有 setter,而且不需要:`src` 从 `undefined` 变成 URL 本身就是一次加载。改为门禁 `src` + `fetch(no-cors)` 探测(单次 5 秒 abort、1 秒轮询、3 分钟上限),**只对 loopback 生效**,其他外链行为一个字没变。④ **§8.6.3 查明关闭**:`url` 的能力表早就把编辑类功能全关了,那些读 `contentDocument` 的代码在 external 分支下没有入口 —— 这解释了内网实测"预览没崩"。
+
 > **2026-09-06：v12(内网首次全流程跑通 + 反转链接位置 + 放宽运行时限制)**——内网一遍跑通(设备列表页,46 条数据、分页、状态标签),但过程暴露三件事,两件是设计问题。① **链接位置从会话根改回工程根(反转 v6 的 ②),§2.5 记录完整权衡**:实测发现产物目录里 `yarn serve` 跑不起来(`'lerna' 不是内部或外部命令`——yarn 只从工程根的 `node_modules/.bin` 找命令)。v6 换来的"设计师随手压缩安全"是**虚的收益**:设计师恰恰是不懂开发环境、不会去磁盘折腾的那类用户,他拿代码走的是导出按钮。而代价是**实的**且落在最不该承担的人身上——设计师拉产线开发对接时对方第一件事就是 `yarn serve`,跑不起来会被判定成"生成的代码有问题",否定的是整个方案的可信度。压缩体积是小事,交付信任不是。② **`export-zip` 从"延后的便利性"提为"第一版的正确性"**(§5.6):链接改回工程根后整目录压缩会跟随链接,干净交付包只能由它产出;已实现并实测(中文产物名/页面名、UTF-8 flag、CRC、跳过链接、包内无 node_modules)。③ **撤回 v11 加的"禁止用系统 node/yarn"**:那是我为控制调试变量加的限制,不是用户需要的——对设计师来说能跑起来最重要,而真正不可替代的是共享池那 1GB 内网组件库,不是运行时本身;脚本改为共享池优先、回退系统。④ **模型两次绕过 skill**(装环境失败就用本地 node、verify 失败就自己前台跑 yarn serve),后者导致没输出 artifact 卡片——SKILL.md 新增排在最前面的硬约束「不要绕过脚本」,并把第 ⑤ 步输出 artifact 标为"不能省,与编译不通过同级"。⑤ **安装脚本:TLS 1.2 显式启用 + 证书校验默认放行**(内网自签名;完整性判据是 sha256,比证书链更强)+ 失败详情从 HINT 拎出来单独成 `DETAIL:` 行。⑥ 新风险记入 §2.5:产物目录里跑 `yarn add`/`upgrade` 会写穿链接污染共享池,写进 HANDOFF.md 并由 `lockfileHash` 兜底。
 >
 > **2026-09-06：v11(收口:生产包瘦身 + 版本字段合一 + 失败可定位)**——内网调试前的最后一轮。① **`ASSEMBLE.md` 从 skill 包移除,组装说明收进 §8.3**:skill 是生产包,凡不是设计师使用场景要用到的东西都不进去;`assemble.mjs` 也确定不做——组装就是复制两个目录,本地路径每次不同,脚本换不来更省的事。`PLACEHOLDER.md` 保留(它是 `ensure-env` 的哨兵,组装后删),内容精简成一句话 + 指向本 spec。② **版本字段从三个合并成一个**:`envVersion` / `templateVersion` / `requiredEnvVersion` 在 v9(template 不进共享池)之后承载的是同一件事,而依赖树本身已被 `lockfileHash` 严格约束——只留 `template/package.json` 里的 `octoTemplateVersion`,`env.lock.json` 的 `envVersion` 取自它,`requiredEnvVersion` 作为死字段删除。**格式用语义化版本 `0.1.0`,不用日期**:日期要手工改、容易忘,忘了比没有更误导。③ **§3.4 补 `HANDOFF.md` 全文**(英文静态,给拿到交付包的开发看,含"OCTO_DEPS/OCTO_PORT 你不需要也不用删"这一条)。④ **verify 超时改为自包含诊断**:输出 `STAGE`(卡在等输出/等稳定/等轮次哪一步)+ `ROUNDS_SEEN` + 分阶段 HINT + `LOG_TAIL` 尾部 40 行——超时是最难排查的一种失败,而日志在内网带不出来(§8.4),定位所需的东西必须全部内联。实测:MARKERS 对不上时直接输出"大概率是 MARKERS 与实际输出对不上,把 LOG_TAIL 里表示编译成功/失败的那几行发给开发"。⑤ **修一个实测出的解析 bug**:错误块会把下一轮的 `Compiled successfully` 混进来——`parseRounds` 在 outcome 定下之后仍继续收行(为了接住"结束标志在前、明细在后"的形态),但必须在下一轮 start 处硬停,并限 40 行预算。⑥ 本地 V0 全部通过,含 detached 存活、复用、连改两次的竞态、编译失败原文回传。
@@ -57,13 +59,13 @@
 
 | # | 事项 | 优先级 | 落点 |
 |---|---|---|---|
-| ① | 导出代码包按钮 | **高** —— 设计师拿代码的主路径 | [§8.6.2](#862-导出代码包按钮-的落点与契约) |
-| ⑤ | 预览就绪前不要挂 iframe | **高** —— 重启后必现白屏 | [§8.6.5](#865-重启后预览白屏iframe-早于-dev-server-就绪-新增) |
-| ② | external URL tab 的编辑功能 gate | 低 —— 先查现状，可能不用改 | [§8.6.3](#863-external-url-tab-的编辑功能-gate-的判据) |
 | ④ | bridge 监听端 | 低 —— 等第三层 | [§8.6.4](#864-运行时错误-bridge-的监听端-的协议) |
+| ① | ~~导出代码包按钮~~ | ✅ 已实现（UXAI PR #812），**待内网实测** | [§8.6.2](#862-导出代码包按钮-的落点与契约) |
+| ⑤ | ~~预览就绪前不要挂 iframe~~ | ✅ 已实现（同一个 PR），**待内网实测** | [§8.6.5](#865-重启后预览白屏iframe-早于-dev-server-就绪) |
+| ② | ~~external URL tab 的编辑功能 gate~~ | ✅ 查明不用改 | [§8.6.3](#863-external-url-tab-的编辑功能-gate-的判据) |
 | ③ | ~~dev server 宿主化~~ | ✅ 已完成 | — |
 
-> **①⑤ 落在同一层**（subtype handler / html-renderer 的 external 分支），建议一起做。
+> **①⑤ 待内网实测的两条**：导出按钮点一次能拿到干净 zip（中文产物名解压不乱码、无 `node_modules`）；重启 agent 后直接点预览卡片不再白屏，而是「正在准备预览环境…」到编译完自动加载。
 
 **验证覆盖缺口**（[§9.2](#92-内网验证)）
 
@@ -1362,15 +1364,17 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
 
 skill 管不了常驻进程，也画不了按钮。这五件必须在 UXAI 侧做。
 
-> **四件都必须是增量式兼容改造，不得影响 Design 现有功能。** 具体到每一项：② 只加 gate 不改 srcdoc 路径上的任何既有行为；③ 除了退出钩子里追加一行，其余全是新文件与新 handler；① 是 ActionBar 新增一个按钮；④ 是新增一个 message 监听。任何一项若发现必须改动既有代码路径才能做成，停下来先对齐，不要顺手改。
+> **五件都必须是增量式兼容改造，不得影响 Design 现有功能。** 具体到每一项：② 只加 gate 不改 srcdoc 路径上的任何既有行为；③ 除了退出钩子里追加一行，其余全是新文件与新 handler；① 是 ActionBar 新增一个按钮；⑤ 只在 external 分支且 URL 指向 loopback 时生效；④ 是新增一个 message 监听。任何一项若发现必须改动既有代码路径才能做成，停下来先对齐，不要顺手改。
+>
+> **①③⑤ 实现后的实况**：③ 只碰了 `index.ts` 退出钩子一行；① 碰了 `action-bar.tsx` 两行（给自定义按钮的 ctx 补会话信息）；⑤ 碰了 `html-renderer.tsx` 的 `externalUrl()` 一处（加一个 loopback 门禁分支）。srcdoc 主路径与 `SUBTYPE_CONFIG` 能力表**一个字没动**。
 
 | # | 事项 | 状态 |
 |---|---|---|
 | ③ | **dev server 由宿主起并持有** | ✅ **已实现并内网实测通过**（Windows + macOS arm64 各一遍过），方案见 §8.6.1；UXAI PR #801 |
-| ① | **导出代码包按钮** | **下一步做**。链接改回工程根之后（§2.5），这是设计师拿到干净代码的**唯一正确路径** —— 不做的话他右键压缩会得到 1GB。落点已勘查，见 §8.6.2 |
-| ② | **external URL tab 的编辑类功能 gate** | 先查现状，可能不用改（内网预览未崩），判据见 §8.6.3 |
+| ① | **导出代码包按钮** | ✅ **已实现，待内网实测**（UXAI PR #812）；方案见 §8.6.2 —— v12 勘查的 `handleDownload` 路线走不通，已按实况订正 |
+| ⑤ | **预览就绪前不要挂 iframe** | ✅ **已实现，待内网实测**（与 ① 同一个 PR）；方案见 §8.6.5 —— 改为门禁 `src`，未采用 v12 说的 bump `refreshKey` |
+| ② | **external URL tab 的编辑类功能 gate** | ✅ **查明不用改**（2026-09-07），结论见 §8.6.3 |
 | ④ | **运行时错误 bridge 的监听端** | 做 §7.4 第三层时补，协议见 §8.6.4。模板侧已内置并实测通过，宿主侧现在空转 |
-| ⑤ | **预览就绪前不要挂 iframe** | 重启后点卡片白屏、切走再切回就好 —— iframe 早于 dev server 就绪且不会自己重试。落在与 ① 同一层，建议一起做，见 §8.6.5 |
 
 **预览本身不需要新增 renderer**（§7.5）—— 现有 `text/link` → external URL iframe 链路直接可用，已内网实测。
 
@@ -1501,47 +1505,135 @@ const child = spawn(nodeBin, [cli, "serve", "--replace-policy=dev", "--target=es
 
 #### 8.6.2 导出代码包按钮（① 的落点与契约）
 
-> **落点已勘查（2026-09-07），实现时不用重找。**
+> **已实现（2026-09-07，UXAI PR 见 §8.6 状态表）。下面是实现后的实况，不是设计稿。**
+> **v13 订正**：v12 写的"注册 `handleDownload` 即可、`action-bar.tsx` 零改动"在实际代码上走不通，理由见下。
 
-##### 不要改 `action-bar.tsx`，注册一个 subtype handler
+##### ✗ 不能走 `handleDownload` —— 那条路根本渲染不出按钮
 
-`action-bar.tsx` 有 1115 行且已有完整的下载链路，但**它有扩展点**：
-
-```ts
-// action-bar.tsx:533
-const handler = getSubtypeHandler(props.tab.subtype)
-if (handler?.handleDownload) { … }
-```
+`action-bar.tsx` 确实有 `getSubtypeHandler(...).handleDownload` 这个扩展点，但**它前面还有一道能力开关**：
 
 ```ts
-// subtype-handlers/types.ts:78
-handleDownload?: (ctx: SubtypeHandlerContext, option?: string) => Promise<boolean | void>
-// :89 声明且长度 > 1 时，action bar 渲染「下载」下拉按钮；每项 value 作为 option 传入
+// utils/subtype-config.ts —— url subtype 的能力表
+url: { features: { …, download: false, … } }
 ```
 
-预览 tab 的形态是 `{ type: "html", subtype: "url" }`（§7.5），所以**给 `url` 这个 subtype 注册一个 handler、实现 `handleDownload` 即可，`action-bar.tsx` 零改动**。注册表在 `pages/make/utils/subtype-registry`。
+```tsx
+// action-bar.tsx —— 下载按钮的渲染条件
+const showDownload = () => featureVisible(config().features.download)
+<Show when={showDownload() && props.tab.type === "html"}>
+  <DownloadButton options={downloadOptions()} onDownload={handleDownload} />
+</Show>
+```
+
+`download: false` 时按钮压根不渲染，`handleDownload` 永远不会被调用。
+
+而**把它翻成 `true` 是回归**：`subtype: "url"` 不是 fastui 专属，它是**所有 http(s) 链接 tab 的通用形态** —— 链接卡片（`index.tsx` 的 `card.type === "link"` 分支）和文件管理里打开外链（`handleOpenLocalFile`）都开这个 subtype。翻成 `true` 会让任意一个外链 tab 都长出一个必然失败的下载按钮。
+
+##### ✓ 走同一个扩展点的另一条腿：`components.actionBar.extraButtons`
+
+`SubtypeHandler` 除了 `handleDownload`，还有一套**自定义按钮**配置，位置可选、可见性可按 tab 判定：
+
+```tsx
+// subtype-handlers/url.tsx（新文件）
+const urlHandler: SubtypeHandler = {
+  ...defaultHandler,          // 行为整体沿用 _default，只做增量
+  name: 'url',
+  components: { actionBar: { extraButtons: [ { id: 'fastui-export-zip', position: 'after-download', … } ] } },
+}
+```
+
+三个关键点：
+
+| 点 | 为什么 |
+|---|---|
+| `{...defaultHandler}` 展开 | 注册前 `getSubtypeHandler("url")` 走的是 `_default` 兜底。展开后除 `name` / `components` 外全部是同一引用，所有消费点（`modelEditConfig` / `onHistoryTrigger` / `applyVersionFiles` / `buildArchiveSrc` …）拿到的东西与注册前完全一致 |
+| 不设 `replaceDefaultButtons` | 只追加，不替换既有按钮 |
+| `visible` 双重判据 | 见下 —— 不能只看 tab 形态 |
+
+##### 判据：光看 tab 形态不够
+
+因为 `url` 是通用形态，按钮的 `visible` 要能回答"这个 tab 到底是不是 fastui 预览"。两条**都是确定性判断**，不是模糊匹配：
+
+1. `tab.filePath` 指向 `127.0.0.1` / `localhost`（dev server 一个会话一个端口）
+2. 会话目录下**存在** `.octo-fastui.json` —— 只有 fastui 的 `new-session` 会写出这个文件，§8.6.1 里"怎么区分 fastui 会话和普通会话"用的也是它
+
+第 2 条是异步的（走 `fileExists`），结果进一个 signal，`visible` 读它 —— action bar 的自定义按钮渲染本来就是响应式的（`prototype` / `components` 两个 subtype 的主题切换按钮就靠这个让 label 在"深色/浅色"之间变），signal 一更新按钮就出现。否定结果不永久缓存（3 秒后可重探），会话先建、稍后才跑 skill 的情况能自愈。
+
+##### 会话目录怎么来 —— `action-bar.tsx` 的唯一改动
+
+自定义按钮拿到的 `ctx` 里原本没有会话信息（`renderCustomButton` 构造的 ctx 只有 tab / toast / tracker / postMessageToIframe 那几项），而导出要定位 `<projectDir>/.octo/<sessionId>`。所以**给那个 ctx 补两个字段**，与同文件 `handleDownload` 的 ctx 取法一致：
+
+```tsx
+sessionId: props.sessionId ?? params.id,
+sdkDirectory: props.sdkDirectory,
+```
+
+这是 `action-bar.tsx` 上的全部改动（2 行，纯追加）。已有的两处 `extraButtons`（`prototype` / `components` 的主题切换）只用 `ctx.postMessageToIframe`，不受影响。
+
+> 会话目录的拼法与 `index.tsx` 建会话处一致：`[sdkDirectory, ".octo", sessionId].join(sep)`。`sdk.directory` 就是 `projectDir()` —— make 页的 `SDKProvider directory={() => dir}` 里那个 `dir` 即 `useProjectDir()` 的值。**不依赖 dev server 是否还活着**，被 LRU 淘汰过的会话照样能导出。
 
 ##### 前端不要自己打包
 
 `export-zip.mjs` 已经处理了两件前端不容易做对的事：**用 `lstat` 跳过链接**（工程根的 `node_modules` 是指向共享池的链接，跟随就把 1GB 打进去）、**置 ZIP 的 UTF-8 flag**（不置的话中文产物名在 Windows 解压全是乱码，而内网中文命名概率很高）。
 
-所以走 IPC 调脚本，与 §8.6.1 的 `fastui-devserver` 同一个模式：
+所以走 IPC 调脚本，与 §8.6.1 的 `fastui-devserver` 同一个模式（新文件 `main/fastui-export.ts`，约定「返回结果对象、永不 throw」）：
 
 ```ts
-// 主进程新增,与 fastui-devserver.ts 平级
-ipcMain.handle("fastui-export-zip", (_e, sessionDir: string) => { … })
-//   → spawn(<envDir>/node, [<skillDir>/scripts/export-zip.mjs, `--session-dir=${sessionDir}`])
-//   → 解析 stdout 的 RESULT: / ZIP_PATH: 契约行(§5.1.1)
-//   → 返回 { ok, zipPath, bytes } 给渲染进程
+ipcMain.handle("fastui-export-zip", (_e, sessionDir: string) => FastuiExport.exportZip(sessionDir))
+//   → spawn(<node>, [<skillDir>/scripts/export-zip.mjs, `--session-dir=${sessionDir}`])
+//   → 解析 stdout 的 RESULT: / ZIP_PATH: / ZIP_BYTES: 契约行(§5.1.1)
+//   → 返回 { ok, zipPath, bytes, fileCount } 给渲染进程
 ```
 
-`skillDir` 与 `envDir` 从 `.octo/<sid>/.octo-fastui.json` 读（`envDir` 字段已有；`skillDir` 需要 `new-session` 补写一个字段，或由主进程按 `.octo/skills/fastui-vue-creator` 推导）。
+##### `skillDir` 怎么定位（**v13 订正 v12 的推导路径**）
+
+v12 写的"由主进程按 `.octo/skills/fastui-vue-creator` 推导"**是错的** —— skill 的实际扫描位置是 `<octoConfig>/skill/<name>/`，即 `~/.config/octo/skill/fastui-vue-creator/`（`packages/opencode/src/skill/index.ts` 的 `octoSkillDir`，`packages/desktop/src/main/ipc.ts` 里管理 skill 配置用的也是这个目录）。
+
+且 `.octo-fastui.json` **目前没有 `skillDir` 字段**（`new-session` 不写）。所以实现按候选逐个 `existsSync`（是"文件在不在"的确定判断，不是猜路径）：
+
+| 顺序 | 候选 | 说明 |
+|---|---|---|
+| 1 | `state.skillDir` | 状态文件里的字段。**`new-session` 以后补写这个字段就直接生效，宿主侧不用再改** |
+| 2 | `~/.config/octo/skill/fastui-vue-creator` | 技能实际安装位置 |
+| 3 | `<sessionDir>/../skills/fastui-vue-creator` | v12 猜的那个位置，留作兜底 |
+
+##### node 用哪个
+
+共享池的 `<envDir>/node` 优先（与 §8.6.1 同一个 `nodeBinOf`）；**它不在时回退到 Electron 自带的 node 运行时**（`spawn(process.execPath, …, { env: { ELECTRON_RUN_AS_NODE: "1" } })`）。打包只是遍历目录 + `zlib`，不依赖那 1GB 依赖 —— 共享池被清过但产物还在磁盘上时，代码包依然导得出来。
 
 ##### 拿到 zip 之后
 
-`handleDownload` 返回后，用 `getDesktopApi()` 的现成能力把文件给用户（`saveFilePicker` + 复制，或 `showItemInFolder`）—— `action-bar.tsx` 里 `downloadBlob` / `DownloadCancelledError` 那套是给内容型 tab 用的，工程 zip 已经在磁盘上，不必再走 blob。
+打包 → `saveFilePicker`（默认文件名取 zip 的 basename）→ `copyFileTo` 拷到用户选的位置 → toast 报文件名与大小。用户取消保存就只提示包已生成在产物目录里，不再打扰。
+
+`action-bar.tsx` 里 `downloadBlob` / `DownloadCancelledError` 那套是给内容型 tab 用的，工程 zip 已经在磁盘上，不走 blob。
+
+##### 改动清单（实际）
+
+| 文件 | 改动 | 性质 |
+|---|---|---|
+| `packages/desktop/src/main/fastui-export.ts` | 新文件 ~160 行：`exportZip` + 契约行解析 + 脚本定位 + 超时 | **新增** |
+| `packages/desktop/src/main/ipc.ts` | +1 个 `ipcMain.handle` | 追加 |
+| `packages/desktop/src/preload/{index,types}.ts` | +1 个方法与类型 | 追加 |
+| `packages/desktop/src/main/fastui-devserver.ts` | `nodeBinOf` 加 `export` | 无行为变化 |
+| `packages/app/octoapp/pages/make/subtype-handlers/url.tsx` | 新文件：url handler | **新增** |
+| `packages/app/octoapp/pages/make/utils/fastui-export.ts` | 新文件：判据 + 导出流程 | **新增** |
+| `packages/app/octoapp/pages/make/utils/subtype-registry.ts` | 注册 url handler，+2 行 | 追加 |
+| `packages/app/octoapp/pages/make/components/result-viewer/action-bar.tsx` | ctx 补 2 个字段 | 追加 |
+| `packages/app/octoapp/pages/make/lib/electron-api.ts` | `DesktopApi` 加一个可选方法 | 追加 |
 
 #### 8.6.3 external URL tab 的编辑功能 gate（② 的判据）
+
+> **已查明（2026-09-07）：不用改。** `utils/subtype-config.ts` 里 `url` 这个 subtype 的能力表已经把编辑类功能全部关掉：
+>
+> ```ts
+> url: { features: { refresh: true, modeToggle: false, viewport: false,
+>                    localEdit: false, modelEdit: false, drawEdit: false, canvasEdit: false,
+>                    comment: false, archive: false, history: false, download: false, fullscreen: true } }
+> ```
+>
+> `action-bar.tsx` 的 `showLocalEdit()` / `showDrawEdit()` / `showCanvasEdit()` / `showComment()` / `showArchive()` 全部由这张表驱动，按钮根本不渲染 —— 所以那些读 `iframe.contentDocument` 的代码在 external 分支下没有入口，跨源异常也就无从发生。这解释了内网实测"预览没崩"。**本项关闭，不需要额外的 gate 代码。**
+
+（以下为查之前的判据，留作背景。）
 
 **先查，可能不用改。** 内网实测预览没崩，说明要么已经 gate、要么那些功能在 external 分支下根本没被触发。
 
@@ -1573,7 +1665,9 @@ window.parent.postMessage({
 
 ---
 
-#### 8.6.5 重启后预览白屏：iframe 早于 dev server 就绪（⑤ 新增）
+#### 8.6.5 重启后预览白屏：iframe 早于 dev server 就绪（⑤）
+
+> **已实现（2026-09-07）。v13 按实现订正了「修法」那一段。**
 
 **现象**（2026-09-07 内网实测）：重启 agent 后点预览卡片是白屏，**但切到「文件管理」再切回该 tab 就正常渲染了**。
 
@@ -1589,15 +1683,32 @@ window.parent.postMessage({
   → 切走再切回 = iframe 重新挂载 = 重新请求 → 这时通了 → 正常
 ```
 
-**修法**：external URL 分支下，端口未就绪时不要直接把 `src` 挂上去。§7.5 已经查明 `externalUrl()` 会把 `refreshKey` 拼成 `?_octo_v=N`，前端**已有现成的刷新机制**，所以只需要：
+##### 修法：端口没通就先别挂 `src`
 
-1. 打开 external URL tab 时先探测端口（或直接向宿主要一次 `ensure`，它会返回 `port`）
-2. 未就绪则显示"正在准备预览环境…"，并轮询（1 秒一次、上限与首次编译同量级）
-3. 通了之后 bump `refreshKey` 让 iframe 加载
+落在 `html-renderer.tsx` 的 external 分支。**v12 写的"bump `refreshKey` 让 iframe 加载"没有采用**，两个原因：`refreshKey` 是父组件传下来的 prop，`html-renderer` 手里没有 setter；而且**不需要** —— `src` 从 `undefined` 变成一个 URL，本身就是一次加载，不用靠 query 变化去触发。
 
-**不要只加 `iframe.onerror` 重试** —— 跨源 iframe 的加载失败未必触发 `onerror`，拿不到可靠信号；主动探测端口才是确定的判据。
+实际实现：
 
-> 这条与 §8.6.2（导出按钮）落在同一层（subtype handler / html-renderer 的 external 分支），建议一起做。
+```tsx
+const needsReadyGate = createMemo(() => shouldUseExternalUrl() && isLocalPreviewUrl(props.filePath))
+
+const externalUrl = createMemo(() => {
+  if (!shouldUseExternalUrl()) return undefined
+  if (needsReadyGate() && !previewReady()) return undefined   // ← 没通之前不挂 src
+  …既有逻辑原样保留…
+})
+```
+
+| 点 | 取值 / 做法 | 为什么 |
+|---|---|---|
+| 探测方式 | `fetch(url, { mode: "no-cors", cache: "no-store", signal })` | 跨源 iframe 的加载失败未必触发 `onerror`，拿不到可靠信号；主动探测才是确定的判据。`no-cors` 拿到的是 opaque response，读不了内容，但"连上了"这件事已经确定 |
+| 单次上限 | 5 秒 `AbortController` | 端口开着但不回应时 `fetch` 会一直挂，不设 abort 就再也不会重试 |
+| 轮询间隔 / 总上限 | 1 秒 / 3 分钟 | 与首次编译同量级（§8.6.1） |
+| 生效范围 | **只对 `127.0.0.1` / `localhost`** | 其他外链行为完全不变。普通外链探通只花一次往返，等于没有延迟；而对一个打不开的公网地址，不该把浏览器自己的错误页换成"正在准备预览环境" |
+| 覆盖层 | 「正在准备预览环境…」，超时后换成提示 + 「重试」 | 重试 bump 一个 nonce 重新起探测循环 |
+| 覆盖层条件 | 额外加 `props.mode === "preview"` | 该组件的非预览分支是源码 `textarea`，不该被盖住（`url` subtype 的 `modeToggle` 是 false，属防御） |
+
+> 渲染进程 fetch 到 `http://127.0.0.1` 是这个 app 的日常路径（SDK 与本地 opencode server 就这么通信），`oc://renderer` 是 privileged + `supportFetchAPI` 的 scheme，loopback 在 Chromium 里算 potentially trustworthy，不触发混合内容拦截。
 
 ## 9. 验证
 
