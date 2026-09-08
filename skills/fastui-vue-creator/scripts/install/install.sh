@@ -8,12 +8,13 @@
 # 用法:
 #   bash install.sh [--manifest=<url|path>] [--env-dir=<路径>] [--from-local=<目录>]
 #                   [--registry=<npm 源>] [--upgrade] [--skip-node]
+#                   [--proxy=<地址>]   # 默认强制直连,只有确实必须经代理才传
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-MANIFEST=""; ENV_DIR=""; FROM_LOCAL=""; REGISTRY=""; UPGRADE=""; SKIP_NODE=""; STRICT_CERT=""
+MANIFEST=""; ENV_DIR=""; FROM_LOCAL=""; REGISTRY=""; UPGRADE=""; SKIP_NODE=""; STRICT_CERT=""; PROXY=""
 for a in "$@"; do
   case "$a" in
     --manifest=*)   MANIFEST="${a#*=}" ;;
@@ -23,6 +24,7 @@ for a in "$@"; do
     --upgrade)      UPGRADE=1 ;;
     --skip-node)    SKIP_NODE=1 ;;
     --strict-cert)  STRICT_CERT=1 ;;
+    --proxy=*)      PROXY="${a#*=}" ;;
     *) echo "RESULT: FAIL | BAD_USAGE: 未知参数 $a"; exit 2 ;;
   esac
 done
@@ -31,7 +33,21 @@ fail() { echo "RESULT: FAIL | $1: $2"; [ -n "${3:-}" ] && echo "DETAIL: $3"; [ -
 
 # 内网证书基本都是自签名的,默认放行 —— 传 --strict-cert 才严格校验。
 # 完整性靠下载后的 sha256 比对保证,那比 TLS 证书链更强(校验的是文件内容本身)。
-CURL_INSECURE="-k"; [ -n "$STRICT_CERT" ] && CURL_INSECURE=""
+#
+# **内网 host 一律强制直连**(v14,SPEC-DES-001 §4.4.8 第二批坑 1)。
+# 2026-09-08 内网实测:agent 宿主进程注入了出外网的代理(proxyhk.huawei.com:8080),
+# NO_PROXY 里明明有 .huawei.com 却没能生效(那台 curl 是 7.86.0),请求被送进 CONNECT
+# 隧道,代理连不上内网上游 → 504 Gateway Timeout,首装从第一步就卡死。
+# 而内网服务解析到 10.x 内网地址,压根不需要出外网的代理 —— 直连是唯一走得通的路。
+#
+# 不做"失败了自动回退走代理":那会用第二次的结果掩盖第一次失败的真实原因,
+# 日志里反而看不出发生了什么。谁真需要经代理,显式传 --proxy=<地址>。
+#
+# 用数组而不是字符串:`--noproxy *` 里的 * 一旦经过不带引号的变量展开,
+# 会被 shell 当通配符展开成当前目录的文件名。
+CURL_ARGS=(--noproxy '*')
+[ -n "$PROXY" ] && CURL_ARGS=(--proxy "$PROXY")
+[ -z "$STRICT_CERT" ] && CURL_ARGS+=(-k)
 
 PY="$(command -v python3 || true)"
 [ -z "$PY" ] && fail NO_PYTHON "找不到 python3,无法解析 manifest.json" "安装 Xcode Command Line Tools: xcode-select --install"
@@ -48,23 +64,50 @@ fi
 ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && ARCH="x64"
 PLATFORM_KEY="darwin-$ARCH"
 
+# ── 取 manifest ────────────────────────────────────────────────
+# **无论要不要下载 node,这一段都要跑**(v14,§4.4.8 第二批坑 4)。
+# v13 把它整块放在 else 分支里,于是走 --skip-node 时 REGISTRY 一直是空、不传给
+# setup-env,同一台机器上 install.sh 与 install.sh --skip-node 会用两个不同的 npm 源 ——
+# npm 源的取值挂在了"要不要下载 node"这个毫不相干的条件上。
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+
+NEED_NODE=1
 if [ -n "$SKIP_NODE" ] || { [ -x "$NODE_BIN" ] && [ -n "$UPGRADE" ]; }; then
+  NEED_NODE=""
   echo "[skip] 复用已有 node: $NODE_BIN" >&2
-else
-  # ── 取 manifest ──────────────────────────────────────────────
-  TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-  if [ -n "$FROM_LOCAL" ]; then
-    MJSON="$FROM_LOCAL/manifest.json"
-    [ -f "$MJSON" ] || fail NO_MANIFEST "离线目录里没有 manifest.json: $MJSON"
-    BASE="$FROM_LOCAL"
-  else
-    [ -n "$MANIFEST" ] || fail NO_MANIFEST "没有 manifest 地址" "传 --manifest=<url> 或 --from-local=<目录>"
-    MJSON="$TMP/manifest.json"
-    # 加时间戳破缓存 —— 服务端没设 no-store,升级后别读到旧的(§4.4.4)
-    curl $CURL_INSECURE -fsSL -H 'Cache-Control: no-cache' "$MANIFEST?t=$(date +%s)" -o "$MJSON" \
-      || fail DOWNLOAD_FAILED "拉不到 manifest: $MANIFEST"
-    BASE="$(dirname "$MANIFEST")"
+fi
+
+MJSON=""; BASE=""
+if [ -n "$FROM_LOCAL" ]; then
+  MJSON="$FROM_LOCAL/manifest.json"
+  [ -f "$MJSON" ] || fail NO_MANIFEST "离线目录里没有 manifest.json: $MJSON"
+  BASE="$FROM_LOCAL"
+elif [ -n "$MANIFEST" ]; then
+  MJSON="$TMP/manifest.json"
+  BASE="$(dirname "$MANIFEST")"
+  # 加时间戳破缓存 —— 服务端没设 no-store,升级后别读到旧的(§4.4.4)
+  if ! curl "${CURL_ARGS[@]}" -fsSL -H 'Cache-Control: no-cache' "$MANIFEST?t=$(date +%s)" -o "$MJSON"; then
+    if [ -n "$NEED_NODE" ]; then
+      fail DOWNLOAD_FAILED "拉不到 manifest: $MANIFEST" \
+        "已强制直连(不经代理)。若这台机器确实必须经代理才能到内网,传 --proxy=<地址>" \
+        "先手工确认一次:curl -v --noproxy '*' '$MANIFEST' —— 看它连到了哪个 IP、返回什么"
+    fi
+    # 只是为了拿 registry 的话不阻塞:node 已经在了,registry 缺省也能继续
+    echo "[warn] 拉不到 manifest,registry 回落到本机 npm 配置" >&2
+    MJSON=""
   fi
+elif [ -n "$NEED_NODE" ]; then
+  fail NO_MANIFEST "没有 manifest 地址" "传 --manifest=<url> 或 --from-local=<目录>"
+fi
+
+# registry 从 manifest 取;命令行 --registry 优先
+if [ -z "$REGISTRY" ] && [ -n "$MJSON" ]; then
+  REGISTRY="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('npmRegistry',''))" "$MJSON")"
+fi
+
+# ── 下载 + 校验 + 解压 node ────────────────────────────────────
+if [ -n "$NEED_NODE" ]; then
+  [ -n "$MJSON" ] || fail NO_MANIFEST "要装 node,但没有可用的 manifest"
 
   read -r FILE SHA STRIP NODEVER <<EOF
 $("$PY" - "$MJSON" "$PLATFORM_KEY" <<'PYEOF'
@@ -76,7 +119,6 @@ PYEOF
 )
 EOF
   [ "$FILE" = "__MISSING__" ] && fail NO_PLATFORM_PKG "manifest 里没有 $PLATFORM_KEY 的 node 包" "在 manifest.json 的 node.platforms 里补一条"
-  [ -z "$REGISTRY" ] && REGISTRY="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('npmRegistry',''))" "$MJSON")"
 
   # ── 下载 + 校验 ──────────────────────────────────────────────
   PKG="$TMP/$(basename "$FILE")"
@@ -84,7 +126,10 @@ EOF
     cp "$BASE/$FILE" "$PKG" || fail NO_LOCAL_PKG "离线目录里没有 $FILE"
   else
     echo "[download] $BASE/$FILE" >&2
-    curl $CURL_INSECURE -fSL "$BASE/$FILE" -o "$PKG" || fail DOWNLOAD_FAILED "下载 node 包失败: $BASE/$FILE"
+    curl "${CURL_ARGS[@]}" -fSL "$BASE/$FILE" -o "$PKG" \
+      || fail DOWNLOAD_FAILED "下载 node 包失败: $BASE/$FILE" \
+           "已强制直连(不经代理)。manifest 能拉到不代表这个包也能 —— 它有几十 MB,先核对 Content-Length(§4.4.4)" \
+           "curl -sI --noproxy '*' '$BASE/$FILE' | grep -i content-length"
   fi
 
   # sha256 十六进制大小写不敏感,统一转小写再比 —— 否则会把完全正确的包判成损坏

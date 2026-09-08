@@ -52,6 +52,33 @@ function missingFiles(root) {
   return REQUIRED_FILES.filter((rel) => !exists(path.join(root, ...rel.split("/"))))
 }
 
+/**
+ * 删半成品前的护栏(v14)。
+ *
+ * `projectDir` 是 `--artifact-dir` 拼出来的,参数传空、传错、或被中文路径截断时,
+ * 它可能解析到完全意外的位置 —— 而 `rmSync(recursive, force)` 不可逆、不进回收站。
+ *
+ * 2026-09-07 内网出过一次 agent 误删用户磁盘目录的事故(§5.1.2)。那次不是这段代码干的,
+ * 但**我们自己的代码里不能留同样的形状**:能递归强删一个由外部参数推导出来的路径。
+ *
+ * 判据要求同时满足,任何一条不满足就拒绝删并响亮失败 —— 宁可留个半成品让人手工看,
+ * 也不能删错一次。
+ */
+function assertSafeToRemove(dir) {
+  const abs = path.resolve(dir)
+  const root = path.resolve(S.sessionRoot)
+  const segments = abs.split(path.sep).filter(Boolean)
+  const ok =
+    abs.startsWith(root + path.sep) &&      // 必须在本会话目录之下
+    segments.includes(".octo") &&           // 路径里必须有 .octo 段
+    segments.length >= 3                    // 不可能是盘符根或一级目录
+  if (!ok) {
+    fail("UNSAFE_CLEANUP", `拒绝删除 ${abs} —— 它不在本次会话的目录内`, {
+      hint: `会话根应为 ${root}。多半是 --artifact-dir 传错了。请手工确认该目录内容后再决定怎么处理,不要让脚本删`,
+    })
+  }
+}
+
 // ① 复制工程骨架。已存在则整体跳过 —— 绝不覆盖用户/模型已经写过的东西。
 let reused = false
 if (exists(projectDir)) {
@@ -72,6 +99,7 @@ if (exists(projectDir)) {
     cpSync(TEMPLATE_DIR, projectDir, { recursive: true, dereference: false, errorOnExist: true, force: false })
   } catch (e) {
     // 复制失败要把半成品删掉,否则下次跑会因为"目录已存在"跳过复制,残缺状态被固化
+    assertSafeToRemove(projectDir)
     try {
       rmSync(projectDir, { recursive: true, force: true })
     } catch {
@@ -84,6 +112,7 @@ if (exists(projectDir)) {
 
   const missing = missingFiles(projectDir)
   if (missing.length) {
+    assertSafeToRemove(projectDir)
     try {
       rmSync(projectDir, { recursive: true, force: true })
     } catch {

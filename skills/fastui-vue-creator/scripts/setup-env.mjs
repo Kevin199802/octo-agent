@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process"
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, log, parseArgs } from "./lib/result.mjs"
-import { TEMPLATE_DIR, envDir, envPaths, readManifest, readJson, exists } from "./lib/paths.mjs"
+import { TEMPLATE_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs } from "./lib/paths.mjs"
 import { sha256File, sameHash } from "./lib/hash.mjs"
 
 const args = parseArgs()
@@ -39,13 +39,24 @@ const run = (bin, argv, cwd) => {
 /**
  * 跑 yarn。**不能直接 spawn `yarn.cmd`** —— Node 18 起出于命令注入防护
  * (CVE-2024-27980)禁止直接执行 .cmd/.bat,报 EINVAL,内网实测踩过。
- * 优先用共享池 node 跑 yarn 的 JS 入口(两平台统一、不经 shell);
- * 找不到 JS 入口再回落到 shell 执行。
+ * 所以走共享池 node + yarn 的 JS 入口,两平台统一、不经 shell。
+ *
+ * **回落分支不再用 `shell: true`**(v14):`shell: true` 时 Node 把 file 与 args
+ * 裸拼成命令字符串交给 shell、不加引号,而 envDir 默认落在 `Application Support` 下,
+ * 路径必然含空格 —— 命令会在空格处被劈成两半。2026-09-08 本地复现确认。
+ * Windows 上没有 JS 入口就没有退路(yarn.cmd 不能 spawn),与其执行一个被截断的命令,
+ * 不如响亮失败。
  */
 const runYarn = (argv, cwd) => {
-  if (exists(P.yarnJs)) return run(P.nodeBin, [P.yarnJs, ...argv], cwd)
-  log(`[warn] 找不到 ${P.yarnJs},回落到 shell 执行 ${P.yarnBin}`)
-  return execFileSync(P.yarnBin, argv, { cwd, stdio: ["ignore", "inherit", "inherit"], env: process.env, shell: true })
+  const yarnJs = resolveYarnJs(P)
+  if (yarnJs) return run(P.nodeBin, [yarnJs, ...argv], cwd)
+  if (process.platform === "win32") {
+    fail("YARN_NOT_FOUND", `装好了 yarn 却找不到它的 JS 入口(${P.node} 下)`, {
+      hint: "删掉共享池的 node 目录后重跑安装脚本;若反复出现,把 <envDir>/node/ 的目录树贴出来",
+    })
+  }
+  log(`[warn] 找不到 yarn 的 JS 入口,直接执行 ${P.yarnBin}`)
+  return run(P.yarnBin, argv, cwd)
 }
 
 // ── ③ 装 yarn ────────────────────────────────────────────────────
@@ -132,9 +143,10 @@ if (!sameHash(wantHash, gotHash)) {
 const nodeVersion = execFileSync(P.nodeBin, ["-v"], { encoding: "utf8" }).trim()
 let yarnVersion = ""
 try {
-  yarnVersion = exists(P.yarnJs)
-    ? execFileSync(P.nodeBin, [P.yarnJs, "-v"], { encoding: "utf8" }).trim()
-    : execFileSync(P.yarnBin, ["-v"], { encoding: "utf8", shell: true }).trim()
+  const yarnJs = resolveYarnJs(P)
+  yarnVersion = yarnJs
+    ? execFileSync(P.nodeBin, [yarnJs, "-v"], { encoding: "utf8" }).trim()
+    : execFileSync(P.yarnBin, ["-v"], { encoding: "utf8" }).trim()
 } catch {
   /* 诊断字段,拿不到不阻塞 */
 }

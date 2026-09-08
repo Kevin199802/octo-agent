@@ -45,7 +45,7 @@
 
 | | 状态 |
 |---|---|
-| 环境安装（共享池 node + deps） | ✅ Windows / macOS arm64 各一遍（[§4.1](#41-v1-路线分发-portable-node--模板本机安装依赖)、[§4.4](#44-内网托管要准备什么怎么放离线操作手册)） |
+| 环境安装（共享池 node + deps） | ⚠️ **不要当已通** —— Windows ✅；macOS arm64 那次跑的是修复前的旧版、且绕过了 manifest（[§4.4.8 第二批](#448-首装踩到的坑内网实测分两批2026-09-07--09-08)）（[§4.1](#41-v1-路线分发-portable-node--模板本机安装依赖)、[§4.4](#44-内网托管要准备什么怎么放离线操作手册)） |
 | 会话工程创建（链接 + 复制模板 + 端口） | ✅ [§3.2](#32-会话布局沿用-design-现有约定)、[§5.3](#53-new-sessionmjs--创建会话工程) |
 | 编译门禁（起 dev server + 判定 + 错误回传） | ✅ [§5.5](#55-verifymjs--编译门禁) |
 | 预览卡片（`text/link` → iframe） | ✅ 零改动，[§7.5](#75-预览容器现有-textlink-链路已支持预计零改动) |
@@ -55,6 +55,18 @@
 
 ### 待办
 
+**skill 侧首装修复**（[§4.4.8 第二批](#448-首装踩到的坑内网实测分两批2026-09-07--09-08)，2026-09-08 内网暴露，**全部未修**）
+
+| # | 事项 | 优先级 | 落点 |
+|---|---|---|---|
+| S1 | **代理导致 manifest 504** —— curl 直连优先 + 回退走代理，两次都记日志 | **高**（首装根因，卡死） | `install.sh` / `install.ps1` |
+| S2 | **doctor 必须在 agent 进程里跑**；补代理三件套与「直连/走代理 × manifest/node 包」四格；修 504 打不出 body、`agent` 传成 undici 不认的字段 | **高**（否则下次还会被带偏） | `doctor.mjs` / SKILL.md、[§4.4.9](#449-doctormjs--装不上时先跑它) |
+| S3 | **删除护栏**：SKILL.md 硬禁令 + `rmSync` 路径断言 + `link.mjs` 改 `symlinkSync(…, "junction")` 绕开 cmd.exe | **高**（安全，已造成一次数据损失） | [§5.1.2](#512-硬性安全约束所有脚本--skillmd) |
+| S4 | **macOS 首装必挂**：`yarnJs` 路径改问 `npm root -g`；回落分支去掉 `shell: true` | **高**（新版 macOS 100% 复现） | `lib/paths.mjs` / `setup-env.mjs` |
+| S5 | **日志落盘补全**：`log()` 落盘、`run()` 捕获子进程输出、install 脚本全程 tee | 中 | [§5.1.1](#511-统一输出契约所有脚本) |
+| S6 | `REGISTRY` 读取从 `install.sh` 的 else 分支提出来 | 中 | `install.sh` |
+
+> **S4 的雷还没响过**：设计师那台跑通用的是修复前的旧版。新版在 macOS 上首装必然失败，补验之前不要认为 macOS 已通。
 **UXAI 侧五件**（[§8.6](#86-uxai-仓要做的五件事design-模块不是-skill)，Design 模块，走 PR 协议）
 
 | # | 事项 | 优先级 | 落点 |
@@ -71,7 +83,8 @@
 
 | 缺口 | 为什么要补 |
 |---|---|
-| **完全没装过 node 的机器** | 前几次实测机上都有系统 node，portable node 的**下载路径从没被真正走过** —— 而它上面挂着最多没验过的代码（下载 / sha256 / 解压 strip / `npm i -g yarn`），且首装正是设计师会遇到的路径 |
+| **完全没装过 node 的机器** | ⚠️ **2026-09-08 走到了，当场炸出四处**（§4.4.8 第二批）—— 代理挡住 manifest、macOS yarn 路径错等。修完要再走一遍 |
+| **agent 进程环境（而非终端）** | 这次的根因只在 agent 宿主进程里存在（代理），人在终端复现不出来。**以后验首装必须由 agent 全程跑**，不能人工代跑任何一步 |
 | **Intel Mac（`darwin-x64`）** | manifest 里有这个平台的包，没人验过 |
 
 **跟外部团队的开口**
@@ -673,7 +686,9 @@ curl -sI https://octo.hdesign.huawei.com/design/fastui-env/node/node-v22.19.0-da
 >
 > 将来若要清理外网仓的内网地址，回到 `env.source.json` 方案即可，`ensure-env` 侧只需换一个读取来源，其余不变。
 
-#### 4.4.8 首装踩到的坑（2026-09-07 内网实测，已全部修掉）
+#### 4.4.8 首装踩到的坑（内网实测，分两批：2026-09-07 / 09-08）
+
+##### 第一批（2026-09-07，测试同学的 Windows 机器）
 
 测试同学的 Windows 机器上跑通了，但过程磕了好几处。**根因链是一路连锁的**，记下来免得下次重演：
 
@@ -685,17 +700,70 @@ curl -sI https://octo.hdesign.huawei.com/design/fastui-env/node/node-v22.19.0-da
 
 > **这三个坑的可怕之处在于表现形式全都离根因很远**：第 1 个报语法错误、第 2 个报 EINVAL、第 3 个报编译找不到模块 —— 没有一个指向"编码"、"cmd 不能 spawn"、"复制没做完"。所以修完之后更要紧的是**让失败发生在离根因近的地方**（自检、`doctor`），而不只是把这三处修好。
 
-#### 4.4.9 `doctor.mjs` —— 装不上时先跑它
+##### 第二批（2026-09-08，第一台真正没装过 node 的 macOS）
+
+上一批修完之后，在**一台真正没装过 node 的 macOS** 上首装 —— 也就是 §0.0「验证覆盖缺口」里点名的那条路径 —— 又炸出四处。**这批的根因和上一批完全不同：上一批是编码与 API 限制，这批是「脚本跑在什么环境里」。**
+
+| # | 现象 | 根因 | 修法 |
+|---|---|---|---|
+| 1 | agent 报 `manifest.json` **504**；同一地址浏览器能开，人在终端 `curl` 也是 200 | **agent 宿主进程注入了出外网的代理**（实测 `proxyhk.huawei.com:8080`）。`install.sh` 的 `curl` 裸跑、继承该环境 → 请求被送进 CONNECT 隧道 → 代理连不上内网上游 → **504 是代理自己发的**。⚠️ **`NO_PROXY` 里确实配了 `.huawei.com`，却没有生效** —— 那台机器的 curl 恰好是 **7.86.0**，高度可疑是它 noproxy 匹配重写引入的 tailmatch 回归（7.87.0 修回），**待验证**（下方命令）。另注：`~/.npmrc` 里那行 `noproxy=` 是 npm 的配置，管不到 curl，别把两者混为一谈 | 内网 host **强制直连**（sh 用 `--noproxy '*'`，ps1 换掉 `DefaultWebProxy`），逃生开关 `--proxy=<地址>`。**不做「失败自动回退走代理」** —— 那会用第二次的结果掩盖第一次失败的真实原因，日志里反而看不出发生了什么。而且代理是出外网用的、内网服务解析到 10.x 内网地址，「必须靠代理才能到内网」这种情况在本场景不成立 |
+| 2 | （次生）agent 绕过脚本，改用**系统 npm** 全局装 yarn，撞 `/usr/local` 权限不足 | 坑 1 导致池子里没有 node，`setup-env.mjs` 根本没机会执行。**原设计（用池子 node 的 npm、prefix 落在池子里、不需要 sudo）是对的，它只是没被走到** | 修掉坑 1；SKILL.md 明确禁止绕过脚本自行安装 |
+| 3 | macOS 上 `POOL_YARN_JS: MISSING`，且**新版 `setup-env` 在 macOS 上首装必然失败** | 两个 bug 叠加：① `paths.mjs` 的 `yarnJs` 非 win32 分支猜的是 `node/lib/node_modules/…`，**实际在 `node/node_modules/…`**（win32 那条才对）→ 判断恒为 false → 必定走回落分支；② 回落分支是 `execFileSync(P.yarnBin, argv, { shell: true })`，而 `P.yarnBin` 必然含 `Application Support` 的空格，`shell: true` 时 Node 把 file 与 args 裸拼成命令字符串交给 shell、**不加引号**，路径在空格处被劈开 | 不再猜路径：问 `npm root -g`（或 `readlink` 那个 bin 链接）拿真实位置；回落分支去掉 `shell: true` |
+| 4 | 同一台机器，`install.sh` 与 `install.sh --skip-node` 用**两个不同的 npm 源** | 读 manifest 的整块代码在 `if [ -n "$SKIP_NODE" ] … else` 的 else 分支里。走 skip 分支时 `REGISTRY` 一直是空，`--registry` 不传，于是落到机器 `~/.npmrc` 的默认源 —— **npm 源的取值挂在了"要不要下载 node"这个无关条件上** | `REGISTRY` 的读取提到 `if` 外面 |
+
+**坑 1 的根因待验证一步**（内网那台 macOS 上跑，不需要真实代理凭据）：
 
 ```bash
+# 用一个必定连不上的假代理，就能判断 curl 到底有没有"打算走代理"
+U="https://octo.hdesign.huawei.com/design/fastui-env/manifest.json"
+PX="http://127.0.0.1:9"
+for NP in '.huawei.com' 'huawei.com' 'octo.hdesign.huawei.com' '*'; do
+  printf '%-32s ' "NO_PROXY=$NP"
+  env HTTPS_PROXY="$PX" https_proxy="$PX" NO_PROXY="$NP" no_proxy="$NP" \
+    curl -k -s -o /dev/null -w 'http=%{http_code} exit=%{exitcode}\n' --max-time 20 "$U"
+done
+```
+
+判读：`http=200` = `NO_PROXY` 生效、走了直连；`exit=7` = 没生效、curl 跑去连那个假代理了。
+若只有 `.huawei.com` 一行是 `exit=7`，就坐实了 curl 7.86.0 的前导点 tailmatch 回归。
+
+> **必须带上代理环境变量测。** `NO_PROXY` 只在存在代理时才起作用 —— 在一个没有 `HTTP_PROXY`
+> 的终端里怎么设 `NO_PROXY` 都是直连、全 200，那种测法什么也证明不了（已经踩过一次）。
+
+> **坑 3 是上一批修坑 2 时引入的。** 旧版 `run(P.yarnBin, ["install"], …)` 直接 `execFileSync` 绝对路径、不经 shell，空格从来不是问题；换成"优先 JS 入口 + shell 回落"之后，macOS 因为路径猜错**必定**走进那个坏回落。修一个平台的问题时顺手加的回落分支，把另一个平台变成了必挂 —— **这类改动以后两个平台都要实测**。
+>
+> 这颗雷当时没响，是因为设计师那台跑的是修复前的旧版（skill 是手工下载到 `~/Downloads/` 的一份，不会自动更新）。
+
+> **坑 1 给方法论的教训**：`doctor` 这次不但没帮上忙，还给出了误导性的 `MANIFEST_HTTP_STATUS: 200` —— 因为人是在**终端**跑的它，而问题只存在于 **agent 进程**。诊断工具跑错环境，比没有诊断工具更糟。订正见 §4.4.9。
+
+#### 4.4.9 `doctor.mjs` —— 装不上时先跑它
+
+**必须由 agent 在它自己的进程里跑，不能让人去终端跑**（2026-09-08 订正）。
+
+理由是上面第二批坑 1：代理这类问题**只存在于 agent 宿主进程的环境里**。人在终端跑 doctor 会得到一个看起来一切正常的假象 —— 实测拿到 `MANIFEST_HTTP_STATUS: 200`，而 agent 在同一台机器上同时报 504。doctor 的价值前提是"和失败发生在同一个环境"，**跑错环境比不跑更糟**：它把排查方向直接带偏了一轮。
+
+```bash
+# 由 agent 调用，不要转述给人去终端执行
 node <skill>/scripts/doctor.mjs
 ```
 
-一次性打印：平台/node 版本、skill 组装状态、共享池各部件、系统 node/yarn/npm、**代理环境变量**、manifest 的 HTTP 状态与耗时、返回内容是不是 JSON（代理/网关的错误页会在这里现形）、manifest 里有没有当前平台的包。
+必须打印（v14 补齐）：
+
+| 组 | 字段 |
+|---|---|
+| **进程环境** | 平台 / node 版本；**本进程看到的** `HTTP_PROXY` `HTTPS_PROXY` `NO_PROXY`（含小写共六个）。一个都没有时也要显式打一行 `PROXY: (无)` —— 否则分不清"没有代理"和"没查代理" |
+| **网络 ×4** | `manifest` 与 `node 包 HEAD`，各测**直连**与**走代理**两种走法。四种组合都打 HTTP 状态、耗时、响应体前 120 字节 |
+| 共享池 | node / yarn / deps / lockfile / `env.lock.json` |
+| 系统 | 系统 node / yarn / npm |
+
+网络那四格是这次事故的直接产物：只测 manifest 一种走法，既分不出"网络不通"和"代理挡了"，也答不了"node 包（50MB）能不能下下来"——manifest 才 799 字节，它通不代表大文件通（§4.4.4 要求核对 `Content-Length`，一直没做过）。
+
+现有两个洞，一并修：
+
+- **504 时打不出响应体**：`MANIFEST_HEAD` 困在 `if (res.ok)` 分支里，而网关错误页恰恰只在非 2xx 时才有 —— body 预览要挪到 `res.ok` 外面
+- **证书放行是无效的**：传的是 `agent: new Agent({ rejectUnauthorized: false })`，而 Node 的 `fetch`（undici）只认 `dispatcher`，`agent` 被静默忽略。**doctor 实际在严格校验证书**，与 `install.sh` 的 `curl -k` 并不等价 —— 要么改 `dispatcher`，要么显式打一行 `TLS_VERIFY: ON/OFF`。不能让读的人以为已放行
 
 存在的理由：内网出问题时人只能截图（§8.4），而"装不上"背后有十几种可能，挨个手工试要来回好几轮。输出每行自解释，**截图发出来就够定位**，不需要再补充上下文。
-
-设计师那边报"装不上"时，让他先跑这一条，比问任何问题都快。
 
 #### 4.4.7 你在内网要做的事，按顺序
 
@@ -790,6 +858,39 @@ ERRORS_END
 > 主进程侧另有一份：Electron 的 electron-log，搜 `[fastui]` 前缀。那份记的是"宿主起没起 dev server"，与脚本侧互补。
 >
 > **按平台展开的绝对路径、可直接粘贴的查看命令，写在 [find-local-logs.md](../../find-local-logs.md) 的 ⑤⑥ 两类里**（那份是全 app 通用的「日志在磁盘哪儿」指南，查日志去那边，不要在本 spec 里找）。
+
+##### 日志里必须有什么（v14）
+
+落点定了不等于内容够。**现状是只有契约行落盘**：`result.mjs` 的 `persist()` 只被 `ok()` / `fail()` 调用，`log()` 只写 stderr；而 `run()` 用 `stdio: ["ignore", "inherit", "inherit"]` 让子进程输出直接继承到父进程 —— 于是**失败时最该看的那段全丢了**。
+
+2026-09-08 的实例：日志里留下了 `YARN_INSTALL_FAILED: 安装 yarn 失败: Command failed: … npm install -g yarn --registry=…`，但 npm 自己打的几十行错误原文（504、具体 URL、重试记录）一个字节都没留下。排查只能靠"agent 的思考过程里提过 504"这种二手记忆，白绕了一大圈。
+
+| 必须落盘 | 现状 | 改法 |
+|---|---|---|
+| 契约行（`RESULT:` / `HINT:` / `LOG:` / `WARN:`） | ✅ 已落 | — |
+| 过程行（`log()`：走了哪个分支、`$ <实际命令行>`） | ❌ 只进 stderr | `log()` 也走 `persist()` |
+| **子进程 stdout/stderr**（npm / yarn / curl 的原文） | ❌ 完全丢失 | `run()` 改 `stdio: ["ignore", "pipe", "pipe"]`，捕获后写日志（成功也写）；超长只留尾部 N KB |
+| `install.sh` / `install.ps1` 全程 | ❌ 一个字都不落盘 | 全程 tee 到同一个 `<envDir>/octo-fastui.log`；`curl` 加 `-w '%{http_code}'`，失败时把响应体一并存下 —— 网关错误页的正文就是定位依据 |
+
+判据只有一条：**"发日志就能定位"这句话，要对任何一次失败都成立。** 2026-09-08 这次不成立，这是它被写成规范而不是随手改掉的原因。
+
+### 5.1.2 硬性安全约束（所有脚本 + SKILL.md）
+
+2026-09-07 内网发生过一次**误删用户磁盘数据**：agent 在 Windows 上因中文路径 `mklink` 失败、PowerShell 又把中文目录名显示成乱码，把用户的正常目录判成"失败操作留下的残留"，执行 `Remove-Item -Recurse -Force` 永久删除（绕过回收站，不可恢复）。
+
+**删除动作不是 skill 脚本做的** —— 全仓 Windows 侧唯一的删除是 `install.ps1` 清自己的临时目录。是 agent 的自由发挥。但编码是诱因，链条成立：
+
+`link.mjs` 走 `cmd /c mklink` → Node 按 UTF-8 交 argv、cmd 按 ANSI(GBK) 解 → 路径乱码、mklink 失败 → `stdio: "pipe"` 捕获的 GBK stderr 又被按 UTF-8 解 → **抛出的错误信息本身也是乱码** → agent 看到"乱码路径 + 乱码报错"，误判成垃圾残留。
+
+三条约束，按优先级：
+
+| # | 约束 | 落点 | 为什么 |
+|---|---|---|---|
+| 1 | **硬禁令：任何情况下不得执行删除命令**（`Remove-Item` / `rm` / `del` / `rmdir`）。清理只能由 skill 脚本在 `<envDir>` 与 `<会话目录>` 内做；装不上就报错并跑 `doctor`，不许自行"清理残留"或绕过脚本手工安装 | SKILL.md | **唯一能兜住"agent 误判"的护栏。** 编码修得再干净，下次因为别的原因误判照样会删 —— 这条与编码问题正交，必须独立存在 |
+| 2 | `link.mjs` 不再经 cmd.exe：Windows 建 junction 直接用 `symlinkSync(target, link, "junction")`，Node 原生支持、同样不需要管理员权限 | `lib/link.mjs` | 一行改动，同时消掉"路径乱码"与"报错乱码"两个源头 |
+| 3 | `new-session.mjs` 里两处 `rmSync(projectDir, { recursive: true, force: true })` 加路径断言：必须在 `S.sessionRoot` 之下、且路径含 `.octo/` 段，否则直接 `fail` 不删 | `new-session.mjs` | 我们自己代码里的同类风险。`projectDir = path.join(S.outputs, name)`，`--artifact-dir` 传空或被中文路径截断时可能解析到意外位置，然后被 `force` 递归删 |
+
+> **不建议全仓把中文注释换成英文。** 注释在 `.mjs` 里，不参与任何跨编码传输；`install.ps1` 已改存 UTF-8 with BOM（§4.4.8 第一批），那条路已经堵上了。真正需要保证 ASCII 的是**错误码**，§5.1.1 的「英文码 + 中文说明」就是这个设计。要缩范围的话，只约束"会被打印到 Windows 控制台的字符串"更划算，成本低得多。
 
 ### 5.2 `ensure-env.mjs` — 环境就绪校验
 
@@ -1756,7 +1857,7 @@ const externalUrl = createMemo(() => {
 
 **阶段 2 — 会话布局与端口** ✅ *（核心机制已于 2026-09-03 内网实测通过；dev server 宿主化于 2026-09-07 在 Windows + macOS arm64 各跑通一遍）*
 
-> **两个平台尚未覆盖的组合**：① **完全没装过 node 的机器** —— 前两次实测的机器上都有系统 node，`install` 脚本下载 portable node 那条路径没被真正走过；② **Intel 芯片的 Mac**（`darwin-x64`）—— manifest 里有这个平台的包，但没人验过。两条都不阻塞当前进度，但**首装体验正是设计师会遇到的那条路径**，补验优先级不低。
+> **尚未覆盖的组合**：① ~~完全没装过 node 的机器~~ —— **2026-09-08 走到了，当场炸出四处**（§4.4.8 第二批：代理挡住 manifest、macOS `yarnJs` 路径错 + `shell: true` 空格、registry 取值挂在 skip-node 分支上），修完必须再走一遍；② **Intel 芯片的 Mac**（`darwin-x64`）—— manifest 里有这个平台的包，但没人验过；③ **必须由 agent 全程跑，不能人工代跑任何一步** —— 这次的根因（代理）只存在于 agent 宿主进程的环境里，人在终端复现不出来，`doctor` 在终端跑还会给出误导性的 `MANIFEST_HTTP_STATUS: 200`。
 1. 依赖链接建在会话根、产物目录零链接，直连 cli-service 启动，webpack 跨两层解析成功 ✅
 2. `OCTO_PORT` / `OCTO_DEPS` 均生效（端口落在指定值、copy-webpack-plugin 从共享池取源）✅
 3. `new-session` 建三个会话，各自独立端口并行运行，互不干扰
@@ -1787,6 +1888,7 @@ const externalUrl = createMemo(() => {
 | ~~Q7~~ | ~~依赖外置（链接建在工程之外）~~ | — | ✅ **反转为最终方案**：第一次试失败的真正原因是启动路径而非解析能力；绕过 yarn+lerna 后实测成立，见 §1.6 / §2 |
 | ~~Q8~~ | ~~内网同步流程~~ | — | ✅ **已定**：见 §8.3 / §8.4 |
 | **Q9** | UXAI 侧三件事（§8.6：导出按钮 / external URL tab 编辑类功能 gate / dev server 生命周期）的排期与归属 | 属 Design 模块，需走 [collab-pr-protocol](../../collab-pr-protocol.md) | **待与 Design 负责同事对齐**（不阻塞 skill 侧实现） |
+| **Q10** | **`doctor` 的网络探针要不要整个拿掉** —— 它用 Node 的 `fetch` 探测，而 `fetch`(undici)**完全忽略 `HTTP_PROXY` 环境变量**（2026-09-08 本地实测确认），install 脚本用的 curl 则会读。两者走的不是同一条路，于是 doctor 报 200、install 同时 504，**诊断工具给出了另一个问题的答案** | 平行实现必然漂移。倾向的方案：**网络探测整段删掉，改由 `install.sh --check` 提供**（只探测不下载，走与真实安装完全相同的代码路径，零漂移）；`doctor.mjs` 保留静态清点（池子里有什么、skill 组装了没、lockfile 对不对），需要网络结果时**调用** `install.sh --check` 拿回来 —— 入口仍是 `node doctor.mjs` 一条命令，名字不变 | **待讨论**。牵连 §4.4.9 的重写与 S2/S5 的边界划分，不阻塞本轮六项修复 |
 
 ### 明确不在本 spec 范围
 
