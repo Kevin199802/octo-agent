@@ -29,6 +29,18 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"   # 关掉进度条,几十 MB 的下载会快很多
 
+# ⚠️ Fail 必须定义在**所有调用点之前**。PowerShell 的函数是执行到 function 语句时才注册的
+# (不像 C# 那样全文件预声明),定义在调用之后会抛 CommandNotFoundException,
+# 而且是在 $ErrorActionPreference = "Stop" 下裸崩、打不出 RESULT: FAIL 契约行。
+# v14 第一版把 -Proxy 的错误处理加在了它前面,踩过一次。
+function Fail($code, $reason, $detail, $hint) {
+  Write-Output "RESULT: FAIL | ${code}: ${reason}"
+  # 详情单独成行:内网排查只能靠截图(SPEC-DES-001 §8.4),埋在 HINT 里容易被忽略
+  if ($detail) { Write-Output "DETAIL: $detail" }
+  if ($hint) { Write-Output "HINT: $hint" }
+  exit 1
+}
+
 # PowerShell 5.1 默认只启用 TLS 1.0/1.1,而现在的服务器普遍只收 TLS 1.2+。
 # 症状极具迷惑性:浏览器打开同一个 URL 完全正常,脚本这边却报"基础连接已经关闭"。
 # 这一行必须在任何 Invoke-WebRequest 之前执行。
@@ -81,14 +93,6 @@ public class OctoNoCertCheck : ICertificatePolicy {
 "@
     [System.Net.ServicePointManager]::CertificatePolicy = New-Object OctoNoCertCheck
   } catch { }
-}
-
-function Fail($code, $reason, $detail, $hint) {
-  Write-Output "RESULT: FAIL | ${code}: ${reason}"
-  # 详情单独成行:内网排查只能靠截图(SPEC-DES-001 §8.4),埋在 HINT 里容易被忽略
-  if ($detail) { Write-Output "DETAIL: $detail" }
-  if ($hint) { Write-Output "HINT: $hint" }
-  exit 1
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path

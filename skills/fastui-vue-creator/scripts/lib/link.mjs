@@ -22,10 +22,16 @@ export function ensureDirLink(linkPath, targetPath) {
       throw new Error(`${linkPath} 已存在但指向 ${cur},期望 ${targetPath}`)
     }
     if (st.isDirectory()) {
-      // Windows 的 junction 在 lstat 下表现为目录,无法直接读出目标,
-      // 只能认它已存在 —— 重建的风险高于复用。
-      if (process.platform === "win32") return "reused"
-      throw new Error(`${linkPath} 已存在且是真实目录(不是链接),请先手动确认后移除`)
+      // v14:删掉了这里原有的 win32 特例(`return "reused"`)。
+      //
+      // 那条特例的前提"junction 在 lstat 下表现为目录,无法读出目标"是错的 ——
+      // 2026-09-09 内网 Windows 实测:junction 的 lstat 报 isSymbolicLink() = true、
+      // readlinkSync() 能读出目标,所以 junction 走的是上面那条真比对分支,根本到不了这里。
+      //
+      // 能走到这里的只有**真实目录**(比如有人在产物目录里手工跑过一次 yarn install)。
+      // 原来在 Windows 上静默 return "reused",等于依赖外置悄悄没生效,最后以
+      // "编译找不到模块"的形态爆出来 —— 正是 §4.4.8 反复强调要避免的"表现离根因很远"。
+      throw new Error(`${linkPath} 已存在且是真实目录(不是链接)。把这个路径报给用户,由人确认里面是什么再决定怎么处理`)
     }
     throw new Error(`${linkPath} 已存在且不是目录`)
   }

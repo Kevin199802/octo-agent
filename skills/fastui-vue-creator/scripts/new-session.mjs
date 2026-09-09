@@ -91,13 +91,21 @@ if (exists(projectDir)) {
     // 所以必须由脚本提供这条合法出口,否则 PROJECT_INCOMPLETE 就是个死结:
     // 这条路径脚本自己不会自愈,而 agent 又不许删。
     assertSafeToRemove(projectDir)
-    rmSync(projectDir, { recursive: true, force: true })
+    try {
+      rmSync(projectDir, { recursive: true, force: true })
+    } catch (e) {
+      // 另外两处 rmSync 都包了 catch,这里不能漏:Windows 上 dev server 还占着该目录时
+      // rmSync 会抛,未捕获就是裸崩、连 RESULT: FAIL 都打不出来。
+      fail("RESET_FAILED", `删不掉残缺的产物目录: ${e.message}`, {
+        hint: `多半是 dev server 还占着它。先让宿主停掉该会话的 dev server 再重试;仍不行则把 ${projectDir} 报给用户`,
+      })
+    }
     log(`[reset] 已删除残缺的产物目录,将重建: ${projectDir}`)
   } else if (missing.length) {
     fail("PROJECT_INCOMPLETE", `产物目录已存在但缺少 ${missing.length} 个关键文件`, {
       hint:
         `多半是上次复制中断留下的残骸。重跑本脚本并加 --reset,由脚本删掉残骸后重建。\n` +
-        `⚠️ --reset 会清空 ${projectDir},该目录下已经写过的代码会一并丢失。\n` +
+        `⚠️ --reset 只在这次自检不完整时才会删,但它会清空 ${projectDir},该目录下已经写过的代码会一并丢失。\n` +
         `不要自己执行删除命令(见 SKILL.md 硬约束 0)`,
       extra: { MISSING: missing.join(", ") },
     })

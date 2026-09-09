@@ -9,7 +9,7 @@
  * 用法: node setup-env.mjs [--env-dir=] [--registry=] [--upgrade] [--proxy=<地址>]
  */
 import { execFileSync } from "node:child_process"
-import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs"
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, log, parseArgs } from "./lib/result.mjs"
 import { TEMPLATE_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs } from "./lib/paths.mjs"
@@ -53,13 +53,18 @@ const PROXY_ENV_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", 
 function childEnv() {
   const e = { ...process.env }
   for (const k of PROXY_ENV_KEYS) delete e[k]
-  // npm 还会读 .npmrc 里的 proxy= —— npm_config_* 环境变量优先级高于 .npmrc,用空值顶掉
-  e.npm_config_proxy = ""
-  e.npm_config_https_proxy = ""
+  // npm 还会读 .npmrc 里的 proxy=,而**那一层优先级高于环境变量**,光删变量堵不住。
+  // 用 npm_config_* 顶掉它 —— 注意必须是字符串 "false",**空串 "" 顶不掉**(npm 10.9.4 实测:
+  // 设成 "" 之后 `npm config get proxy` 仍返回 .npmrc 里的值,设成 "false" 才生效)。
+  e.npm_config_proxy = "false"
+  e.npm_config_https_proxy = "false"
   const proxy = String(args.proxy || "")
   if (proxy) {
-    // 显式要求经代理:原样设回去,并撤掉上面的空值覆盖
+    // 显式要求经代理:原样设回去,并撤掉上面的覆盖。
+    // 同时清掉继承来的 NO_PROXY —— 否则 yarn 1(走 request 库,读 NO_PROXY)可能把
+    // 刚指定的代理又静默旁路掉,与 install.sh 的 `--proxy … --noproxy ''` 保持一致。
     for (const k of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]) e[k] = proxy
+    for (const k of ["NO_PROXY", "no_proxy"]) delete e[k]
     delete e.npm_config_proxy
     delete e.npm_config_https_proxy
   }
@@ -153,6 +158,17 @@ for (const pattern of patterns) {
   }
 }
 log(`[deps] 复制了 ${members} 个 workspace 成员的 package.json`)
+
+// yarn 1 **不读 `npm_config_*`**,而 `.npmrc` / `.yarnrc` 里的 `proxy` 优先级高于环境变量 ——
+// 上面 childEnv() 删掉的环境变量堵不住这一层。往**我们自己这份拷贝**末尾追加空值即可
+// (实测 `.yarnrc` 压得过 `.npmrc`;而 CLI 传 `--proxy ""` 会被 yarn 当空参数忽略,不管用)。
+// 只动共享池里的副本,不碰 template,更不碰用户的 ~/.yarnrc。
+if (!args.proxy) {
+  const yarnrc = path.join(P.deps, ".yarnrc")
+  const cur = exists(yarnrc) ? readFileSync(yarnrc, "utf8") : ""
+  writeFileSync(yarnrc, `${cur.replace(/\s*$/, "")}\nproxy ""\nhttps-proxy ""\n`)
+  log(`[deps] 已在 ${yarnrc} 追加空 proxy(强制直连;要经代理请传 --proxy)`)
+}
 
 // ⚠️ 这里绝对不要加 --registry ——
 // 脚手架自带的 .npmrc / .yarnrc 已配好各 scope 的独立源(@lake / @turboui 等),
