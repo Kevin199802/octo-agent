@@ -1,6 +1,6 @@
 # SPEC-DES-001 — fastui/lake 组件代码生成：预览与交付管道
 
-> 状态：草案（v13，UXAI 侧 ①②⑤ 收口 —— 导出按钮与预览就绪时序已实现，②查明不用改） · 优先级 P1 · 规模 [L] · 领域 infra/design
+> 状态：草案（v14，§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003；UXAI 侧 ①②⑤ 收口 —— 导出按钮与预览就绪时序已实现，②查明不用改） · 优先级 P1 · 规模 [L] · 领域 infra/design
 >
 > 上游已实现：✗ —— 本 spec 全部为 Design 侧新增；参考实现是 ICT 的 `ict-component-creator` skill（外部，React + 自制 mini bundler），**其管道分层可借鉴、具体实现不可照搬**（理由见 §1.3）
 >
@@ -9,6 +9,8 @@
 ---
 
 > ## 修订记录
+>
+> **2026-09-09：v14(结构拆分 —— §4.4 / §8.6 移出为独立 spec,设计结论一个字没动)**——本版只动结构。① **§4.4「内网托管」拆出 [SPEC-DES-002](fastui-env-hosting.md)**、**§8.6「UXAI 仓要做的五件事」拆出 [SPEC-DES-003](fastui-uxai-integration.md)**:这两节的读者与变更节奏都与主 spec 不同——前者给内网做资源投放/运维的人照着做,后者给 UXAI 仓 Design 模块的前端,而主 spec 是设计决策。主文件 1946 行降到 1331 行。② **小节号一律沿用**(仍叫 4.4.1 / 8.6.1),主文件保留 `### 4.4` / `### 8.6` 的标题壳 + 指针行 —— spec 内外到处引用 `§4.4.x` / `§8.6.x`,编号消失会让人顺着找过来时以为断号;**文字写法不用改**,但指向主文件**子标题锚点**的深链(如 `#448-首装踩到的坑…`)已随小节迁走,要改指新文件。③ 正文逐字未动(剥掉链接后与拆分前逐行 diff 零差异),交叉引用改成跨文件链接,锚点用 `github-slugger` 全仓实测**零失效**。④ **首装修复批次(PR #21,S1/S3/S4/S6/S7/S9 六项)不单列修订条目**——那批改的是 skill 代码不是 spec 结论,进展记在 [§0.0](#00-当前进度与待办改动后随手更新这一节) 的 S 表;ROADMAP 里标的 v14 即指该批次,本版把 spec 头部版本号对齐上去。
 >
 > **2026-09-07：v13(UXAI 侧 ①②⑤ 收口,按实现订正 [§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill))**——① ⑤ 已实现(UXAI PR #812),② 查明不用改,本版把 [§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill) 从"设计稿"改写成"实况"。三处订正都是 v12 勘查与实际代码对不上:① **[§8.6.2](fastui-uxai-integration.md#862-导出代码包按钮-的落点与契约) 的 `handleDownload` 路线走不通**——`SUBTYPE_CONFIG.url.features.download` 是 `false`,下载按钮压根不渲染;而翻成 `true` 是回归,因为 `subtype: "url"` 是**所有 http(s) 链接 tab 的通用形态**(链接卡片、文件管理开外链都走它),任意外链都会长出一个必然失败的下载按钮。改走同一个扩展点的另一条腿 `components.actionBar.extraButtons`,并给按钮加双重判据(URL 指向 loopback + 会话目录下存在 `.octo-fastui.json`),`action-bar.tsx` 上只追加 2 行(自定义按钮的 ctx 补会话信息)。② **`skillDir` 推导路径 v12 猜错了**——skill 实际装在 `~/.config/octo/skill/<name>/` 而不是 `.octo/skills/`,改为按候选逐个 `existsSync`,第一位留给状态文件的 `skillDir` 字段(`new-session` 以后补写即生效)。③ **[§8.6.5](fastui-uxai-integration.md#865-重启后预览白屏iframe-早于-dev-server-就绪) 的"bump `refreshKey`"未采用**——`refreshKey` 是父组件的 prop,`html-renderer` 手里没有 setter,而且不需要:`src` 从 `undefined` 变成 URL 本身就是一次加载。改为门禁 `src` + `fetch(no-cors)` 探测(单次 5 秒 abort、1 秒轮询、3 分钟上限),**只对 loopback 生效**,其他外链行为一个字没变。④ **[§8.6.3](fastui-uxai-integration.md#863-external-url-tab-的编辑功能-gate-的判据) 查明关闭**:`url` 的能力表早就把编辑类功能全关了,那些读 `contentDocument` 的代码在 external 分支下没有入口 —— 这解释了内网实测"预览没崩"。 ⑤ **PR review 后补入两条**:门禁**超时必须降级放行 `src`**(否则探测机制一旦在真机上不可用,预览就从"白屏可恢复"变成"永远打不开",比不修更糟;PNA 这条风险恰好落在待内网实测的范围里),覆盖层文案相应改中性——门禁范围是任意 loopback URL,不该写 fastui 专属说法;`skillDir` **由 `new-session` 写进状态文件**,不再让宿主猜——`XDG_CONFIG_HOME` 在 Electron 主进程与 server 子进程之间是分裂的(见 [§8.6.2](fastui-uxai-integration.md#862-导出代码包按钮-的落点与契约) 的告警框),宿主没有可靠推导依据,候选链降级为只兼容老会话。
 
