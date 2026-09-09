@@ -61,6 +61,9 @@ put("LOG_HINT", "两份日志文件名:octo-fastui.log(脚本输出)、devserver
 // ── 系统 node/yarn(不是必需,但知道有没有对排查有用)────────────────
 for (const [name, bin] of [["SYSTEM_NODE", "node"], ["SYSTEM_YARN", "yarn"], ["SYSTEM_NPM", "npm"]]) {
   try {
+    // 这里的 shell: true 是安全的,与 §4.4.8 第二批坑 3 那次不同:
+    // bin 是固定字面量、argv 只有 "-v",不含任何路径 —— 不存在空格被劈开或中文被代码页搞乱的问题。
+    // Windows 上必须走 shell,否则找不到 yarn.cmd / npm.cmd(Node 18+ 不许直接 spawn .cmd)。
     put(name, execFileSync(bin, ["-v"], { encoding: "utf8", shell: process.platform === "win32" }).trim())
   } catch {
     put(name, "(没有)")

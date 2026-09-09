@@ -217,6 +217,10 @@ if (!reused) {
       // PowerShell 的 Start-Process 创建的是真正独立的进程,不在调用者的 Job 里。
       const q = (v) => `'${String(v).replace(/'/g, "''")}'`
       const psScript = [
+        // 输出也定成 UTF-8:PowerShell 的中文报错默认按 GBK 出来,Node 这边按 utf8 读就是乱码,
+        // 而"乱码报错"正是 2026-09-07 误删事故的起点(§5.1.2)——错误信息必须能读。
+        `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8`,
+        `$OutputEncoding=[System.Text.Encoding]::UTF8`,
         `$env:OCTO_DEPS=${q(P.depsModules)}`,
         `$env:OCTO_PORT=${q(String(port))}`,
         `$p = Start-Process -FilePath ${q(P.nodeBin)}` +
@@ -227,8 +231,18 @@ if (!reused) {
           ` -WindowStyle Hidden -PassThru`,
         `$p.Id`,
       ].join("; ")
+      // **必须走 -EncodedCommand,不能用 -Command**(v15)。
+      //
+      // PowerShell 5.1 读命令行参数时按系统 ANSI 代码页解释(内网是 GBK),而 Node 按 UTF-8
+      // 编码 argv 传出去 —— 项目路径里只要有中文,传过去就是乱码,Start-Process 报"找不到路径"。
+      // 2026-09-09 内网实测:工作目录 `D:\10 agent测试\` 下 dev server 起不来。
+      // 这跟 install.ps1 那条"必须存 UTF-8 with BOM"是同一个根因(PS 5.1 的编码假设)。
+      //
+      // -EncodedCommand 收的是 UTF-16LE 的 Base64,完全绕开代码页,是微软给的标准解法;
+      // 顺带也免掉了命令行里的引号转义问题。
+      const encoded = Buffer.from(psScript, "utf16le").toString("base64")
       try {
-        const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", psScript], {
+        const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
           encoding: "utf8",
           windowsHide: true,
         })
