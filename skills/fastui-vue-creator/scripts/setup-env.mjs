@@ -163,11 +163,22 @@ log(`[deps] 复制了 ${members} 个 workspace 成员的 package.json`)
 // 上面 childEnv() 删掉的环境变量堵不住这一层。往**我们自己这份拷贝**末尾追加空值即可
 // (实测 `.yarnrc` 压得过 `.npmrc`;而 CLI 传 `--proxy ""` 会被 yarn 当空参数忽略,不管用)。
 // 只动共享池里的副本,不碰 template,更不碰用户的 ~/.yarnrc。
-if (!args.proxy) {
+// 用标记块包起来并在写入前剥掉旧的 —— 必须幂等:上面那段复制只在 template 里**有** .yarnrc 时
+// 才会覆盖 deps/.yarnrc,template 里没有的话这个文件会一直留着,每次 --upgrade 都追加一次就累积了。
+const OCTO_YARNRC_MARK = "# --- octo: 强制直连(SPEC-DES-001 §4.4.8 第二批坑 6),重跑会被整块替换 ---"
+{
   const yarnrc = path.join(P.deps, ".yarnrc")
-  const cur = exists(yarnrc) ? readFileSync(yarnrc, "utf8") : ""
-  writeFileSync(yarnrc, `${cur.replace(/\s*$/, "")}\nproxy ""\nhttps-proxy ""\n`)
-  log(`[deps] 已在 ${yarnrc} 追加空 proxy(强制直连;要经代理请传 --proxy)`)
+  let cur = exists(yarnrc) ? readFileSync(yarnrc, "utf8") : ""
+  const at = cur.indexOf(OCTO_YARNRC_MARK)
+  if (at !== -1) cur = cur.slice(0, at) // 剥掉上一次追加的块
+  cur = cur.replace(/\s*$/, "")
+  if (args.proxy) {
+    // 显式要走代理:只还原文件,不再写死空值(代理本身由 childEnv 的环境变量传给 yarn)
+    if (exists(yarnrc) || cur) writeFileSync(yarnrc, cur ? `${cur}\n` : "")
+  } else {
+    writeFileSync(yarnrc, `${cur}\n${OCTO_YARNRC_MARK}\nproxy ""\nhttps-proxy ""\n`)
+    log(`[deps] 已在 ${yarnrc} 写入空 proxy(强制直连;要经代理请传 --proxy)`)
+  }
 }
 
 // ⚠️ 这里绝对不要加 --registry ——
