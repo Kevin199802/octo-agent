@@ -55,33 +55,38 @@
 
 ### 待办
 
-**🚫 阻塞：macOS 的 node 包在 nginx 上取不到**（2026-09-09 内网实测）
+**🚫 阻塞：`.tar.gz` 包用 curl 拿不到（403），但浏览器能拿到**（2026-09-09 内网实测）
 
 ```
-GET /design/fastui-env/node/node-v22.19.0-darwin-arm64.tar.gz
-  → HTTP/1.1 403 Forbidden，Content-Type: text/html，Content-Length: 808（错误页）
-
-GET /design/fastui-env/node/node-v22.19.0-win-x64.zip
-  → 200，Content-Length: 35424607，Content-Type: application/zip   ✅ 正常
+curl  GET  node/node-v22.19.0-darwin-arm64.tar.gz  → 403 Forbidden，text/html，808 字节
+浏览器 GET 同一个 URL                               → 拿到文件内容（被当文本渲染成乱码）
+IWR  HEAD node/node-v22.19.0-win-x64.zip           → 200，35424607 字节，application/zip
+curl  GET  manifest.json                            → 200
 ```
 
-同一台机器、同一目录、同一时刻：**Windows 包能下，macOS 包 403。** manifest 本身是 200，所以不是网络或代理问题，是**服务端的资源投放**（§4.4.4）。
+**文件是在的**（浏览器能取到内容），所以不是「没投放」，也不是权限或网络 —— 是**客户端差异**：同一个 URL，浏览器 200、curl 403。
 
-这解释了 §0.0 那条一直没关掉的验证缺口：「完全没装过 node 的机器」之所以从没走通过，可能根本不是代码问题 —— **包就没投放到位**。
+> **这条必须解决，不能因为「浏览器能打开」就放过。** `install.sh` 用的就是 curl，
+> `install.ps1` 用的是 `Invoke-WebRequest` —— 它们都不是浏览器，没有登录态、UA 也不同。
+> §4.4.4 的 HINT 早就写着「浏览器能打开不代表脚本能」，这次正好撞上。
 
-要确认的（内网，nginx 侧）：
+变量还没收敛（`.json` curl 通、`.tar.gz` curl 403、`.zip` 在另一台机器用另一个工具通），
+需要**在同一台机器、同一工具**上做受控对比才能定位。三个方向：
 
-1. `/design/fastui-env/node/` 目录下**实际有哪些文件**（403 而不是 404，可能是目录列表被禁，也可能是文件权限）
-2. `darwin-arm64` 与 `darwin-x64` 两个包在不在、权限对不对
-3. 在的话，逐个核对 `Content-Length` 与 `SHASUMS256.txt` 的 sha256（§4.4.3）
+| 假设 | 判据 |
+|---|---|
+| WAF / 网关按**扩展名**拦 | 同机同工具下 `.json` / `.zip` / `.tar.gz` 三者结果不同 |
+| 按 **User-Agent** 拦（curl 的 UA 被拦，浏览器 UA 放行） | 同一个 `.tar.gz`，加 `-A "Mozilla/5.0 …"` 后变 200 |
+| 需要**登录态**（浏览器有 cookie） | 上面两条都排除后，带浏览器 cookie 重试 |
 
-> 代码侧无法绕过这条 —— sha256 校验会在下载后拦下损坏的包，但**包取不到就是取不到**。
+顺带：浏览器把 `.tar.gz` 渲染成文本而不是下载，说明 nginx 没给它配 MIME
+（`.zip` 配了，所以直接下载）。这本身不导致 403，但说明服务端对这两类文件的处理确实不同。
 
 **skill 侧首装修复**（[§4.4.8 第二批](#448-首装踩到的坑内网实测分两批2026-09-07--09-08)，2026-09-08 内网暴露）
 
 | # | 事项 | 状态 | 落点 |
 |---|---|---|---|
-| S1 | **代理导致 manifest 504** —— 内网 host 强制直连（sh `--noproxy '*'`；ps1 换掉 `DefaultWebProxy`），逃生开关 `--proxy` 并透传到 setup-env。**不做失败回退代理**。⚠️ 代理有**三层**，缺一层就等于没堵：① 环境变量（`childEnv()` 摘掉）② `.npmrc` 的 `proxy=`（`npm_config_proxy="false"`，空串顶不掉）③ `.yarnrc` 的 `proxy`（往 `deps/` 副本追加空值，yarn 1 不读 `npm_config_*`）—— 见 §4.4.8 第二批坑 6 | ✅ **已修**（PR #21） | `install.sh` / `install.ps1` / `setup-env.mjs` |
+| S1 | **代理导致 manifest 504** —— 内网 host 强制直连（sh `--noproxy '*'`；ps1 换掉 `DefaultWebProxy`），逃生开关 `--proxy` 并透传到 setup-env。**不做失败回退代理**。⚠️ 代理有**三层**，缺一层就等于没堵：① 环境变量（`childEnv()` 摘掉）② `.npmrc` 的 `proxy=`（`npm_config_proxy="false"`，空串顶不掉）③ `.yarnrc` 的 `proxy`（往 `deps/` 副本写标记块，yarn 1 不读 `npm_config_*`）—— 见 §4.4.8 第二批坑 6。**`--proxy` 逃生开关同样要堵满这三层**：只设环境变量的话 npm/yarn 会回落到文件里那个旧代理，开关被静默忽略 | ✅ **已修**（PR #21） | `install.sh` / `install.ps1` / `setup-env.mjs` |
 | S3 | **删除护栏**：SKILL.md 硬约束 0 + `rmSync` 路径断言 + `link.mjs` 改 `symlinkSync(…, "junction")` 绕开 cmd.exe + `new-session --reset` 合法出口 | ✅ **已修**（PR #21） | [§5.1.2](#512-硬性安全约束所有脚本--skillmd) |
 | S4 | **macOS 首装必挂**：`resolveYarnJs()` 顺 bin symlink 解析（并校验 `.js`），回落分支去掉 `shell: true` | ✅ **已修**（PR #21） | `lib/paths.mjs` / `setup-env.mjs` |
 | S6 | `REGISTRY` 读取从 `install.sh` / `install.ps1` 的条件分支里提出来 | ✅ **已修**（PR #21） | `install.sh` / `install.ps1` |
@@ -666,6 +671,8 @@ curl -sI https://octo.hdesign.huawei.com/design/fastui-env/node/node-v22.19.0-da
 ```
 
 **投放后必须逐个核对 `Content-Length`**：内网投放走网页上传时，几十 MB 的包被截断或代理返回错误页存成 `.zip` 都发生过，表现只是"`yarn install` 报一堆看不懂的错"。sha256 会兜住，但先看一眼大小能省一轮排查。
+
+**而且要 `manifest.node.platforms` 里的每一个平台都验一遍，不能只验当前这台机器的那个。**2026-09-09 就踩了：只验了跑命令那台的平台，`darwin-arm64` / `darwin-x64` 两个从没被 HEAD 过 —— 而设计师那台恰好是 arm64。**验的时候必须用 curl / `Invoke-WebRequest`，不能用浏览器**：同一个 URL 浏览器 200 而 curl 403 的情况真实发生过（见 §0.0 的阻塞项），而安装脚本用的正是后者。
 
 #### 4.4.5 `manifest.json` 示例（可直接改数值使用）
 

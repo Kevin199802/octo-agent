@@ -60,13 +60,15 @@ function childEnv() {
   e.npm_config_https_proxy = "false"
   const proxy = String(args.proxy || "")
   if (proxy) {
-    // 显式要求经代理:原样设回去,并撤掉上面的覆盖。
+    // 显式要求经代理。**同样要堵满三层** —— 只设环境变量的话,npm 会回落到 .npmrc 的
+    // `proxy=`(那一层压过环境变量),于是 --proxy 被静默忽略、走成机器上那个旧代理。
+    // 触发时人正在排查代理,静默走错比报错更难查。
     // 同时清掉继承来的 NO_PROXY —— 否则 yarn 1(走 request 库,读 NO_PROXY)可能把
     // 刚指定的代理又静默旁路掉,与 install.sh 的 `--proxy … --noproxy ''` 保持一致。
     for (const k of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]) e[k] = proxy
     for (const k of ["NO_PROXY", "no_proxy"]) delete e[k]
-    delete e.npm_config_proxy
-    delete e.npm_config_https_proxy
+    e.npm_config_proxy = proxy
+    e.npm_config_https_proxy = proxy
   }
   return e
 }
@@ -172,13 +174,11 @@ const OCTO_YARNRC_MARK = "# --- octo: 强制直连(SPEC-DES-001 §4.4.8 第二�
   const at = cur.indexOf(OCTO_YARNRC_MARK)
   if (at !== -1) cur = cur.slice(0, at) // 剥掉上一次追加的块
   cur = cur.replace(/\s*$/, "")
-  if (args.proxy) {
-    // 显式要走代理:只还原文件,不再写死空值(代理本身由 childEnv 的环境变量传给 yarn)
-    if (exists(yarnrc) || cur) writeFileSync(yarnrc, cur ? `${cur}\n` : "")
-  } else {
-    writeFileSync(yarnrc, `${cur}\n${OCTO_YARNRC_MARK}\nproxy ""\nhttps-proxy ""\n`)
-    log(`[deps] 已在 ${yarnrc} 写入空 proxy(强制直连;要经代理请传 --proxy)`)
-  }
+  // 两种情形都要写标记块,不能只在直连时写 —— 只剥不写的话 yarn 会回落到
+  // 文件里原有的 proxy 行(那一层压过环境变量),--proxy 就被静默忽略了。
+  const want = args.proxy ? String(args.proxy) : ""
+  writeFileSync(yarnrc, `${cur}\n${OCTO_YARNRC_MARK}\nproxy "${want}"\nhttps-proxy "${want}"\n`)
+  log(want ? `[deps] 已在 ${yarnrc} 写入 proxy ${want}` : `[deps] 已在 ${yarnrc} 写入空 proxy(强制直连;要经代理请传 --proxy)`)
 }
 
 // ⚠️ 这里绝对不要加 --registry ——

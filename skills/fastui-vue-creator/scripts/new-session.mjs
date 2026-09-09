@@ -152,8 +152,14 @@ let linkState
 try {
   linkState = ensureDirLink(path.join(projectDir, "node_modules"), P.depsModules)
 } catch (e) {
+  // hint 要按错误类型给。link.mjs 抛的"已存在但指向别处 / 已存在且是真实目录"这类,
+  // 错误消息本身已经自解释了,再套上"确认目标盘是 NTFS"只会把人往错方向带。
+  const alreadyExists = /已存在/.test(String(e.message))
   fail("LINK_FAILED", `建依赖链接失败: ${e.message}`, {
-    hint: process.platform === "win32" ? "确认目标盘是 NTFS 且路径无中文以外的特殊字符" : undefined,
+    hint:
+      !alreadyExists && process.platform === "win32"
+        ? "确认目标盘是 NTFS 且路径无中文以外的特殊字符"
+        : undefined,
   })
 }
 
