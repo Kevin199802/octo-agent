@@ -4,7 +4,7 @@
  * skill 落在 .octo/skills/<skillName>/,但这里一律用 import.meta.url 往上推,
  * 不硬编码 —— 前期以自定义技能验证、后期上架平台技能,路径不用改。
  */
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, readlinkSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -57,18 +57,46 @@ export const envPaths = (dir) => ({
   node: path.join(dir, "node"),
   nodeBin: process.platform === "win32" ? path.join(dir, "node", "node.exe") : path.join(dir, "node", "bin", "node"),
   yarnBin: process.platform === "win32" ? path.join(dir, "node", "yarn.cmd") : path.join(dir, "node", "bin", "yarn"),
-  // yarn 的 JS 入口。Windows 上必须走它,不能直接 spawn yarn.cmd ——
-  // Node 18 起出于命令注入防护(CVE-2024-27980)禁止直接执行 .cmd/.bat,报 EINVAL。
-  // `npm i -g` 在 portable node 下的落点:win 是 <node>/node_modules/,unix 是 <node>/lib/node_modules/
-  yarnJs:
-    process.platform === "win32"
-      ? path.join(dir, "node", "node_modules", "yarn", "bin", "yarn.js")
-      : path.join(dir, "node", "lib", "node_modules", "yarn", "bin", "yarn.js"),
   deps: path.join(dir, "deps"),
   depsModules: path.join(dir, "deps", "node_modules"),
   depsLock: path.join(dir, "deps", "yarn.lock"),
   lockFile: path.join(dir, "env.lock.json"),
 })
+
+/**
+ * yarn 的 JS 入口 —— **不能靠平台猜路径**。
+ *
+ * Windows 上必须走 JS 入口,不能直接 spawn `yarn.cmd`:Node 18 起出于命令注入防护
+ * (CVE-2024-27980)禁止直接执行 .cmd/.bat,报 EINVAL。
+ *
+ * 但 `npm i -g` 的落点随 npm 版本变,写死会错:v13 按 Unix 惯例猜 `<node>/lib/node_modules/`,
+ * 2026-09-08 内网实测 macOS 上实际落在 `<node>/node_modules/` —— 判断恒为 false,
+ * 于是必定走进 setup-env 的回落分支,而那条分支当时还带着 `shell: true`,
+ * 路径里的 `Application Support` 空格会把命令劈成两半。两个 bug 叠起来 = macOS 首装必挂。
+ *
+ * 所以改成**问真相**:先顺着 npm 自己建的 bin 链接走(唯一不依赖布局假设的路径),
+ * 再挨个试已知布局。
+ *
+ * @returns {string|null} 找不到返回 null,由调用方决定怎么办
+ */
+export function resolveYarnJs(P) {
+  try {
+    const abs = path.resolve(path.dirname(P.yarnBin), readlinkSync(P.yarnBin))
+    // 必须校验是 .js:yarn 1.x 的包里 bin/ 下同时躺着 `yarn.js` 和一个同名的 shell 脚本 `yarn`。
+    // 万一链接指到后者,`node <shell 脚本>` 会以语法错误的形态炸,离根因极远。
+    if (abs.endsWith(".js") && existsSync(abs)) return abs
+  } catch {
+    /* 不是链接(Windows 的 yarn.cmd)或根本不存在 —— 走下面的候选 */
+  }
+  for (const rel of [
+    ["node", "node_modules", "yarn", "bin", "yarn.js"],
+    ["node", "lib", "node_modules", "yarn", "bin", "yarn.js"],
+  ]) {
+    const p = path.join(P.root, ...rel)
+    if (existsSync(p)) return p
+  }
+  return null
+}
 
 /** platform-arch,用于在 manifest.json 里挑包 */
 export function platformKey() {

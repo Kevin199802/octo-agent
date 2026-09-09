@@ -25,6 +25,17 @@ const installHint =
     ? `powershell -ExecutionPolicy Bypass -File "${path.join(SKILL_DIR, "scripts", "install", "install.ps1")}"`
     : `bash "${path.join(SKILL_DIR, "scripts", "install", "install.sh")}"`
 
+/**
+ * 升级开关按平台拼 —— **不能两边都写 `--upgrade`**(v14)。
+ *
+ * install.ps1 是 `[CmdletBinding()]` 的 PowerShell 脚本,只认 `-Upgrade`。
+ * 往它后面追加 GNU 风格的 `--upgrade`,要么报"找不到匹配的参数",要么被位置绑定到
+ * 第一个参数 `$Manifest` —— 后者更糟:`$Manifest = "--upgrade"` 会一路走到
+ * Invoke-WebRequest,报成 DOWNLOAD_FAILED,把排查方向往"网络/代理"上带一轮,
+ * 而真实情况是 `-Upgrade` 开关**从来没被打开过**。
+ */
+const upgradeHint = `${installHint} ${process.platform === "win32" ? "-Upgrade" : "--upgrade"}`
+
 // ── 1. 占位未填充 ────────────────────────────────────────────────
 // 最容易漏、也最容易被误判成代码 bug 的一种状态(§8.3):skill 装上了,
 // 但内网组装没做,于是一跑就报"找不到文件"这种看不出根因的错。
@@ -32,7 +43,7 @@ const placeholders = [path.join(TEMPLATE_DIR, "PLACEHOLDER.md"), path.join(VENDO
 for (const p of placeholders) {
   if (exists(p)) {
     fail("SKILL_NOT_ASSEMBLED", `skill 未完成内网组装,${path.relative(SKILL_DIR, p)} 仍是占位文件`, {
-      hint: `把内网脚手架模板复制到 ${TEMPLATE_DIR}、三份组件 skill 复制到 ${VENDOR_DIR},再删掉这两个目录下的 PLACEHOLDER.md`,
+      hint: `【这是内网组装步骤,由 skill 维护者在维护机上执行,不是 agent 或用户能做的】把内网脚手架模板复制到 ${TEMPLATE_DIR}、三份组件 skill 复制到 ${VENDOR_DIR},再删掉这两个目录下的 PLACEHOLDER.md`,
     })
   }
 }
@@ -63,11 +74,11 @@ if (!lock) {
 const wantHash = sha256File(templateLock)
 const gotHash = sha256File(P.depsLock)
 if (!gotHash) {
-  fail("ENV_MISSING", `共享池缺少 deps/yarn.lock,无法确认装的是哪棵依赖树`, { hint: `${installHint} --upgrade` })
+  fail("ENV_MISSING", `共享池缺少 deps/yarn.lock,无法确认装的是哪棵依赖树`, { hint: upgradeHint })
 }
 if (!sameHash(wantHash, gotHash)) {
   fail("ENV_OUTDATED", "共享池的依赖树与当前 skill 的 template 不一致", {
-    hint: `${installHint} --upgrade`,
+    hint: upgradeHint,
     extra: { EXPECTED_LOCK: wantHash, ACTUAL_LOCK: gotHash },
   })
 }
@@ -81,7 +92,7 @@ try {
 }
 if (lock.nodeVersion && nodeVersion !== lock.nodeVersion) {
   fail("ENV_NODE_MISMATCH", `共享池 node 是 ${nodeVersion},清单记录的是 ${lock.nodeVersion}`, {
-    hint: `${installHint} --upgrade`,
+    hint: upgradeHint,
   })
 }
 

@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, log, parseArgs } from "./lib/result.mjs"
-import { SKILL_DIR, TEMPLATE_DIR, VENDOR_DIR, envDir, envPaths, readManifest, readJson, exists } from "./lib/paths.mjs"
+import { SKILL_DIR, TEMPLATE_DIR, VENDOR_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs } from "./lib/paths.mjs"
 import { sha256File } from "./lib/hash.mjs"
 
 const args = parseArgs()
@@ -46,7 +46,7 @@ if (exists(P.nodeBin)) {
     put("POOL_NODE_VERSION", `执行失败: ${e.message}`)
   }
 }
-put("POOL_YARN_JS", exists(P.yarnJs) ? "OK" : "MISSING")
+put("POOL_YARN_JS", resolveYarnJs(P) ?? "MISSING")
 put("POOL_DEPS", exists(P.depsModules) ? "OK" : "MISSING")
 put("POOL_LOCKFILE", exists(P.depsLock) ? sha256File(P.depsLock) : "MISSING")
 put("SKILL_TEMPLATE_LOCKFILE", exists(path.join(TEMPLATE_DIR, "yarn.lock")) ? sha256File(path.join(TEMPLATE_DIR, "yarn.lock")) : "MISSING")
