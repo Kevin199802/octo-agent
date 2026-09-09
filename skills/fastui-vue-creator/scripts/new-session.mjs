@@ -2,7 +2,7 @@
 /**
  * new-session —— 创建会话工程(SPEC-DES-001 §5.3)
  *
- * 用法: node new-session.mjs --artifact-dir=<[Artifact Folder] 绝对路径> [--name=<产物名>] [--env-dir=]
+ * 用法: node new-session.mjs --artifact-dir=<[Artifact Folder] 绝对路径> [--name=<产物名>] [--env-dir=] [--reset]
  *
  * [Artifact Folder] 就是 .octo/<sessionId>/outputs(Design 现行约定,§3.2)。
  * 依赖链接建在它的父级 —— 产物目录里因此零链接,设计师随手压缩是安全的。
@@ -85,15 +85,29 @@ if (exists(projectDir)) {
   // 但"已存在"不等于"完整":上次复制到一半失败留下的残骸也会走到这里,
   // 然后被当成正常会话跳过复制,于是**永远修不好**。所以先验一遍。
   const missing = missingFiles(projectDir)
-  if (missing.length) {
+  if (missing.length && args.reset) {
+    // 显式要求重建。删除动作**留在脚本里**并照样过护栏 —— SKILL.md 硬约束 0 禁止
+    // agent 自己执行删除命令(2026-09-07 内网因此丢过用户数据,§5.1.2),
+    // 所以必须由脚本提供这条合法出口,否则 PROJECT_INCOMPLETE 就是个死结:
+    // 这条路径脚本自己不会自愈,而 agent 又不许删。
+    assertSafeToRemove(projectDir)
+    rmSync(projectDir, { recursive: true, force: true })
+    log(`[reset] 已删除残缺的产物目录,将重建: ${projectDir}`)
+  } else if (missing.length) {
     fail("PROJECT_INCOMPLETE", `产物目录已存在但缺少 ${missing.length} 个关键文件`, {
-      hint: `多半是上次复制中断留下的残骸。删掉 ${projectDir} 后重跑本脚本即可重建`,
+      hint:
+        `多半是上次复制中断留下的残骸。重跑本脚本并加 --reset,由脚本删掉残骸后重建。\n` +
+        `⚠️ --reset 会清空 ${projectDir},该目录下已经写过的代码会一并丢失。\n` +
+        `不要自己执行删除命令(见 SKILL.md 硬约束 0)`,
       extra: { MISSING: missing.join(", ") },
     })
+  } else {
+    reused = true
+    log(`[skip] 产物目录已存在,复用: ${projectDir}`)
   }
-  reused = true
-  log(`[skip] 产物目录已存在,复用: ${projectDir}`)
-} else {
+}
+
+if (!exists(projectDir)) {
   mkdirSync(S.outputs, { recursive: true })
   try {
     cpSync(TEMPLATE_DIR, projectDir, { recursive: true, dereference: false, errorOnExist: true, force: false })

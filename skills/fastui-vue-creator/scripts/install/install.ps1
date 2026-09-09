@@ -39,18 +39,34 @@ try {
 
 # **强制直连**(v14,SPEC-DES-001 §4.4.8 第二批坑 1)—— 与 install.sh 的 --noproxy '*' 等价。
 #
-# .NET 的 WebRequest 默认会读系统/IE 的代理设置,而 PowerShell 5.1 的 Invoke-WebRequest
-# 没有 -NoProxy 参数,只能把 DefaultWebProxy 整个换掉。空的 WebProxy 对象 = 谁都不经。
+# .NET Framework 的 WebRequest 默认读的是 **IE / 系统代理设置**(读 HTTP_PROXY 环境变量
+# 那是 .NET Core 的行为),而 PowerShell 5.1 的 Invoke-WebRequest 没有 -NoProxy 参数,
+# 只能把 DefaultWebProxy 整个换掉。空的 WebProxy 对象 Address 为 null、IsBypassed() 恒真 = 直连。
+#
+# 所以两个平台堵的**不是同一样东西**:sh 侧堵的是环境变量,这边堵的是系统设置。
+# Windows 上真正会读 agent 注入的那个环境变量的是 npm —— 那条在 setup-env.mjs 的 childEnv() 里堵。
 #
 # 2026-09-08 内网在 macOS 上实测:agent 宿主进程注入了出外网的代理,NO_PROXY 配了
 # 内网域名却没能生效,请求被送进 CONNECT 隧道拿到 504,首装从第一步就卡死。
 # Windows 侧同样的风险来自系统代理设置,所以两边都改成显式直连。
 #
 # 不做"失败了自动回退走代理":那会用第二次的结果掩盖第一次失败的真实原因。
-try {
-  [System.Net.WebRequest]::DefaultWebProxy =
-    if ($Proxy) { New-Object System.Net.WebProxy($Proxy, $true) } else { New-Object System.Net.WebProxy }
-} catch { }
+if ($Proxy) {
+  # 解析失败必须响亮失败 —— 吞掉的话 DefaultWebProxy 会原封不动保持系统代理、
+  # 脚本继续跑,日志里一个字都没有,正好违背本脚本"不掩盖第一次失败"的原则。
+  try {
+    [System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy($Proxy, $true)
+  } catch {
+    Fail "BAD_PROXY" "-Proxy 的地址无法解析: $Proxy" $_.Exception.Message "形如 http://host:port"
+  }
+} else {
+  try {
+    [System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy
+  } catch {
+    # 无参构造基本不可能抛;真抛了也不该静默 —— 那意味着后面会走系统代理
+    Write-Host "[warn] 无法关闭默认代理,后续请求可能仍走系统代理: $($_.Exception.Message)"
+  }
+}
 
 # 内网证书基本都是自签名的,默认放行 —— 传 -StrictCert 才严格校验。
 # 这不是把完整性检查关掉了:真正的完整性判据是下载后的 sha256 比对(见下),
@@ -181,5 +197,6 @@ try {
 $argv = @((Join-Path $SkillDir "scripts\setup-env.mjs"), "--env-dir=$EnvDir")
 if ($Registry) { $argv += "--registry=$Registry" }
 if ($Upgrade) { $argv += "--upgrade" }
+if ($Proxy) { $argv += "--proxy=$Proxy" }   # 不透传的话,逃生开关只对下载 node 那一步有效
 & $NodeBin @argv
 exit $LASTEXITCODE

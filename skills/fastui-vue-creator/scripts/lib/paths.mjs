@@ -82,7 +82,9 @@ export const envPaths = (dir) => ({
 export function resolveYarnJs(P) {
   try {
     const abs = path.resolve(path.dirname(P.yarnBin), readlinkSync(P.yarnBin))
-    if (existsSync(abs)) return abs
+    // 必须校验是 .js:yarn 1.x 的包里 bin/ 下同时躺着 `yarn.js` 和一个同名的 shell 脚本 `yarn`。
+    // 万一链接指到后者,`node <shell 脚本>` 会以语法错误的形态炸,离根因极远。
+    if (abs.endsWith(".js") && existsSync(abs)) return abs
   } catch {
     /* 不是链接(Windows 的 yarn.cmd)或根本不存在 —— 走下面的候选 */
   }

@@ -55,16 +55,24 @@
 
 ### 待办
 
-**skill 侧首装修复**（[§4.4.8 第二批](#448-首装踩到的坑内网实测分两批2026-09-07--09-08)，2026-09-08 内网暴露，**全部未修**）
+**skill 侧首装修复**（[§4.4.8 第二批](#448-首装踩到的坑内网实测分两批2026-09-07--09-08)，2026-09-08 内网暴露）
 
-| # | 事项 | 优先级 | 落点 |
+| # | 事项 | 状态 | 落点 |
 |---|---|---|---|
-| S1 | **代理导致 manifest 504** —— curl 直连优先 + 回退走代理，两次都记日志 | **高**（首装根因，卡死） | `install.sh` / `install.ps1` |
-| S2 | **doctor 必须在 agent 进程里跑**；补代理三件套与「直连/走代理 × manifest/node 包」四格；修 504 打不出 body、`agent` 传成 undici 不认的字段 | **高**（否则下次还会被带偏） | `doctor.mjs` / SKILL.md、[§4.4.9](#449-doctormjs--装不上时先跑它) |
-| S3 | **删除护栏**：SKILL.md 硬禁令 + `rmSync` 路径断言 + `link.mjs` 改 `symlinkSync(…, "junction")` 绕开 cmd.exe | **高**（安全，已造成一次数据损失） | [§5.1.2](#512-硬性安全约束所有脚本--skillmd) |
-| S4 | **macOS 首装必挂**：`yarnJs` 路径改问 `npm root -g`；回落分支去掉 `shell: true` | **高**（新版 macOS 100% 复现） | `lib/paths.mjs` / `setup-env.mjs` |
-| S5 | **日志落盘补全**：`log()` 落盘、`run()` 捕获子进程输出、install 脚本全程 tee | 中 | [§5.1.1](#511-统一输出契约所有脚本) |
-| S6 | `REGISTRY` 读取从 `install.sh` 的 else 分支提出来 | 中 | `install.sh` |
+| S1 | **代理导致 manifest 504** —— 内网 host 强制直连（sh `--noproxy '*'`；ps1 换掉 `DefaultWebProxy`），逃生开关 `--proxy` 并透传到 setup-env。**不做失败回退代理**。⚠️ 覆盖面不止 curl：npm / yarn 是 `run()` 拉起的子进程，会继承宿主注入的代理，所以 `childEnv()` 里把代理变量整个摘掉 | ✅ **已修**（PR #21） | `install.sh` / `install.ps1` / `setup-env.mjs` |
+| S3 | **删除护栏**：SKILL.md 硬约束 0 + `rmSync` 路径断言 + `link.mjs` 改 `symlinkSync(…, "junction")` 绕开 cmd.exe + `new-session --reset` 合法出口 | ✅ **已修**（PR #21） | [§5.1.2](#512-硬性安全约束所有脚本--skillmd) |
+| S4 | **macOS 首装必挂**：`resolveYarnJs()` 顺 bin symlink 解析（并校验 `.js`），回落分支去掉 `shell: true` | ✅ **已修**（PR #21） | `lib/paths.mjs` / `setup-env.mjs` |
+| S6 | `REGISTRY` 读取从 `install.sh` / `install.ps1` 的条件分支里提出来 | ✅ **已修**（PR #21） | `install.sh` / `install.ps1` |
+| S7 | **`--upgrade` 拼到 PowerShell 脚本后面**，`-Upgrade` 开关从来没被打开过；坏在 `$Manifest` 上还会报成 `DOWNLOAD_FAILED`，把排查往代理上带 | ✅ **已修**（PR #21，review 发现） | `ensure-env.mjs` |
+| **S2** | **doctor 探针重做** —— 见 [§10 Q10](#10-待确认与遗留)，方案未拍板 | ⏸ **阻塞**（等 Q10） | `doctor.mjs` / SKILL.md |
+| **S5** | **日志落盘补全**：`log()` 落盘、`run()` 捕获子进程输出、install 脚本全程 tee | ⏳ **未做** | [§5.1.1](#511-统一输出契约所有脚本) |
+| **S8** | 两个安装脚本都有**不经 `Fail` 的裸崩路径**（ps1 读 `env.manifest.json` / `ConvertFrom-Json` 在 try 之外；sh 的 `mktemp` / `read`），那几条路上打不出 `RESULT: FAIL`，§8.4「截图就能定位」不成立 | ⏳ **未做**（review 发现，单独 PR） | `install.ps1` / `install.sh` |
+
+> **S1 的关键教训**：第一版只堵了 curl，而 npm / yarn 走的是另一条继承链。
+> 2026-09-07 日志里 `YARN_INSTALL_FAILED: … <池子>/node/bin/npm install -g yarn` 就是证据 ——
+> **node 当时已经在池子里了**，失败发生在 npm 那一步。只堵 curl 的话，504 会原样在第 3 步复现，
+> 卡点只是往后挪了两步。堵法是**摘掉代理变量**而不是设 `NO_PROXY=*`：这次 504 的头号嫌疑
+> 恰恰就是 noproxy 没被正确解析，不该把修复建立在同一个假设上。
 
 > **S4 的雷还没响过**：设计师那台跑通用的是修复前的旧版。新版在 macOS 上首装必然失败，补验之前不要认为 macOS 已通。
 **UXAI 侧五件**（[§8.6](#86-uxai-仓要做的五件事design-模块不是-skill)，Design 模块，走 PR 协议）
@@ -706,9 +714,10 @@ curl -sI https://octo.hdesign.huawei.com/design/fastui-env/node/node-v22.19.0-da
 
 | # | 现象 | 根因 | 修法 |
 |---|---|---|---|
-| 1 | agent 报 `manifest.json` **504**；同一地址浏览器能开，人在终端 `curl` 也是 200 | **agent 宿主进程注入了出外网的代理**（实测 `proxyhk.huawei.com:8080`）。`install.sh` 的 `curl` 裸跑、继承该环境 → 请求被送进 CONNECT 隧道 → 代理连不上内网上游 → **504 是代理自己发的**。⚠️ **`NO_PROXY` 里确实配了 `.huawei.com`，却没有生效** —— 那台机器的 curl 恰好是 **7.86.0**，高度可疑是它 noproxy 匹配重写引入的 tailmatch 回归（7.87.0 修回），**待验证**（下方命令）。另注：`~/.npmrc` 里那行 `noproxy=` 是 npm 的配置，管不到 curl，别把两者混为一谈 | 内网 host **强制直连**（sh 用 `--noproxy '*'`，ps1 换掉 `DefaultWebProxy`），逃生开关 `--proxy=<地址>`。**不做「失败自动回退走代理」** —— 那会用第二次的结果掩盖第一次失败的真实原因，日志里反而看不出发生了什么。而且代理是出外网用的、内网服务解析到 10.x 内网地址，「必须靠代理才能到内网」这种情况在本场景不成立 |
-| 2 | （次生）agent 绕过脚本，改用**系统 npm** 全局装 yarn，撞 `/usr/local` 权限不足 | 坑 1 导致池子里没有 node，`setup-env.mjs` 根本没机会执行。**原设计（用池子 node 的 npm、prefix 落在池子里、不需要 sudo）是对的，它只是没被走到** | 修掉坑 1；SKILL.md 明确禁止绕过脚本自行安装 |
-| 3 | macOS 上 `POOL_YARN_JS: MISSING`，且**新版 `setup-env` 在 macOS 上首装必然失败** | 两个 bug 叠加：① `paths.mjs` 的 `yarnJs` 非 win32 分支猜的是 `node/lib/node_modules/…`，**实际在 `node/node_modules/…`**（win32 那条才对）→ 判断恒为 false → 必定走回落分支；② 回落分支是 `execFileSync(P.yarnBin, argv, { shell: true })`，而 `P.yarnBin` 必然含 `Application Support` 的空格，`shell: true` 时 Node 把 file 与 args 裸拼成命令字符串交给 shell、**不加引号**，路径在空格处被劈开 | 不再猜路径：问 `npm root -g`（或 `readlink` 那个 bin 链接）拿真实位置；回落分支去掉 `shell: true` |
+| 1 | agent 报 `manifest.json` **504**；同一地址浏览器能开，人在终端 `curl` 也是 200 | **agent 宿主进程注入了出外网的代理**（实测 `proxyhk.huawei.com:8080`）。`install.sh` 的 `curl` 裸跑、继承该环境 → 请求被送进 CONNECT 隧道 → 代理连不上内网上游 → **504 是代理自己发的**。⚠️ **`NO_PROXY` 里确实配了 `.huawei.com`，却没有生效** —— 那台机器的 curl 恰好是 **7.86.0**，高度可疑是它 noproxy 匹配重写引入的 tailmatch 回归（7.87.0 修回），**待验证**（下方命令）。另注：`~/.npmrc` 里那行 `noproxy=` 是 npm 的配置，管不到 curl，别把两者混为一谈 | 内网 host **强制直连**（sh 用 `--noproxy '*'`，ps1 换掉 `DefaultWebProxy`），逃生开关 `--proxy=<地址>` 并透传到 setup-env。**覆盖面不止 curl** —— npm / yarn 走的是另一条继承链，见下方坑 2b。**不做「失败自动回退走代理」** —— 那会用第二次的结果掩盖第一次失败的真实原因，日志里反而看不出发生了什么。而且代理是出外网用的、内网服务解析到 10.x 内网地址，「必须靠代理才能到内网」这种情况在本场景不成立 |
+| 2a | agent 绕过脚本，改用**系统 npm** 全局装 yarn，撞 `/usr/local` 权限不足 | manifest 拉不到 → node 没进池子 → agent 自行发挥。**原设计（用池子 node 的 npm、prefix 落在池子里、不需要 sudo）是对的，它只是没被走到** | 修掉坑 1；SKILL.md 硬约束 0.1 明确禁止绕过脚本自行安装 |
+| 2b | **另一次尝试里 node 已经在池子里**、`setup-env.mjs` 也跑到了，却卡在 `<池子>/node/bin/npm install -g yarn --registry=…` | **代理不只挡 curl。** npm / yarn 是 `run()` 拉起的子进程，`env: process.env` 把宿主注入的 `HTTP_PROXY` 原样传下去 —— 只堵 curl 的话，同一个 504 会在这一步原样复现，卡点只是从第 1 步挪到第 3 步 | `setup-env.mjs` 的 `childEnv()` 把代理变量整个摘掉（**不是设 `NO_PROXY=*`** —— 这次 504 的头号嫌疑正是 noproxy 没被正确解析，不该把修复建立在同一个假设上）；`--proxy` 透传给 setup-env |
+| 3 | macOS 上 `POOL_YARN_JS: MISSING`，且**新版 `setup-env` 在 macOS 上首装必然失败** | 两个 bug 叠加：① `paths.mjs` 的 `yarnJs` 非 win32 分支猜的是 `node/lib/node_modules/…`，**实际在 `node/node_modules/…`**（win32 那条才对）→ 判断恒为 false → 必定走回落分支；② 回落分支是 `execFileSync(P.yarnBin, argv, { shell: true })`，而 `P.yarnBin` 必然含 `Application Support` 的空格，`shell: true` 时 Node 把 file 与 args 裸拼成命令字符串交给 shell、**不加引号**，路径在空格处被劈开 | 不再猜路径：`resolveYarnJs()` 先顺着 npm 自己建的 bin symlink 解析（并校验解出来的是 `.js` —— yarn 包里 `bin/` 下还躺着一个同名 shell 脚本），再挨个试已知布局；回落分支去掉 `shell: true`，Windows 上找不到 JS 入口改为响亮失败（`yarn.cmd` 本来就不能 spawn） |
 | 4 | 同一台机器，`install.sh` 与 `install.sh --skip-node` 用**两个不同的 npm 源** | 读 manifest 的整块代码在 `if [ -n "$SKIP_NODE" ] … else` 的 else 分支里。走 skip 分支时 `REGISTRY` 一直是空，`--registry` 不传，于是落到机器 `~/.npmrc` 的默认源 —— **npm 源的取值挂在了"要不要下载 node"这个无关条件上** | `REGISTRY` 的读取提到 `if` 外面 |
 
 **坑 1 的根因待验证一步**（内网那台 macOS 上跑，不需要真实代理凭据）：
@@ -729,6 +738,12 @@ done
 
 > **必须带上代理环境变量测。** `NO_PROXY` 只在存在代理时才起作用 —— 在一个没有 `HTTP_PROXY`
 > 的终端里怎么设 `NO_PROXY` 都是直连、全 200，那种测法什么也证明不了（已经踩过一次）。
+
+> **2a 与 2b 是两次不同尝试的两种失败形态，别当成一条。** 2026-09-07 的日志里两者都在：
+> 06:32 / 06:55 的 `ensure-env` 报 `ENV_MISSING`（池子里没 node，对应 2a）；而 07:01 那条
+> `YARN_INSTALL_FAILED: … <池子>/node/bin/npm install -g yarn` 用的是**池子里的 npm** ——
+> 说明那次 node 已经装好了，失败发生在 npm 这一步（对应 2b）。写成「坑 1 导致 setup-env
+> 根本没机会执行」是不对的，v14 第一版这么写过，被 review 抓出来。
 
 > **坑 3 是上一批修坑 2 时引入的。** 旧版 `run(P.yarnBin, ["install"], …)` 直接 `execFileSync` 绝对路径、不经 shell，空格从来不是问题；换成"优先 JS 入口 + shell 回落"之后，macOS 因为路径猜错**必定**走进那个坏回落。修一个平台的问题时顺手加的回落分支，把另一个平台变成了必挂 —— **这类改动以后两个平台都要实测**。
 >
@@ -753,7 +768,7 @@ node <skill>/scripts/doctor.mjs
 |---|---|
 | **进程环境** | 平台 / node 版本；**本进程看到的** `HTTP_PROXY` `HTTPS_PROXY` `NO_PROXY`（含小写共六个）。一个都没有时也要显式打一行 `PROXY: (无)` —— 否则分不清"没有代理"和"没查代理" |
 | **网络 ×4** | `manifest` 与 `node 包 HEAD`，各测**直连**与**走代理**两种走法。四种组合都打 HTTP 状态、耗时、响应体前 120 字节 |
-| 共享池 | node / yarn / deps / lockfile / `env.lock.json` |
+| 共享池 | node / yarn / deps / lockfile / `env.lock.json`。⚠️ `POOL_YARN_JS` 的值域已从 `OK/MISSING` 改为**「解析出的绝对路径」/ MISSING** —— 只说 MISSING 而不说去哪找的、找到了什么，正是 2026-09-08 白花一轮才发现路径猜错的原因（§4.4.8 第二批坑 3） |
 | 系统 | 系统 node / yarn / npm |
 
 网络那四格是这次事故的直接产物：只测 manifest 一种走法，既分不出"网络不通"和"代理挡了"，也答不了"node 包（50MB）能不能下下来"——manifest 才 799 字节，它通不代表大文件通（§4.4.4 要求核对 `Content-Length`，一直没做过）。
@@ -888,7 +903,9 @@ ERRORS_END
 |---|---|---|---|
 | 1 | **硬禁令：任何情况下不得执行删除命令**（`Remove-Item` / `rm` / `del` / `rmdir`）。清理只能由 skill 脚本在 `<envDir>` 与 `<会话目录>` 内做；装不上就报错并跑 `doctor`，不许自行"清理残留"或绕过脚本手工安装 | SKILL.md | **唯一能兜住"agent 误判"的护栏。** 编码修得再干净，下次因为别的原因误判照样会删 —— 这条与编码问题正交，必须独立存在 |
 | 2 | `link.mjs` 不再经 cmd.exe：Windows 建 junction 直接用 `symlinkSync(target, link, "junction")`，Node 原生支持、同样不需要管理员权限 | `lib/link.mjs` | 一行改动，同时消掉"路径乱码"与"报错乱码"两个源头 |
-| 3 | `new-session.mjs` 里两处 `rmSync(projectDir, { recursive: true, force: true })` 加路径断言：必须在 `S.sessionRoot` 之下、且路径含 `.octo/` 段，否则直接 `fail` 不删 | `new-session.mjs` | 我们自己代码里的同类风险。`projectDir = path.join(S.outputs, name)`，`--artifact-dir` 传空或被中文路径截断时可能解析到意外位置，然后被 `force` 递归删 |
+| 3 | `new-session.mjs` 里两处 `rmSync(projectDir, { recursive: true, force: true })` 加路径断言：必须在 `S.sessionRoot` 之下、路径含 `.octo/` 段、且至少 3 段深，否则直接 `fail` 不删。⚠️ `.octo/` 这条判据**依赖别的模块的目录约定**（SPEC-INS-028 的 `.octo/<sid>/outputs`），约定变了这里要跟着改 | `new-session.mjs` | 我们自己代码里的同类风险。`projectDir = path.join(S.outputs, name)`，`--artifact-dir` 传空或被中文路径截断时可能解析到意外位置，然后被 `force` 递归删 |
+
+**约束 1 必须配一条合法出口，否则会制造死结。** `new-session` 的 `PROJECT_INCOMPLETE` 这条路径脚本自己不会自愈（`exists(projectDir)` 分支故意不删），而 agent 又不许删 —— 半成品留在盘上，下次进来还是同一个错。所以 `new-session.mjs` 提供 `--reset`：**删除动作仍在脚本内、仍过 `assertSafeToRemove`**，HINT 引导 agent 去跑那个开关，而不是自己动手。以后凡是「脚本报错但只能靠删除恢复」的路径，都要照此配开关。
 
 > **不建议全仓把中文注释换成英文。** 注释在 `.mjs` 里，不参与任何跨编码传输；`install.ps1` 已改存 UTF-8 with BOM（§4.4.8 第一批），那条路已经堵上了。真正需要保证 ASCII 的是**错误码**，§5.1.1 的「英文码 + 中文说明」就是这个设计。要缩范围的话，只约束"会被打印到 Windows 控制台的字符串"更划算，成本低得多。
 
@@ -1889,6 +1906,7 @@ const externalUrl = createMemo(() => {
 | ~~Q8~~ | ~~内网同步流程~~ | — | ✅ **已定**：见 §8.3 / §8.4 |
 | **Q9** | UXAI 侧三件事（§8.6：导出按钮 / external URL tab 编辑类功能 gate / dev server 生命周期）的排期与归属 | 属 Design 模块，需走 [collab-pr-protocol](../../collab-pr-protocol.md) | **待与 Design 负责同事对齐**（不阻塞 skill 侧实现） |
 | **Q10** | **`doctor` 的网络探针要不要整个拿掉** —— 它用 Node 的 `fetch` 探测，而 `fetch`(undici)**完全忽略 `HTTP_PROXY` 环境变量**（2026-09-08 本地实测确认），install 脚本用的 curl 则会读。两者走的不是同一条路，于是 doctor 报 200、install 同时 504，**诊断工具给出了另一个问题的答案** | 平行实现必然漂移。倾向的方案：**网络探测整段删掉，改由 `install.sh --check` 提供**（只探测不下载，走与真实安装完全相同的代码路径，零漂移）；`doctor.mjs` 保留静态清点（池子里有什么、skill 组装了没、lockfile 对不对），需要网络结果时**调用** `install.sh --check` 拿回来 —— 入口仍是 `node doctor.mjs` 一条命令，名字不变 | **待讨论**。牵连 §4.4.9 的重写与 S2/S5 的边界划分，不阻塞本轮六项修复 |
+| **Q11** | **`link.mjs` 的 win32「已存在」分支要不要改成真正比对目标** —— 现有注释写「junction 在 lstat 下表现为目录，无法直接读出目标」，review 指出这不成立：libuv 对 `IO_REPARSE_TAG_MOUNT_POINT` 同样报 `S_IFLNK`，`readlinkSync` 能读出目标 | 若属实，那条「只能认它已存在」的保守分支基本是死代码，且有实际后果：**envDir 变过之后，指向旧共享池的 junction 会被静默复用**。但改动会动"链接已存在"的判定逻辑，而创建侧刚换成原生 junction，**外网无法验证 Windows 行为** | **待内网验证后再改**。验证方法：在 Windows 上建一个 junction，跑 `lstatSync().isSymbolicLink()` 与 `readlinkSync()` 看是否如 review 所说 |
 
 ### 明确不在本 spec 范围
 

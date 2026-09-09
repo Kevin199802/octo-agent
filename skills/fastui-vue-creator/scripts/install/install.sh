@@ -45,8 +45,10 @@ fail() { echo "RESULT: FAIL | $1: $2"; [ -n "${3:-}" ] && echo "DETAIL: $3"; [ -
 #
 # 用数组而不是字符串:`--noproxy *` 里的 * 一旦经过不带引号的变量展开,
 # 会被 shell 当通配符展开成当前目录的文件名。
+# 显式传 --proxy 时也要把 --noproxy 定死成空:curl 在给了 --proxy 却没给 --noproxy 时
+# 仍会读环境里的 NO_PROXY,逃生开关可能被静默旁路掉。
 CURL_ARGS=(--noproxy '*')
-[ -n "$PROXY" ] && CURL_ARGS=(--proxy "$PROXY")
+[ -n "$PROXY" ] && CURL_ARGS=(--proxy "$PROXY" --noproxy '')
 [ -z "$STRICT_CERT" ] && CURL_ARGS+=(-k)
 
 PY="$(command -v python3 || true)"
@@ -69,8 +71,11 @@ PLATFORM_KEY="darwin-$ARCH"
 # v13 把它整块放在 else 分支里,于是走 --skip-node 时 REGISTRY 一直是空、不传给
 # setup-env,同一台机器上 install.sh 与 install.sh --skip-node 会用两个不同的 npm 源 ——
 # npm 源的取值挂在了"要不要下载 node"这个毫不相干的条件上。
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d)"; trap '[ -n "$TMP" ] && [ -d "$TMP" ] && rm -rf "$TMP"' EXIT
 
+# 注意这个判据是有意的:**不带 --upgrade 时,即使 node 已在也会重下重解**。
+# 因为不带 --upgrade 的调用来自 ensure-env 报 ENV_MISSING,那时环境状态本就存疑,
+# 按"修复性重装"处理;--upgrade 才是"环境好着,只是依赖树要升"。
 NEED_NODE=1
 if [ -n "$SKIP_NODE" ] || { [ -x "$NODE_BIN" ] && [ -n "$UPGRADE" ]; }; then
   NEED_NODE=""
@@ -86,7 +91,9 @@ elif [ -n "$MANIFEST" ]; then
   MJSON="$TMP/manifest.json"
   BASE="$(dirname "$MANIFEST")"
   # 加时间戳破缓存 —— 服务端没设 no-store,升级后别读到旧的(§4.4.4)
-  if ! curl "${CURL_ARGS[@]}" -fsSL -H 'Cache-Control: no-cache' "$MANIFEST?t=$(date +%s)" -o "$MJSON"; then
+  # manifest URL 可能自带 query,拼第二个 ? 会拿到 404 —— ps1 那侧一直判了,两边行为要一致
+  case "$MANIFEST" in *\?*) SEP="&" ;; *) SEP="?" ;; esac
+  if ! curl "${CURL_ARGS[@]}" -fsSL -H 'Cache-Control: no-cache' "$MANIFEST${SEP}t=$(date +%s)" -o "$MJSON"; then
     if [ -n "$NEED_NODE" ]; then
       fail DOWNLOAD_FAILED "拉不到 manifest: $MANIFEST" \
         "已强制直连(不经代理)。若这台机器确实必须经代理才能到内网,传 --proxy=<地址>" \
@@ -151,4 +158,5 @@ fi
 ARGS=(--env-dir="$ENV_DIR")
 [ -n "$REGISTRY" ] && ARGS+=(--registry="$REGISTRY")
 [ -n "$UPGRADE" ] && ARGS+=(--upgrade)
+[ -n "$PROXY" ] && ARGS+=(--proxy="$PROXY")   # 不透传的话,逃生开关只对下载 node 那一步有效
 exec "$NODE_BIN" "$SKILL_DIR/scripts/setup-env.mjs" "${ARGS[@]}"

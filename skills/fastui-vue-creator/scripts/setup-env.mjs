@@ -6,7 +6,7 @@
  * 引导脚本只负责"把 node 弄下来",跨平台的业务逻辑只在这里写一份,
  * 否则 PowerShell 和 bash 各写一遍必然漂移。
  *
- * 用法: node setup-env.mjs [--env-dir=] [--registry=] [--upgrade]
+ * 用法: node setup-env.mjs [--env-dir=] [--registry=] [--upgrade] [--proxy=<地址>]
  */
 import { execFileSync } from "node:child_process"
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs"
@@ -31,9 +31,44 @@ if (!exists(templatePkgPath) || !exists(templateLockPath)) {
   fail("SKILL_NOT_ASSEMBLED", "skill 的 template/ 缺少 package.json 或 yarn.lock", { hint: `把内网脚手架工程(排除根目录 node_modules)复制到 ${TEMPLATE_DIR}` })
 }
 
+/**
+ * 子进程的环境:**默认把代理变量摘掉**(v14,§4.4.8 第二批坑 1)。
+ *
+ * install 脚本那边已经强制直连了,但 npm / yarn 是 `run()` 拉起来的子进程,
+ * `env: process.env` 会把 agent 宿主注入的 `HTTP_PROXY` / `HTTPS_PROXY` 原样传下去 ——
+ * 于是同一个 504 会在"装 yarn"这步原样复现,只是卡点从第 1 步挪到第 3 步。
+ * 2026-09-07 日志里那条 `YARN_INSTALL_FAILED: … <池子>/node/bin/npm install -g yarn`
+ * 就是活样本:node 已经在池子里了,失败发生在 npm 这一步。
+ *
+ * **为什么是删变量而不是设 `NO_PROXY=*` / `npm_config_noproxy=*`**:
+ * 这次 504 的头号嫌疑正是 `NO_PROXY` 没被正确解析(那台 curl 是 7.86.0,
+ * 环境里明明配了 `.huawei.com`)。既然刚被 noproxy 的匹配实现坑过,就不该再把修复
+ * 建立在"npm / yarn / curl 各自都能正确解析 noproxy"这个假设上 —— 删变量是确定的。
+ *
+ * 前提:deps 的依赖源全在内网(§4.1「③④ 的 registry 必须分开处理」——
+ * 模板自带的 `.npmrc` 已配全内网 registry 与各 scope 独立源,且项目级配置
+ * 优先级高于用户的 `~/.npmrc`)。若哪天依赖树里混进了外网源,用 `--proxy` 传回来。
+ */
+const PROXY_ENV_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]
+function childEnv() {
+  const e = { ...process.env }
+  for (const k of PROXY_ENV_KEYS) delete e[k]
+  // npm 还会读 .npmrc 里的 proxy= —— npm_config_* 环境变量优先级高于 .npmrc,用空值顶掉
+  e.npm_config_proxy = ""
+  e.npm_config_https_proxy = ""
+  const proxy = String(args.proxy || "")
+  if (proxy) {
+    // 显式要求经代理:原样设回去,并撤掉上面的空值覆盖
+    for (const k of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]) e[k] = proxy
+    delete e.npm_config_proxy
+    delete e.npm_config_https_proxy
+  }
+  return e
+}
+
 const run = (bin, argv, cwd) => {
   log(`$ ${bin} ${argv.join(" ")}${cwd ? `   (cwd=${cwd})` : ""}`)
-  return execFileSync(bin, argv, { cwd, stdio: ["ignore", "inherit", "inherit"], env: process.env })
+  return execFileSync(bin, argv, { cwd, stdio: ["ignore", "inherit", "inherit"], env: childEnv() })
 }
 
 /**
@@ -52,7 +87,7 @@ const runYarn = (argv, cwd) => {
   if (yarnJs) return run(P.nodeBin, [yarnJs, ...argv], cwd)
   if (process.platform === "win32") {
     fail("YARN_NOT_FOUND", `装好了 yarn 却找不到它的 JS 入口(${P.node} 下)`, {
-      hint: "删掉共享池的 node 目录后重跑安装脚本;若反复出现,把 <envDir>/node/ 的目录树贴出来",
+      hint: `把 ${P.node} 的目录树报给用户,由人判断是重装还是修复。不要自己执行删除命令(见 SKILL.md 硬约束 0)`,
     })
   }
   log(`[warn] 找不到 yarn 的 JS 入口,直接执行 ${P.yarnBin}`)
