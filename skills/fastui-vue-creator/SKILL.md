@@ -53,9 +53,16 @@ bash "<skillDir>/scripts/install/install.sh"
 powershell -ExecutionPolicy Bypass -File "<skillDir>\scripts\install\install.ps1"
 ```
 
+`<skillDir>` 就是**本文件(SKILL.md)所在的目录**,照着拼绝对路径,不要去猜 `.octo/skills/` 之类的位置
+—— 这一步跑不了 `ensure-env`,拿不到它 `HINT:` 里那个已经展开好的路径,只能靠这条。
+
 **这两个脚本是 bash / PowerShell 原生的,不需要机器上先有 node** —— 它们会自己下载 portable node
 到共享池。这是整套流程里唯一能在裸机上跑起来的东西,所以没有 node 时**只能从它开始**,
 不要试图先跑任何 `.mjs`。
+
+> macOS 上 `install.sh` 需要系统有 `python3`(只用来解析 manifest,不是跑 node)。没有的话它会
+> `RESULT: FAIL | NO_PYTHON` 并给出 `xcode-select --install` —— 那属于下面 0.2 表里"装的过程中
+> 失败了",是人的活,把原文转达给用户即可。
 
 装环境要几分钟,告诉用户正在装。装完回到 ①。
 

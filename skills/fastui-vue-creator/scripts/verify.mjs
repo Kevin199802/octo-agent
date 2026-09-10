@@ -217,10 +217,11 @@ if (!reused) {
       // PowerShell 的 Start-Process 创建的是真正独立的进程,不在调用者的 Job 里。
       const q = (v) => `'${String(v).replace(/'/g, "''")}'`
       const psScript = [
-        // 输出也定成 UTF-8:PowerShell 的中文报错默认按 GBK 出来,Node 这边按 utf8 读就是乱码,
-        // 而"乱码报错"正是 2026-09-07 误删事故的起点(§5.1.2)——错误信息必须能读。
+        // 输出也定成 UTF-8:PowerShell 的中文报错默认按系统代码页(内网 GBK)出来,Node 这边
+        // 按 utf8 读就是乱码,而"乱码报错"正是 2026-09-07 误删事故的起点(§5.1.2)——错误信息必须能读。
+        // 只设 `[Console]::OutputEncoding`:`$OutputEncoding` 管的是 PS 经管道传给外部程序的
+        // stdin 编码,这段脚本里没有那种管道,设了是空转。
         `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8`,
-        `$OutputEncoding=[System.Text.Encoding]::UTF8`,
         `$env:OCTO_DEPS=${q(P.depsModules)}`,
         `$env:OCTO_PORT=${q(String(port))}`,
         `$p = Start-Process -FilePath ${q(P.nodeBin)}` +
@@ -248,7 +249,11 @@ if (!reused) {
         })
         pid = Number(String(out).trim().split(/\s+/).pop())
       } catch (e) {
-        fail("SPAWN_FAILED", `Start-Process 启动 dev server 失败: ${e.message}`, { log: S.devserverLog })
+        // 取 e.stderr 而不是 e.message:execFileSync 的 message 是
+        // `Command failed: <完整 argv>\n<stderr>`,而 argv 里那串 base64 有 1300+ 字符,
+        // 会把真正的报错挤到后面 —— 这一行是要 agent 原样转达给用户的,必须能读(§5.1.2)。
+        const detail = String(e.stderr || e.message).trim().split(/\r?\n/).slice(0, 5).join(" ")
+        fail("SPAWN_FAILED", `Start-Process 启动 dev server 失败: ${detail}`, { log: S.devserverLog })
       }
     } else {
       const fd = openSync(S.devserverLog, "a")
