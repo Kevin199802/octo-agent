@@ -217,6 +217,11 @@ if (!reused) {
       // PowerShell 的 Start-Process 创建的是真正独立的进程,不在调用者的 Job 里。
       const q = (v) => `'${String(v).replace(/'/g, "''")}'`
       const psScript = [
+        // 输出也定成 UTF-8:PowerShell 的中文报错默认按系统代码页(内网 GBK)出来,Node 这边
+        // 按 utf8 读就是乱码,而"乱码报错"正是 2026-09-07 误删事故的起点(§5.1.2)——错误信息必须能读。
+        // 只设 `[Console]::OutputEncoding`:`$OutputEncoding` 管的是 PS 经管道传给外部程序的
+        // stdin 编码,这段脚本里没有那种管道,设了是空转。
+        `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8`,
         `$env:OCTO_DEPS=${q(P.depsModules)}`,
         `$env:OCTO_PORT=${q(String(port))}`,
         `$p = Start-Process -FilePath ${q(P.nodeBin)}` +
@@ -227,14 +232,28 @@ if (!reused) {
           ` -WindowStyle Hidden -PassThru`,
         `$p.Id`,
       ].join("; ")
+      // **必须走 -EncodedCommand,不能用 -Command**(v15)。
+      //
+      // PowerShell 5.1 读命令行参数时按系统 ANSI 代码页解释(内网是 GBK),而 Node 按 UTF-8
+      // 编码 argv 传出去 —— 项目路径里只要有中文,传过去就是乱码,Start-Process 报"找不到路径"。
+      // 2026-09-09 内网实测:工作目录 `D:\10 agent测试\` 下 dev server 起不来。
+      // 这跟 install.ps1 那条"必须存 UTF-8 with BOM"是同一个根因(PS 5.1 的编码假设)。
+      //
+      // -EncodedCommand 收的是 UTF-16LE 的 Base64,完全绕开代码页,是微软给的标准解法;
+      // 顺带也免掉了命令行里的引号转义问题。
+      const encoded = Buffer.from(psScript, "utf16le").toString("base64")
       try {
-        const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", psScript], {
+        const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
           encoding: "utf8",
           windowsHide: true,
         })
         pid = Number(String(out).trim().split(/\s+/).pop())
       } catch (e) {
-        fail("SPAWN_FAILED", `Start-Process 启动 dev server 失败: ${e.message}`, { log: S.devserverLog })
+        // 取 e.stderr 而不是 e.message:execFileSync 的 message 是
+        // `Command failed: <完整 argv>\n<stderr>`,而 argv 里那串 base64 有 1300+ 字符,
+        // 会把真正的报错挤到后面 —— 这一行是要 agent 原样转达给用户的,必须能读(§5.1.2)。
+        const detail = String(e.stderr || e.message).trim().split(/\r?\n/).slice(0, 5).join(" ")
+        fail("SPAWN_FAILED", `Start-Process 启动 dev server 失败: ${detail}`, { log: S.devserverLog })
       }
     } else {
       const fd = openSync(S.devserverLog, "a")

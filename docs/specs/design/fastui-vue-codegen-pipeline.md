@@ -1,6 +1,6 @@
 # SPEC-DES-001 — fastui/lake 组件代码生成：预览与交付管道
 
-> 状态：草案（v14，§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003；UXAI 侧 ①②⑤ 收口 —— 导出按钮与预览就绪时序已实现，②查明不用改） · 优先级 P1 · 规模 [L] · 领域 infra/design
+> 状态：草案（v15，裸机起步与中文路径两条阻塞已修 PR #23；§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003） · 优先级 P1 · 规模 [L] · 领域 infra/design
 >
 > 上游已实现：✗ —— 本 spec 全部为 Design 侧新增；参考实现是 ICT 的 `ict-component-creator` skill（外部，React + 自制 mini bundler），**其管道分层可借鉴、具体实现不可照搬**（理由见 §1.3）
 >
@@ -9,6 +9,8 @@
 ---
 
 > ## 修订记录
+>
+> **2026-09-09：v15(裸机起步 + 中文路径 —— 两条都让 skill 在真实场景直接不可用)**——内网实测暴露的两条阻塞,均已修(PR #23),记入 [§0.0](#00-当前进度与待办改动后随手更新这一节) 的 S 表。① **S10 裸机上 skill 完全跑不起来**:工作流第一步 `ensure-env.mjs` 本身要 node,裸机上只报 `command not found`,而 SKILL.md 全文没讲过"没有 node 怎么办" —— agent 于是让用户自己去外网下 node、或改用纯 HTML 糊一个预览。**根因不在措辞在结构**:硬约束 0.1 把"装环境"和"装不上"混成一句,agent 读成"没有 node 也归用户",它是在遵守我们漏了分支的规则。修法是工作流加 ⓪ 确认 node、新增硬约束 0.2 把两件事分开写死(没 node / 没共享池 / 依赖过期 = 你的活;装的过程中失败 = 人的活),并禁掉"让用户去外网下 node""用纯 HTML 糊预览""拿系统别的 node 凑合装"三种兜底。② **S11 中文路径下起不来 dev server**:PS 5.1 按系统 ANSI 代码页读 argv、Node 按 UTF-8 传,路径含中文必乱码,改走 `-EncodedCommand` 绕开代码页 —— 与 `install.ps1` 的 UTF-8 BOM 那条同源。③ **review 补的三处**:失败文案取 `e.stderr` 而非 `e.message`(后者会把 1300+ 字符的 base64 argv 挤进 `RESULT:` 行,恰好违反 [§5.1.2](#512-硬性安全约束所有脚本--skillmd)「错误信息必须能读」);SKILL.md 里 `<skillDir>` 补上定义(⓪ 这一步恰恰拿不到 `ensure-env` 展开好的路径,而 [§8.6.2](fastui-uxai-integration.md#862-导出代码包按钮-的落点与契约) 记过 v12 猜错 skill 安装路径的前车);`$OutputEncoding` 那行删掉(它管的是 PS 经管道传给外部程序的 stdin 编码,此处空转)。④ 顺带写明 macOS 的 `install.sh` 需要系统 `python3`(仅用于解析 manifest),缺了会 `NO_PYTHON` 响亮失败,按 0.2 属"人的活"。
 >
 > **2026-09-09：v14(结构拆分 —— §4.4 / §8.6 移出为独立 spec,设计结论一个字没动)**——本版只动结构。① **§4.4「内网托管」拆出 [SPEC-DES-002](fastui-env-hosting.md)**、**§8.6「UXAI 仓要做的五件事」拆出 [SPEC-DES-003](fastui-uxai-integration.md)**:这两节的读者与变更节奏都与主 spec 不同——前者给内网做资源投放/运维的人照着做,后者给 UXAI 仓 Design 模块的前端,而主 spec 是设计决策。主文件 1946 行降到 1331 行。② **小节号一律沿用**(仍叫 4.4.1 / 8.6.1),主文件保留 `### 4.4` / `### 8.6` 的标题壳 + 指针行 —— spec 内外到处引用 `§4.4.x` / `§8.6.x`,编号消失会让人顺着找过来时以为断号;**文字写法不用改**,但指向主文件**子标题锚点**的深链(如 `#448-首装踩到的坑…`)已随小节迁走,要改指新文件。③ 正文逐字未动(剥掉链接后与拆分前逐行 diff 零差异),交叉引用改成跨文件链接,锚点用 `github-slugger` 全仓实测**零失效**。④ **首装修复批次(PR #21,S1/S3/S4/S6/S7/S9 六项)不单列修订条目**——那批改的是 skill 代码不是 spec 结论,进展记在 [§0.0](#00-当前进度与待办改动后随手更新这一节) 的 S 表;ROADMAP 里标的 v14 即指该批次,本版把 spec 头部版本号对齐上去。
 >
@@ -94,6 +96,8 @@ curl  GET  manifest.json                            → 200
 | S6 | `REGISTRY` 读取从 `install.sh` / `install.ps1` 的条件分支里提出来 | ✅ **已修**（PR #21） | `install.sh` / `install.ps1` |
 | S7 | **`--upgrade` 拼到 PowerShell 脚本后面**，`-Upgrade` 开关从来没被打开过；坏在 `$Manifest` 上还会报成 `DOWNLOAD_FAILED`，把排查往代理上带 | ✅ **已修**（PR #21，review 发现） | `ensure-env.mjs` |
 | S9 | **`install.ps1` 的 `Fail` 定义在调用之后** —— PowerShell 函数执行到 `function` 语句才注册，`-Proxy` 畸形时裸崩、打不出契约行（[§4.4.8](fastui-env-hosting.md#448-首装踩到的坑内网实测分两批2026-09-07--09-08) 第二批坑 5） | ✅ **已修**（PR #21，二轮 review 发现） | `install.ps1` |
+| S10 | **裸机上 skill 完全跑不起来**(2026-09-09 内网实测) —— 工作流第一步是 `node scripts/ensure-env.mjs`,而这一步本身要 node;裸机上它只报 `command not found`,agent 拿不到 `ENV_MISSING` 与 `HINT`,SKILL.md 全文又没有一处讲"没有 node 怎么办",于是自由发挥:让用户自己去 nodejs.org 下载(内网上不去)、改用纯 HTML 糊一个"看起来像"的预览。**更深一层是硬约束 0.1 把"装环境"和"装不上"混成了一句**,agent 读成"没有 node 也归用户"——它其实是在遵守我们的规则,是规则漏了一个分支。修法:工作流加 ⓪ 确认 node(裸机上只有那两个安装脚本能起步)、新增硬约束 0.2 把两件事分开写死 | ✅ **已修**(PR #23) | SKILL.md |
+| S11 | **中文路径下起不来 dev server**(2026-09-09 内网实测,工作目录 `D:\10 agent测试\`) —— PowerShell 5.1 按系统 ANSI 代码页(内网 GBK)解释命令行参数,而 Node 按 UTF-8 编码 argv 传出去,路径含中文必然乱码,`Start-Process` 报"找不到路径"。与 `install.ps1` 那条「必须存 UTF-8 with BOM」**同源**。修法:改走 `-EncodedCommand`(收 UTF-16LE 的 Base64,完全绕开代码页,微软给的标准解法),并把 PowerShell 的 `[Console]::OutputEncoding` 定成 UTF-8 让中文报错可读。⚠️ review 补:失败文案取 `e.stderr` 而非 `e.message` —— 后者是 `Command failed: <完整 argv>\n<stderr>`,而 argv 里那串 base64 有 1300+ 字符,会把真正的报错挤出 `RESULT:` 行,正好撞上 [§5.1.2](#512-硬性安全约束所有脚本--skillmd)「错误信息必须能读」 | ✅ **已修**(PR #23) | `verify.mjs` |
 | **S2** | **doctor 探针重做** —— 见 [§10 Q10](#10-待确认与遗留)，方案未拍板 | ⏸ **阻塞**（等 Q10） | `doctor.mjs` / SKILL.md |
 | **S5** | **日志落盘补全**：`log()` 落盘、`run()` 捕获子进程输出、install 脚本全程 tee | ⏳ **未做** | [§5.1.1](#511-统一输出契约所有脚本) |
 | **S8** | 两个安装脚本都有**不经 `Fail` 的裸崩路径**（ps1 读 `env.manifest.json` / `ConvertFrom-Json` 在 try 之外；sh 的 `mktemp` / `read`），那几条路上打不出 `RESULT: FAIL`，§8.4「截图就能定位」不成立 | ⏳ **未做**（review 发现，单独 PR） | `install.ps1` / `install.sh` |
