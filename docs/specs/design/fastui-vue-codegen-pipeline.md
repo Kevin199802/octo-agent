@@ -674,7 +674,7 @@ ERRORS_END
 |---|---|---|
 | 契约行（`RESULT:` / `HINT:` / `LOG:` / `WARN:`） | ✅ 已落 | 另加 `block()`（编译错误原文）与 `usage()`；`fail()` **自动补 `LOG:` 行**（sink 已知，不该靠每个调用方记得手写） |
 | 过程行（`log()`：走了哪个分支、`$ <实际命令行>`） | ❌ 只进 stderr | `log()` 也走 `persist()`，带 `hh:mm:ss` —— 好看出是哪一步耗了十分钟 |
-| **子进程 stdout/stderr**（npm / yarn 的原文） | ❌ 完全丢失 | `run()` 改 `spawnSync` + `stdio: ["ignore", "pipe", "pipe"]`，**成功也写**，超长只留尾部 64KB；退出码与耗时单独一行。**不能用 `execFileSync`**：它只返回 stdout，成功时 stderr 直接丢，而 npm / yarn 的话都说在 stderr 上。**收到的 Buffer 不解码**：Windows 上那是 GBK 字节，按 UTF-8 解一遍再写回去就是乱码（§5.1.2 那条根因链的一环）。另：`maxBuffer` 要调大，默认 1MB 撑不下 `yarn install` 的输出 |
+| **子进程 stdout/stderr**（npm / yarn 的原文） | ❌ 完全丢失 | `run()` 改 `spawn` **流式**：两条流都实时转发到 stderr，同时用一个有界尾部缓冲攒最后 64KB 落盘，**成功也写**；退出码与耗时单独一行。三个点都是判据: ① **必须流式**，一次性取意味着 `yarn install` 那几分钟一个字节都不输出，宿主若有「长时间无输出即判挂起」的逻辑会直接 kill 它 —— 那不是体验问题，是装不上；② **不能用 `execFileSync`**，它只返回 stdout，成功时 stderr 直接丢，而 npm / yarn 的话都说在 stderr 上；③ **收到的 Buffer 不解码**，Windows 上那是 GBK 字节，按 UTF-8 解一遍再写回去就是乱码（§5.1.2 那条根因链的一环）。另：子进程的 stdout 也转发到 **stderr**，不能进我们自己的 stdout —— v14 的 `inherit` 写法把 npm 的 stdout 混进了契约流 |
 | 契约行摘要 | — | 子进程失败时把 **stderr 末行**拼进 `RESULT:` 那行（ANSI 色码与控制字符先剔掉），别让契约行只剩个退出码 |
 | `install.sh` / `install.ps1` 全程 | ❌ 一个字都不落盘 | 全程 tee 到同一个 `<envDir>/octo-fastui.log`（sh 用 `exec 1> >(tee …)` 分别复制两条流，**交棒给 setup-env 前还原 fd**，否则它的输出会双份；ps1 每行输出经 `Say` / `Emit` 同步写盘） |
 | **失败响应体** | ❌ 没存 | curl **去掉 `-f`**（`-f` 会把错误页正文直接丢掉），改 `-w '%{http_code}'` 自己判状态码；ps1 从 `WebException.Response` 里读出正文。非 2xx 的正文原样进日志（超 64KB 或二进制只记大小） |

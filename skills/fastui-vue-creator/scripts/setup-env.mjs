@@ -8,10 +8,10 @@
  *
  * 用法: node setup-env.mjs [--env-dir=] [--registry=] [--upgrade] [--proxy=<地址>]
  */
-import { execFileSync, spawnSync } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
-import { setLogSink, ok, fail, log, logChild, lastLine, parseArgs } from "./lib/result.mjs"
+import { setLogSink, ok, fail, log, logChild, lastLine, tailBuffer, parseArgs } from "./lib/result.mjs"
 import { TEMPLATE_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs } from "./lib/paths.mjs"
 import { sha256File, sameHash } from "./lib/hash.mjs"
 
@@ -74,47 +74,68 @@ function childEnv() {
 }
 
 /**
- * 跑子进程,**原文落盘**(v15 S5,§5.1.1「日志里必须有什么」)。
+ * 跑子进程:**原文实时转发到 stderr,同时把尾部落盘**(v15 S5,§5.1.1「日志里必须有什么」)。
  *
  * v14 用的是 `stdio: ["ignore", "inherit", "inherit"]` —— 子进程输出直接继承到父进程,
  * 一个字节都不经日志。于是 2026-09-08 排 504 时,日志里只有一句
  * `YARN_INSTALL_FAILED: … npm install -g yarn`,npm 自己打的几十行(状态码、URL、
  * 重试记录)全丢了,只能靠"agent 的思考过程里提过 504"这种二手记忆。
+ * (顺带:那种写法还把子进程的 stdout 混进了**我们自己的 stdout**,而那条流按 §5.1.1
+ * 只能放契约行 —— 现在两条流一律转发到 stderr,契约流是干净的。)
  *
- * 三个要点:
+ * 为什么是 `spawn` 流式,不是 `spawnSync` 一次性取:
+ * `yarn install` 装 1GB 依赖要跑几分钟,一次性取意味着这几分钟**一个字节都不输出** ——
+ * 宿主或工具层若有「长时间无输出即判挂起」的逻辑会直接把它 kill,那就不是体验问题,
+ * 是装不上。所以必须边跑边吐。
+ *
+ * 另两个要点:
  * - **成功也写**。装成功但依赖树不对时,要能回头看 yarn 当时说了什么。
- * - 用 `spawnSync` 而不是 `execFileSync`:后者只返回 stdout,**成功时 stderr 直接丢**
- *   (只有抛错时才挂在 e.stderr 上),而 npm/yarn 的话都说在 stderr 上。
- * - 不设 `encoding`,拿到的就是 Buffer。**不解码**:Windows 上 npm 输出是 GBK 字节,
- *   按 UTF-8 解一遍再写回去就是乱码(§5.1.2 那条根因链的一环)。
- *
- * 代价:输出不再实时透传,要等子进程结束才一次性出现。agent 本来就是拿完整输出,
- * 没有人盯着终端看进度条,这个代价可以接受。
+ * - 收到的是 Buffer,**不解码**:Windows 上 npm 输出是 GBK 字节,按 UTF-8 解一遍
+ *   再写回去就是乱码(§5.1.2 那条根因链的一环)。日志留原始字节,人用什么编码开是人的事。
+ * - 内存有界:只留尾部 64KB(`tailBuffer`),不把整段攒在内存里。
  */
-const RUN_MAX_BUFFER = 256 * 1024 * 1024   // yarn install 的输出能到几 MB,默认 1MB 会 ENOBUFS
-const run = (bin, argv, cwd) => {
+const RUN_TAIL_KB = 64
+const run = async (bin, argv, cwd) => {
   log(`$ ${bin} ${argv.join(" ")}${cwd ? `   (cwd=${cwd})` : ""}`)
   const started = Date.now()
-  const r = spawnSync(bin, argv, {
-    cwd,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: childEnv(),
-    maxBuffer: RUN_MAX_BUFFER,
+  const child = spawn(bin, argv, { cwd, stdio: ["ignore", "pipe", "pipe"], env: childEnv() })
+  const outTail = tailBuffer(RUN_TAIL_KB)
+  const errTail = tailBuffer(RUN_TAIL_KB)
+  // 两条都转发到 **stderr**:stdout 是契约流,不能混进子进程的话(§5.1.1)
+  child.stdout.on("data", (b) => {
+    outTail.push(b)
+    process.stderr.write(b)
   })
-  logChild(`${path.basename(bin)} stdout`, r.stdout)
-  logChild(`${path.basename(bin)} stderr`, r.stderr)
+  child.stderr.on("data", (b) => {
+    errTail.push(b)
+    process.stderr.write(b)
+  })
+  const r = await new Promise((resolve) => {
+    let done = false
+    const finish = (v) => {
+      if (done) return
+      done = true
+      resolve(v)
+    }
+    // spawn 失败(ENOENT 等)走 error;正常结束走 close ——
+    // 用 close 而不是 exit:exit 可能早于 stdout/stderr 读完,那样会丢掉最后几行
+    child.on("error", (e) => finish({ status: null, error: e }))
+    child.on("close", (code) => finish({ status: code, error: null }))
+  })
+  // echo: false —— 上面已经边跑边转发过了,这里只补日志,不然人会看到两份
+  logChild(`${path.basename(bin)} stdout`, outTail.buffer(), { tailKb: RUN_TAIL_KB, total: outTail.total, echo: false })
+  logChild(`${path.basename(bin)} stderr`, errTail.buffer(), { tailKb: RUN_TAIL_KB, total: errTail.total, echo: false })
   log(`[exit] ${path.basename(bin)} status=${r.status ?? "null"} ${Date.now() - started}ms`)
-  // spawnSync 不抛异常,失败要自己造 —— 调用方接着用 e.message 拼 RESULT 行,
-  // 所以这里就把**最有用的那一行**(子进程 stderr 的末行)带上,别让契约行只剩个退出码。
+  // 这里不抛 spawn 的原始异常就没人抛了 —— 调用方接着用 e.message 拼 RESULT 行,
+  // 所以把**最有用的那一行**(子进程 stderr 的末行)带上,别让契约行只剩个退出码。
   if (r.error) {
     r.error.message = `${bin}: ${r.error.message}`
     throw r.error
   }
   if (r.status !== 0) {
-    const tail = lastLine(r.stderr) || lastLine(r.stdout)
+    const tail = lastLine(errTail.buffer()) || lastLine(outTail.buffer())
     throw new Error(`${path.basename(bin)} 退出码 ${r.status}${tail ? ` | ${tail}` : ""}`)
   }
-  return r.stdout
 }
 
 /**
@@ -128,7 +149,7 @@ const run = (bin, argv, cwd) => {
  * Windows 上没有 JS 入口就没有退路(yarn.cmd 不能 spawn),与其执行一个被截断的命令,
  * 不如响亮失败。
  */
-const runYarn = (argv, cwd) => {
+const runYarn = async (argv, cwd) => {
   const yarnJs = resolveYarnJs(P)
   if (yarnJs) return run(P.nodeBin, [yarnJs, ...argv], cwd)
   if (process.platform === "win32") {
@@ -149,7 +170,7 @@ if (!exists(P.yarnBin)) {
   const argv = ["install", "-g", "yarn"]
   if (registry) argv.push(`--registry=${registry}`)   // ← 只有装 yarn 这一步传 registry
   try {
-    run(npmBin, argv)
+    await run(npmBin, argv)
   } catch (e) {
     fail("YARN_INSTALL_FAILED", `安装 yarn 失败: ${e.message}`, { hint: registry ? undefined : "试试 --registry=<内网 npm 源>" })
   }
@@ -224,7 +245,7 @@ const OCTO_YARNRC_MARK = "# --- octo: 强制直连(SPEC-DES-001 §4.4.8 第二�
 // 脚手架自带的 .npmrc / .yarnrc 已配好各 scope 的独立源(@lake / @turboui 等),
 // 传 --registry 会把它们全部覆盖掉,表现是"包找不到",极难往这个方向想。
 try {
-  runYarn(["install"], P.deps)
+  await runYarn(["install"], P.deps)
 } catch (e) {
   fail("YARN_INSTALL_FAILED", `依赖安装失败: ${e.message}`, {
     hint: "检查 deps/.npmrc 与 .yarnrc 是否随 template 一起复制过来了",

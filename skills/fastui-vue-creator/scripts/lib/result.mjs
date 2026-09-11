@@ -169,19 +169,58 @@ export function emit(text) {
  * 而排查要看的永远是**尾部**(失败发生在最后)。
  * @param {string} label 段落标题,如 `npm install -g yarn (stderr)`
  * @param {Buffer|null|undefined} buf
- * @param {number} tailKb 保留尾部多少 KB
+ * @param {{tailKb?: number, total?: number|null, echo?: boolean}} [opts]
+ *   - `total`:子进程实际产出的总字节数。流式采集时 buf 已经是截好的尾部,长度不再等于
+ *     总量 —— 不把总量单独传进来,那行"共 N 字节"就会骗人。
+ *   - `echo`:要不要同时回显到 stderr。**边跑边转发的调用方要传 false** ——
+ *     那些字节已经实时吐过一遍了,再回显一次人就看到两份。
  */
-export function logChild(label, buf, tailKb = 64) {
+export function logChild(label, buf, opts = {}) {
   if (!buf || buf.length === 0) return
+  const { tailKb = 64, total = null, echo = true } = opts
   const max = tailKb * 1024
-  const cut = buf.length > max
-  const body = cut ? buf.subarray(buf.length - max) : buf
-  const head = `--- ${label}${cut ? ` (共 ${buf.length} 字节,只留尾部 ${tailKb}KB)` : ""} ---\n`
+  const all = total ?? buf.length
+  const cut = all > max
+  const body = buf.length > max ? buf.subarray(buf.length - max) : buf
+  const head = `--- ${label}${cut ? ` (共 ${all} 字节,只留尾部 ${tailKb}KB)` : ""} ---\n`
   persist(head)
   persist(body)
   if (body[body.length - 1] !== 0x0a) persist("\n")
+  if (!echo) return
   process.stderr.write(head)
   process.stderr.write(body)
+}
+
+/**
+ * 尾部缓冲:边收边丢,只留最后 `tailKb` KB。
+ *
+ * 流式转发子进程输出时不能把几百 MB 全攒在内存里,而日志又只要尾部
+ * (失败总发生在最后)—— 这个小东西就是这两件事的交点。
+ */
+export function tailBuffer(tailKb = 64) {
+  const max = tailKb * 1024
+  /** @type {Buffer[]} */
+  let chunks = []
+  let len = 0
+  let total = 0
+  return {
+    push(b) {
+      total += b.length
+      chunks.push(b)
+      len += b.length
+      // 留够 max 的前提下丢最老的:只在"丢掉它还够"时才丢,避免把尾部丢没了
+      while (chunks.length > 1 && len - chunks[0].length >= max) {
+        len -= chunks.shift().length
+      }
+    },
+    get total() {
+      return total
+    },
+    buffer() {
+      const b = Buffer.concat(chunks)
+      return b.length > max ? b.subarray(b.length - max) : b
+    },
+  }
 }
 
 /**
