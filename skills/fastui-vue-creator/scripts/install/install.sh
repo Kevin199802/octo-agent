@@ -87,6 +87,18 @@ bad_usage() { echo "RESULT: FAIL | BAD_USAGE: $1"; [ -n "$TEE_ON" ] && echo "LOG
 # `|| true`、返回值只由显式的 case/return 决定。详见 docs/learning/bash-err-trap-and-set-e.md
 on_error() {
   ec=$?
+  # ⚠️ **子 shell 里直接把真实退出码原样传出去,一个字都不许打。**
+  #
+  # `-E` 不只把 ERR trap 传给函数,也传给**命令替换的子 shell**。而 `g="$(curl …)"`
+  # 这种写法里,子 shell 的 stdout 正是命令替换要捕获的那条管道 —— trap 一开口,
+  # 契约行就被灌进 `$g`,`$?` 也从 curl 的真实码(63 / 7)变成 trap 的 `exit 1`。
+  # 后果实测:服务端不支持 Range(curl 63,本该是正常路径)的好平台被判成坏的,
+  # 2/3 变 3/3 假红;真·连不上时 `curl exit=7`(连不上主机)被静默改写成 1(协议不支持),
+  # 而退出码正是 §4.4.4 排查表的分支依据 —— **静默污染比乱码更危险**。
+  #
+  # 另注:`set +e` **不抑制 ERR trap**(bash 3.2 实测),所以"我在 set +e 区间里"不是护身符。
+  # 详见 docs/learning/bash-err-trap-and-set-e.md
+  [ "${BASH_SUBSHELL:-0}" -gt 0 ] && exit "$ec"
   echo "RESULT: FAIL | UNEXPECTED: 安装脚本在第 $1 行意外中止(exit=$ec)"
   echo "HINT: 这条路径没有专门的错误处理,把 LOG 里这次运行的整段(从 ===== 那行起)发出来"
   [ -n "$TEE_ON" ] && echo "LOG: $LOG"
