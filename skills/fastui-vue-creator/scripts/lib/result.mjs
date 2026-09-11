@@ -5,7 +5,7 @@
  * 失败原因写成「英文错误码: 中文说明」:内网 Windows 终端代码页是 GBK,
  * 中文可能显示成乱码,但错误码是 ASCII,截图出来仍然可读(§8.4)。
  */
-import { appendFileSync, mkdirSync } from "node:fs"
+import { appendFileSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs"
 import { dirname } from "node:path"
 
 /**
@@ -23,10 +23,39 @@ import { dirname } from "node:path"
 let LOG_SINK = null
 let headerDone = false
 
+/**
+ * 日志上限:超了就轮转成 `.old`,只留一代。
+ *
+ * S5 之后单次失败安装就能写进一百多 KB(子进程 stdout/stderr 各截 64KB,加响应体),
+ * 反复重装累积到几 MB 很正常 —— 而这个文件的用途是**发给人排障**,不能无限长。
+ *
+ * ⚠️ 这里有删除动作,受 §5.1.2 约束:只允许动 `<当前 sink>.old` 这一个路径,
+ * 断言不过就不删。别让它长成一个"清理日志目录"的通用函数。
+ */
+const LOG_MAX_BYTES = 8 * 1024 * 1024
+function rotate(p) {
+  try {
+    if (statSync(p).size < LOG_MAX_BYTES) return
+    const old = `${p}.old`
+    if (!old.endsWith("octo-fastui.log.old")) return
+    rmSync(old, { force: true })
+    renameSync(p, old)
+  } catch {
+    /* 轮转失败就继续往原文件写,绝不能影响脚本本身 */
+  }
+}
+
 export function setLogSink(p) {
   LOG_SINK = p
   headerDone = false
+  rotate(p)
 }
+
+/**
+ * 日志要发给人,所以命令行里的代理凭据得抹掉 ——
+ * `--proxy=http://user:pass@host` 这种写法会把口令原样写进文件。
+ */
+const redact = (s) => s.replace(/(:\/\/[^:/@\s]*):[^@\s]*@/g, "$1:***@")
 
 /** 当前日志路径,没设过就是 null —— fail() 用它自动补 `LOG:` 行 */
 export function logPath() {
@@ -45,7 +74,7 @@ function persist(chunk) {
     mkdirSync(dirname(LOG_SINK), { recursive: true })
     if (!headerDone) {
       headerDone = true
-      appendFileSync(LOG_SINK, `\n===== ${new Date().toISOString()} ${process.argv.slice(1).join(" ")}\n`)
+      appendFileSync(LOG_SINK, `\n===== ${new Date().toISOString()} ${redact(process.argv.slice(1).join(" "))}\n`)
     }
     appendFileSync(LOG_SINK, chunk)
   } catch {
@@ -60,8 +89,9 @@ const stamp = () => new Date().toTimeString().slice(0, 8)
  * 契约里 `<KEY>: <value>` 是**单行**(§5.1.1)。值来自子进程输出时未必守规矩
  * (`yarn -v` 之类偶尔会多吐几行),多行会让 agent 把后续行当成新的 key 解析。
  * 多行内容有 block() 那条正路,这里一律压成一行。
+ * **不能只吃 `\r\n`**:npm 的进度条用的是裸 `\r`,漏掉它契约行会在终端里被自己覆盖掉。
  */
-const oneLine = (v) => String(v).replace(/\s*\r?\n\s*/g, " ").trim()
+const oneLine = (v) => String(v).replace(/\s+/g, " ").trim()
 
 /** @param {Record<string, string|number|undefined>} fields */
 export function ok(fields = {}) {

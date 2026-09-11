@@ -61,10 +61,13 @@ put("POOL_LOCKFILE", exists(P.depsLock) ? sha256File(P.depsLock) : "MISSING")
 put("SKILL_TEMPLATE_LOCKFILE", exists(path.join(TEMPLATE_DIR, "yarn.lock")) ? sha256File(path.join(TEMPLATE_DIR, "yarn.lock")) : "MISSING")
 const lock = readJson(P.lockFile)
 put("ENV_LOCK_JSON", lock ? `OK(envVersion=${lock.envVersion})` : "MISSING")
-// 两个 lockfile 哈希一眼看不出等不等,直接判一行 —— 这是 ensure-env 的主判据(§5.2.1)
+// 两个 lockfile 哈希一眼看不出等不等,直接判一行 —— 这是 ensure-env 的主判据(§5.2.1)。
+// **缺文件时也要打这一行**:同 PROXY 那条原则,不打的话分不清"没比"和"比了没问题"。
 if (exists(P.depsLock) && exists(path.join(TEMPLATE_DIR, "yarn.lock"))) {
   const same = sha256File(P.depsLock) === sha256File(path.join(TEMPLATE_DIR, "yarn.lock"))
   put("LOCKFILE_MATCH", same ? "YES" : "NO(共享池与当前 skill 的依赖树不一致,要跑 --upgrade)")
+} else {
+  put("LOCKFILE_MATCH", "UNKNOWN(两个 lockfile 至少缺一个,见上面两行)")
 }
 
 // ── 系统 node/yarn(不是必需,但知道有没有对排查有用)────────────────
@@ -96,7 +99,11 @@ const checkCmd =
   process.platform === "win32"
     ? `powershell -ExecutionPolicy Bypass -File "${path.join(SKILL_DIR, "scripts", "install", "install.ps1")}" -Check`
     : `bash "${path.join(SKILL_DIR, "scripts", "install", "install.sh")}" --check`
-put("NETWORK_PROBE", "本脚本不做网络探测(它与安装用的不是同一个 HTTP 客户端,结果会互相打架)")
+// **必须是个状态字段,不能只写句说明**:只跑了 doctor 的 agent 看到满屏正常会得出
+// "环境没问题",而网络这一格其实是"没查"。这跟 PROXY 那条"一个都没有也要打一行"是同一条
+// 原则 —— 分不清"没问题"和"没查"就是把人往沟里带(§4.4.9)。
+put("NETWORK", "UNKNOWN(本脚本不探测;必须再跑下面这条 NET_CHECK_CMD 才有结论)")
+put("NETWORK_PROBE_WHY", "doctor 与安装脚本不是同一个 HTTP 客户端,自己探会给出另一个问题的答案")
 put("NET_CHECK_CMD", checkCmd)
 
 // 日志在哪 —— 找不到日志是最常见的二次求助,直接打出来

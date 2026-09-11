@@ -10,7 +10,10 @@
 #                   [--registry=<npm 源>] [--upgrade] [--skip-node]
 #                   [--proxy=<地址>]   # 默认强制直连,只有确实必须经代理才传
 #   bash install.sh --check            # 只探测网络,不下载、不安装(见文件末尾 check_mode)
-set -euo pipefail
+# `-E` 不能省:ERR trap **默认不被 shell 函数继承**,而 --check 的全部逻辑都在 check_mode / 
+# http_get / probe_asset 这些函数里 —— 少了它,S8 的兜底在整条 --check 路径上一次都不成立
+# (review 实测:函数内注入裸崩,一行契约行都打不出来)。
+set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -45,6 +48,10 @@ NODE_BIN="$NODE_DIR/bin/node"
 #
 # **交给 setup-env.mjs 之前会把 fd 还原**:那个脚本自己会往同一个文件里写,
 # 不还原的话它的每一行都会进日志两遍。
+# 日志里不留代理凭据:--proxy=http://user:pass@host 这种写法会把口令写进文件,
+# 而这个文件是要发给人排障的(§8.4)。
+redact() { printf '%s' "$1" | sed -E 's#(://[^:/@]*):[^@[:space:]]*@#\1:***@#g'; }
+
 LOG="$ENV_DIR/octo-fastui.log"
 TEE_ON=""
 if mkdir -p "$ENV_DIR" 2>/dev/null; then
@@ -52,7 +59,7 @@ if mkdir -p "$ENV_DIR" 2>/dev/null; then
   exec 1> >(tee -a "$LOG" >&3) 2> >(tee -a "$LOG" >&4)
   TEE_ON=1
 fi
-printf '\n===== %s install.sh %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2
+printf '\n===== %s install.sh %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$(redact "$*")" >&2
 [ -z "$TEE_ON" ] && echo "[warn] 建不了 $ENV_DIR,本次不落盘" >&2
 
 fail() {
@@ -73,6 +80,11 @@ bad_usage() { echo "RESULT: FAIL | BAD_USAGE: $1"; [ -n "$TEE_ON" ] && echo "LOG
 #
 # 注意 fail() 自己走的是 `exit 1`,而 exit 不触发 ERR trap(实测确认),
 # 所以正常的失败路径不会被这里重复打印。
+#
+# **边界(要诚实)**:放在条件位置调用的函数,豁免会传进整个函数体 —— `http_get`
+# (总是 `if ! http_get …`)与 `probe_asset`(总是 `… || bad=…`)内部的裸崩,这个兜底
+# **接不住**。所以那两个函数自己防:curl 一律 `set +e` 明确接管退出码、grep 一律
+# `|| true`、返回值只由显式的 case/return 决定。详见 docs/learning/bash-err-trap-and-set-e.md
 on_error() {
   ec=$?
   echo "RESULT: FAIL | UNEXPECTED: 安装脚本在第 $1 行意外中止(exit=$ec)"
@@ -191,13 +203,23 @@ probe_asset() {  # 平台键 url
   hcode="$w"; [ "$ec" = "0" ] || hcode="$w(curl exit=$ec)"
   hlen="$(grep -i '^content-length:' "$TMP/h.txt" 2>/dev/null | tail -1 | tr -d '\r' | awk '{print $2}' || true)"
   htype="$(grep -i '^content-type:' "$TMP/h.txt" 2>/dev/null | tail -1 | tr -d '\r' | awk '{print $2}' || true)"
+  # HEAD 响应没有正文,它的等价物是**响应头** —— WAF 规则号、Server、Set-Cookie 都在那儿。
+  # 失败时整份落盘,别只留一个状态码(与 ps1 侧记 HEAD 错误响应的行为对齐)。
+  case "$w" in
+    2*) ;;
+    *) dump_body "$TMP/h.txt" "$key HEAD 响应头"
+       [ -s "$TMP/curl.err" ] && echo "[curl] $key HEAD: $(tr -d '\r' < "$TMP/curl.err" | tr '\n' ' ')" >&2 ;;
+  esac
 
   # HEAD 之外再做一次 **1 字节的 Range GET**:2026-09-09 的阻塞正是「同一个 URL
   # 浏览器/HEAD 拿得到、curl GET 403」—— 只验 HEAD 会给出一个假的全绿,
   # 那就又变成"诊断工具回答了另一个问题"。--max-filesize 兜住服务端忽略 Range 的情况
   # (那时它会返回 200 + 完整 Content-Length,curl 以 exit 63 中止,不会真把包拉下来)。
+  # **响应体必须落文件、不能丢进 /dev/null**:这条命令存在的全部理由就是诊断 403,
+  # 而"被谁拦的"(WAF 规则号 / MIME / UA)只写在正文里 —— §5.1.1 记的 2026-09-09 那次
+  # 就是栽在没存响应体上。dump_body 自带 64KB 上限与二进制保护,撑不爆日志。
   set +e
-  g="$(curl "${CURL_ARGS[@]}" -sS -L --connect-timeout 20 --max-time 60 -r 0-0 --max-filesize 1048576 -o /dev/null -w '%{http_code}' "$url" 2>"$TMP/curl2.err")"
+  g="$(curl "${CURL_ARGS[@]}" -sS -L --connect-timeout 20 --max-time 60 -r 0-0 --max-filesize 1048576 -o "$TMP/probe.bin" -w '%{http_code}' "$url" 2>"$TMP/curl2.err")"
   gec=$?
   set -e
   gcode="$g"; note=""
@@ -208,6 +230,7 @@ probe_asset() {  # 平台键 url
   case "$g" in
     200|206) return 0 ;;
     *)
+      dump_body "$TMP/probe.bin" "$key GET 错误响应"
       [ -s "$TMP/curl2.err" ] && echo "[curl] $key GET: $(tr -d '\r' < "$TMP/curl2.err" | tr '\n' ' ')" >&2
       return 1 ;;
   esac
@@ -217,7 +240,7 @@ check_mode() {
   local mjson bad total key file v seen
   echo "CHECK_MODE: probe-only"
   echo "PLATFORM_HERE: $PLATFORM_KEY"
-  if [ -n "$PROXY" ]; then echo "PROXY_MODE: via $PROXY"; else echo "PROXY_MODE: direct(--noproxy '*')"; fi
+  if [ -n "$PROXY" ]; then echo "PROXY_MODE: via $(redact "$PROXY")"; else echo "PROXY_MODE: direct(--noproxy '*')"; fi
   if [ -n "$STRICT_CERT" ]; then echo "TLS_VERIFY: ON"; else echo "TLS_VERIFY: OFF(-k,完整性靠 sha256)"; fi
   echo "CURL_VERSION: $(curl --version 2>/dev/null | head -1)"
   # 本进程看到的代理变量 —— curl 会读它们(我们强制直连,但"环境里有什么"本身就是线索)。
@@ -382,12 +405,13 @@ ARGS=(--env-dir="$ENV_DIR")
 [ -n "$REGISTRY" ] && ARGS+=(--registry="$REGISTRY")
 [ -n "$UPGRADE" ] && ARGS+=(--upgrade)
 [ -n "$PROXY" ] && ARGS+=(--proxy="$PROXY")   # 不透传的话,逃生开关只对下载 node 那一步有效
-echo "[handoff] setup-env.mjs ${ARGS[*]} —— 之后的日志由它自己往同一个文件写" >&2
+echo "[handoff] setup-env.mjs $(redact "${ARGS[*]}") —— 之后的日志由它自己往同一个文件写" >&2
 
 # exec 会替换掉当前进程,EXIT trap 不会跑 —— 临时目录要在这里自己清掉,
 # 否则每次装完都在 /var/folders 下留一份几十 MB 的 node 包。
 cleanup
 trap - EXIT
 # tee 的 fd 也要还原,否则 setup-env 的输出会被这边 tee 一遍、它自己再写一遍,日志里全是双份。
-[ -n "$TEE_ON" ] && exec 1>&3 2>&4
+# 3/4 用完就关,别随 exec 泄漏给 node 进程
+[ -n "$TEE_ON" ] && exec 1>&3 2>&4 3>&- 4>&-
 exec "$NODE_BIN" "$SKILL_DIR/scripts/setup-env.mjs" "${ARGS[@]}"

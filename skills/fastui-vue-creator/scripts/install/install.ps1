@@ -70,8 +70,20 @@ function WriteLog($text) {
 }
 # 过程输出:给人看(Write-Host 不进 stdout,契约行才进)
 function Say($msg) { Write-Host $msg; WriteLog $msg }
+# 契约行必须是**单行**(§5.1.1)。压平放在 Emit 里,不靠每个调用点记得手写 ——
+# 与 mjs 侧 fail() 自动补 LOG: 行同一个思路:能下沉的约束就别摊给调用方。
+# 注意 Say 不压平:它要往日志里写错误页正文那种多行原文。
+function Flatten($s) {
+  if ($null -eq $s) { return "" }
+  return (($s -replace "\s+", " ").Trim())
+}
+# 日志要发给人,命令行里的代理凭据得抹掉:-Proxy http://user:pass@host 会把口令写进文件
+function Redact($s) {
+  if ($null -eq $s) { return "" }
+  return ($s -replace '(://[^:/@\s]*):[^@\s]*@', '$1:***@')
+}
 # 契约行:agent 解析的就是这几行
-function Emit($msg) { Write-Output $msg; WriteLog $msg }
+function Emit($msg) { $line = Flatten $msg; Write-Output $line; WriteLog $line }
 
 # ⚠️ Fail 必须定义在**所有调用点之前**(见文件头第二条硬约束)。
 # v14 第一版把 -Proxy 的错误处理加在了它前面,踩过一次(§4.4.8 第二批坑 5)。
@@ -115,15 +127,63 @@ function LogBody($label, $body) {
   Say "[body] ${label} ($($body.Length) 字符):"
   Say $body
 }
+# 探一个 URL:**只读响应头就断开,正文一个字节都不读**。
+#
+# 为什么不用 Invoke-WebRequest:PS 5.1 的 IWR 配 -OutFile **不返回对象**
+# (-PassThru 是 PS 7 才有的),于是拿不到真实状态码 —— 而 **200 与 206 的区别正是
+# "服务端支不支持 Range"**,恰恰是这里最需要知道的那件事;而且服务端忽略 Range 时
+# IWR 会把整包(几十 MB)真下下来。
+#
+# 这不是引入第二套 HTTP 栈:PS 5.1 的 IWR 底层本来就是 HttpWebRequest,
+# DefaultWebProxy 与 ServicePointManager 的代理 / 证书 / TLS 设置都是全局的,
+# 上面配的那几项照样生效 —— "零漂移"这个理由不受影响。
+function Probe($url, $method, $useRange) {
+  $r = @{ code = "000"; len = ""; type = ""; range = ""; err = ""; body = "" }
+  $resp = $null
+  try {
+    $req = [System.Net.HttpWebRequest][System.Net.WebRequest]::Create($url)
+    $req.Method = $method
+    $req.Timeout = 60000
+    $req.ReadWriteTimeout = 60000
+    if ($useRange) { $req.AddRange(0, 0) }
+    $resp = $req.GetResponse()
+    $r.code = [int]$resp.StatusCode
+    $r.len = $resp.Headers["Content-Length"]
+    $r.range = $resp.Headers["Content-Range"]
+    $r.type = $resp.ContentType
+  } catch [System.Net.WebException] {
+    $r.err = $_.Exception.Message
+    $er = $_.Exception.Response
+    if ($er) {
+      try { $r.code = [int]$er.StatusCode } catch { }
+      try { $r.type = $er.ContentType } catch { }
+      try { $r.len = $er.Headers["Content-Length"] } catch { }
+      # 错误页正文就是定位依据(§5.1.1:2026-09-09 那次就栽在没存它)
+      try {
+        $sr = New-Object System.IO.StreamReader($er.GetResponseStream())
+        $r.body = $sr.ReadToEnd()
+        $sr.Close()
+      } catch { }
+      try { $er.Close() } catch { }
+    }
+  } catch {
+    $r.err = $_.Exception.Message
+  } finally {
+    # 拿到响应头就断开 —— 这就是"不下载整包"的实现,别在这之前读 GetResponseStream()
+    if ($resp) { try { $resp.Close() } catch { } }
+  }
+  return $r
+}
+
+# Flatten + 截断:给 DETAIL 用(错误页正文可能几百字,契约行不该被它撑爆)
 function OneLine($s, $max) {
-  if (-not $s) { return "" }
-  $t = ($s -replace "\s+", " ").Trim()
+  $t = Flatten $s
   if ($t.Length -gt $max) { return $t.Substring(0, $max) + "…" }
   return $t
 }
 
 $argLine = ($PSBoundParameters.GetEnumerator() | ForEach-Object { "-$($_.Key) $($_.Value)" }) -join " "
-WriteLog "`r`n===== $(Get-Date -Format o) install.ps1 $argLine"
+WriteLog "`r`n===== $(Get-Date -Format o) install.ps1 $(Redact $argLine)"
 if (-not $script:LogOn) { Say "[warn] 建不了 $EnvDir,本次不落盘" }
 
 if ($Check -and $FromLocal) { BadUsage "-Check 是网络探测,不能与 -FromLocal 同用" }
@@ -156,7 +216,7 @@ if ($Proxy) {
   try {
     [System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy($Proxy, $true)
   } catch {
-    Fail "BAD_PROXY" "-Proxy 的地址无法解析: $Proxy" $_.Exception.Message "形如 http://host:port"
+    Fail "BAD_PROXY" "-Proxy 的地址无法解析: $(Redact $Proxy)" (Redact $_.Exception.Message) "形如 http://host:port"
   }
 } else {
   try {
@@ -214,14 +274,15 @@ try {
   # **完全忽略 HTTP_PROXY 环境变量**;这边用的是 .NET 的 WebRequest,读的是系统代理设置。
   # 两条路根本不同,2026-09-08 于是出现 doctor 报 200、install 同时 504,
   # 诊断工具回答了另一个问题。平行实现必然漂移,所以探测就放在真正会去下载的这个脚本里,
-  # **复用同一个 Invoke-WebRequest、同一套代理/证书设置、同一条 URL 拼法**。
+  # **复用同一套代理 / 证书 / TLS 设置与同一条 URL 拼法**:manifest 走 Invoke-WebRequest
+  # (与真实安装同一句),资产探测走它的底层 HttpWebRequest —— 见 Probe 上面那段说明。
   #
   # 探测 manifest 里**每一个平台**的包,不只是本机这个 —— 2026-09-09 踩过:
   # 只验了跑命令那台的平台,而设计师那台是 darwin-arm64,从没被验过(§4.4.4)。
   if ($Check) {
     Emit "CHECK_MODE: probe-only"
     Emit "PLATFORM_HERE: $PlatformKey"
-    if ($Proxy) { Emit "PROXY_MODE: via $Proxy" } else { Emit "PROXY_MODE: direct(DefaultWebProxy 已置空)" }
+    if ($Proxy) { Emit "PROXY_MODE: via $(Redact $Proxy)" } else { Emit "PROXY_MODE: direct(DefaultWebProxy 已置空)" }
     if ($StrictCert) { Emit "TLS_VERIFY: ON" } else { Emit "TLS_VERIFY: OFF(完整性靠 sha256)" }
     Emit "PS_VERSION: $($PSVersionTable.PSVersion)"
     # 本进程看到的代理变量。**Windows 上 .NET 不读它们**(读的是系统设置),
@@ -276,43 +337,35 @@ try {
     $base = $Manifest.Substring(0, $Manifest.LastIndexOf("/"))
     $bad = 0
     $total = 0
-    $probeTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("octo-probe-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
     foreach ($prop in $m.node.platforms.PSObject.Properties) {
       $total++
       $key = $prop.Name
       $hkey = $key.ToUpper().Replace("-", "_")
       $u = "$base/$($prop.Value.file)"
-      $hcode = "000"; $hlen = "?"; $htype = "?"; $gcode = "000"; $gbytes = "?"
-      try {
-        $hr = Invoke-WebRequest -Uri $u -Method Head -UseBasicParsing -TimeoutSec 60
-        $hcode = [int]$hr.StatusCode
-        if ($hr.Headers["Content-Length"]) { $hlen = $hr.Headers["Content-Length"] }
-        if ($hr.Headers["Content-Type"]) { $htype = $hr.Headers["Content-Type"] }
-      } catch {
-        $d = WebErrorDetail $_
-        $hcode = $d.code
-        LogBody "$key HEAD 错误响应" $d.body
-      }
+
       # HEAD 之外再做一次 **1 字节的 Range GET**:2026-09-09 的阻塞正是「同一个 URL
-      # 浏览器/HEAD 拿得到、curl GET 403」—— 只验 HEAD 会给出一个假的全绿,
-      # 那就又变成"诊断工具回答了另一个问题"。
-      # ⚠️ 服务端若忽略 Range,这一步会把整包拉下来(nginx 静态文件支持 Range,正常返回 206)。
-      # 拿 GET_BYTES 就能看出来,所以不藏着。
-      try {
-        Invoke-WebRequest -Uri $u -Headers @{ "Range" = "bytes=0-0" } -OutFile $probeTmp -UseBasicParsing -TimeoutSec 60 | Out-Null
-        $gcode = "200/206"
-        if (Test-Path $probeTmp) {
-          $gbytes = (Get-Item $probeTmp).Length
-          Remove-Item $probeTmp -Force -ErrorAction SilentlyContinue
-        }
-      } catch {
-        $d = WebErrorDetail $_
-        $gcode = $d.code
-        LogBody "$key GET 错误响应" $d.body
-        if (Test-Path $probeTmp) { Remove-Item $probeTmp -Force -ErrorAction SilentlyContinue }
-        $bad++
-      }
-      Emit "ASSET_${hkey}: HEAD=$hcode GET=$gcode bytes=$gbytes len=$hlen type=$htype"
+      # 浏览器 / HEAD 拿得到、curl GET 403」—— 只验 HEAD 会给出一个假的全绿,
+      # 那就又变成"诊断工具回答了另一个问题"。两次都只读响应头,不下正文。
+      $h = Probe $u "HEAD" $false
+      $g = Probe $u "GET" $true
+      if ($h.body) { LogBody "$key HEAD 错误响应" $h.body }
+      if ($g.body) { LogBody "$key GET 错误响应" $g.body }
+      if ($h.err) { Say "[probe] $key HEAD: $(OneLine $h.err 200)" }
+      if ($g.err) { Say "[probe] $key GET: $(OneLine $g.err 200)" }
+
+      # 真实长度优先取 HEAD;HEAD 被拦时退而取 206 的 Content-Range 总数
+      # (206 自己的 Content-Length 是 1,拿它报出去会误导)
+      $len = "?"
+      if ($h.len) { $len = $h.len }
+      elseif ($g.range -and $g.range.Contains("/")) { $len = $g.range.Split("/")[-1] }
+      elseif ($g.len) { $len = $g.len }
+      $type = "?"
+      if ($h.type) { $type = $h.type } elseif ($g.type) { $type = $g.type }
+
+      $note = ""
+      if ("$($g.code)" -eq "200") { $note = "(服务端忽略 Range,已断开,未下载)" }
+      Emit "ASSET_${hkey}: HEAD=$($h.code) GET=$($g.code)$note len=$len type=$type"
+      if (-not (@(200, 206) -contains [int]$g.code)) { $bad++ }
     }
     Emit "CHECKED_PLATFORMS: $total"
     if ($total -eq 0) { Fail "NO_PLATFORM_PKG" "manifest 的 node.platforms 是空的" $null "在 manifest.json 里补平台条目" }
@@ -434,9 +487,19 @@ try {
   if ($Upgrade) { $argv += "--upgrade" }
   if ($Proxy) { $argv += "--proxy=$Proxy" }   # 不透传的话,逃生开关只对下载 node 那一步有效
   # 它自己会往同一个日志文件写,所以这边不转录它的输出 —— 转录了日志里就是双份。
-  Say "[handoff] setup-env.mjs $($argv[1..($argv.Length-1)] -join ' ')"
+  Say "[handoff] setup-env.mjs $(Redact ($argv[1..($argv.Length-1)] -join ' '))"
+  # ⚠️ 交棒期间把 $ErrorActionPreference 降成 Continue。
+  # PS 5.1 在 "Stop" 下,native 命令写 stderr 有可能被当成 NativeCommandError 抛出来,
+  # 而 v15 让 setup-env 往 stderr 的输出量**大增**(logChild 把子进程原文整段转发)。
+  # 裸 `& exe` 通常让子进程直接继承句柄、不触发,但本机没有 PS 5.1 验不了 ——
+  # 真踩中的表现是"交棒之后立刻冒一条 RESULT: FAIL | UNEXPECTED",成本很高,
+  # 而这道保险是零成本的:退出码照样从 $LASTEXITCODE 取。
+  $prevEAP = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
   & $NodeBin @argv
-  exit $LASTEXITCODE
+  $childCode = $LASTEXITCODE
+  $ErrorActionPreference = $prevEAP
+  exit $childCode
 
 } catch {
   # Fail 走的是 exit(PowerShell 的流程控制不进 catch),这里兜的是**没人管的异常**。

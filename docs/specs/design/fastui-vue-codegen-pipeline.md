@@ -102,7 +102,7 @@ curl  GET  manifest.json                            → 200
 | S11 | **中文路径下起不来 dev server**(2026-09-09 内网实测,工作目录 `D:\10 agent测试\`) —— PowerShell 5.1 按系统 ANSI 代码页(内网 GBK)解释命令行参数,而 Node 按 UTF-8 编码 argv 传出去,路径含中文必然乱码,`Start-Process` 报"找不到路径"。与 `install.ps1` 那条「必须存 UTF-8 with BOM」**同源**。修法:改走 `-EncodedCommand`(收 UTF-16LE 的 Base64,完全绕开代码页,微软给的标准解法),并把 PowerShell 的 `[Console]::OutputEncoding` 定成 UTF-8 让中文报错可读。⚠️ review 补:失败文案取 `e.stderr` 而非 `e.message` —— 后者是 `Command failed: <完整 argv>\n<stderr>`,而 argv 里那串 base64 有 1300+ 字符,会把真正的报错挤出 `RESULT:` 行,正好撞上 [§5.1.2](#512-硬性安全约束所有脚本--skillmd)「错误信息必须能读」 | ✅ **已修**(PR #23) | `verify.mjs` |
 | S2 | **doctor 探针重做**（Q10 定案）：网络探测整段删掉、移到安装脚本的 `--check`；doctor 砍成环境快照（静态清点 + 本进程代理变量），并打印 `NET_CHECK_CMD` 指向那条命令 | ✅ **已修**（v15）| `doctor.mjs` / `install.sh` / `install.ps1` / SKILL.md，见 [§4.4.9](fastui-env-hosting.md#449-装不上时跑什么) |
 | S5 | **日志落盘补全**：`log()` / `warn()` / `block()` 落盘、`run()` 改 `spawnSync` 捕获子进程原文（成功也写、留尾部 64KB、Buffer 不解码）、两个安装脚本全程 tee、curl 去掉 `-f` 把失败响应体存下来、`fail()` 自动补 `LOG:` 行 | ✅ **已修**（v15，本地起假 nginx 逐条实测）| [§5.1.1](#511-统一输出契约所有脚本) |
-| S8 | 两个安装脚本都有**不经 `Fail` 的裸崩路径**（ps1 读 `env.manifest.json` / `ConvertFrom-Json` 在 try 之外；sh 的 `mktemp` / `read`），那几条路上打不出 `RESULT: FAIL`，§8.4「截图就能定位」不成立 | ✅ **已修**（v15）：sh 加 `trap ERR` → `UNEXPECTED`，ps1 主体外包 `catch { Fail "UNEXPECTED" }`；顺带把 manifest 非 JSON 提前判成 `MANIFEST_NOT_JSON`，别让它绕成一条 UNEXPECTED | `install.ps1` / `install.sh` |
+| S8 | 两个安装脚本都有**不经 `Fail` 的裸崩路径**（ps1 读 `env.manifest.json` / `ConvertFrom-Json` 在 try 之外；sh 的 `mktemp` / `read`），那几条路上打不出 `RESULT: FAIL`，§8.4「截图就能定位」不成立 | ✅ **已修**（v15）：sh 加 `trap ERR` → `UNEXPECTED`，ps1 主体外包 `catch { Fail "UNEXPECTED" }`；顺带把 manifest 非 JSON 提前判成 `MANIFEST_NOT_JSON`，别让它绕成一条 UNEXPECTED。⚠️ **`set -e` 必须写成 `set -Ee`**：ERR trap 默认**不被函数继承**，少一个 `E` 的话兜底只覆盖顶层代码，而 `--check` 的全部逻辑都在函数里 —— review 实测抓出来的，见 [bash-err-trap-and-set-e.md](../../learning/bash-err-trap-and-set-e.md) | `install.ps1` / `install.sh` |
 
 > **S1 的关键教训**：第一版只堵了 curl，而 npm / yarn 走的是另一条继承链。
 > 2026-09-07 日志里 `YARN_INSTALL_FAILED: … <池子>/node/bin/npm install -g yarn` 就是证据 ——
@@ -678,6 +678,9 @@ ERRORS_END
 | 契约行摘要 | — | 子进程失败时把 **stderr 末行**拼进 `RESULT:` 那行（ANSI 色码与控制字符先剔掉），别让契约行只剩个退出码 |
 | `install.sh` / `install.ps1` 全程 | ❌ 一个字都不落盘 | 全程 tee 到同一个 `<envDir>/octo-fastui.log`（sh 用 `exec 1> >(tee …)` 分别复制两条流，**交棒给 setup-env 前还原 fd**，否则它的输出会双份；ps1 每行输出经 `Say` / `Emit` 同步写盘） |
 | **失败响应体** | ❌ 没存 | curl **去掉 `-f`**（`-f` 会把错误页正文直接丢掉），改 `-w '%{http_code}'` 自己判状态码；ps1 从 `WebException.Response` 里读出正文。非 2xx 的正文原样进日志（超 64KB 或二进制只记大小） |
+
+| **日志体积** | — | `setLogSink()` 里判一次：超过 8MB 就轮转成 `.old`，只留一代。单次失败安装就能写进一百多 KB（子进程两条流各截 64KB + 响应体），反复重装累积到几 MB 很正常，而这个文件是**要发给人**的。⚠️ 这里有删除动作，受 §5.1.2 约束：只允许动 `<sink>.old` 这一个路径，断言不过就不删 |
+| **代理凭据** | — | 日志头记的是完整命令行，`--proxy=http://user:pass@host` 会把口令原样写进一个要发给别人的文件。三处都过一层脱敏：`result.mjs` 的日志头、`install.sh` 的头与 `[handoff]` 行、`install.ps1` 的头与 `[handoff]` 行 |
 
 判据只有一条：**"发日志就能定位"这句话，要对任何一次失败都成立。** 2026-09-08 / 09-09 两次都不成立，这是它被写成规范而不是随手改掉的原因。
 

@@ -254,7 +254,7 @@ v14 的 doctor 自己用 Node 的 `fetch` 探 manifest，于是有了 2026-09-08
 | skill 组装 | 占位文件在不在、`template/` 的 package.json 与 yarn.lock |
 | 共享池 | node / yarn / deps / lockfile / `env.lock.json`，外加 `LOCKFILE_MATCH`（两个 lockfile 哈希等不等，即 ensure-env 的主判据）。⚠️ `POOL_YARN_JS` 的值域是**「解析出的绝对路径」/ MISSING** —— 只说 MISSING 而不说去哪找的、找到了什么，正是 2026-09-08 白花一轮才发现路径猜错的原因（§4.4.8 第二批坑 3） |
 | 系统 | 系统 node / yarn / npm |
-| 出口 | `MANIFEST_URL`（静态读，不发请求）、`NET_CHECK_CMD`（就是②那条命令，路径已展开可直接执行）、两份日志的路径 |
+| 出口 | `NETWORK: UNKNOWN(…)` —— **网络这一格必须显式说"没查"**，跟 PROXY 那条"一个都没有也要打一行"是同一条原则：只跑了 doctor 的 agent 看到满屏正常，会把"没查"读成"没问题"。外加 `MANIFEST_URL`（静态读，不发请求）、`NET_CHECK_CMD`（就是②那条命令，路径已展开可直接执行）、两份日志的路径 |
 
 #### `--check` / `-Check` 打印什么
 
@@ -264,8 +264,8 @@ v14 的 doctor 自己用 Node 的 `fetch` 探 manifest，于是有了 2026-09-08
 - `MANIFEST_HTTP` / `MANIFEST_BYTES` / `MANIFEST_MS`；拿到 200 却不是 JSON 会单独报 `MANIFEST_NOT_JSON` —— 代理 / 网关 / SSO 的错误页就是这个形态
 - **manifest 里每一个平台各一行**：`ASSET_DARWIN_ARM64: HEAD=403 GET=403 len=97 type=text/html`
 
-  HEAD 与 GET 两件都做，不是只做 HEAD：2026-09-09 的阻塞正是「同一个 URL 浏览器 / HEAD 拿得到、curl **GET** 403」，只验 HEAD 会给出一个假的全绿 —— 那就又变成"诊断工具回答了另一个问题"。GET 带 `Range: bytes=0-0` 只取 1 字节；macOS 侧另加 `--max-filesize` 兜住服务端忽略 Range 的情况，不会真把包拉下来（Windows 侧靠 `GET_BYTES` 把这种情况显出来）
-- 任一平台的 GET 非 2xx → `RESULT: FAIL | ASSET_UNREACHABLE: n/m …`，且**非 2xx 的响应体原文写进日志** —— 网关 / WAF 错误页的正文就是定位依据
+  HEAD 与 GET 两件都做，不是只做 HEAD：2026-09-09 的阻塞正是「同一个 URL 浏览器 / HEAD 拿得到、curl **GET** 403」，只验 HEAD 会给出一个假的全绿 —— 那就又变成"诊断工具回答了另一个问题"。GET 带 `Range: bytes=0-0` 只取 1 字节。两个平台都不会真把包拉下来：macOS 侧靠 `--max-filesize` 中止；Windows 侧用 `HttpWebRequest` + `AddRange(0,0)`，拿到响应头就 `Close()`，正文一个字节都不读 —— **不用 `Invoke-WebRequest`** 是因为 PS 5.1 的 IWR 配 `-OutFile` 不返回对象（`-PassThru` 是 PS 7 才有的），拿不到真实状态码，而 **200 与 206 的区别正是"服务端支不支持 Range"**。IWR 的底层本来就是 `HttpWebRequest`，代理 / 证书 / TLS 都是全局设置，照样复用，不算引入第二套 HTTP 栈
+- 任一平台的 GET 非 2xx → `RESULT: FAIL | ASSET_UNREACHABLE: n/m …`，且**非 2xx 的响应体原文写进日志** —— 网关 / WAF 错误页的正文就是定位依据，"被谁拦的"（规则号 / MIME / UA）只写在那里面。HEAD 响应没有正文，它的等价物是**响应头**（Server / Set-Cookie / WAF 自定义头），失败时整份落盘
 
 存在的理由：内网出问题时人只能截图（[§8.4](fastui-vue-codegen-pipeline.md#84-内网同步单向)），而"装不上"背后有十几种可能，挨个手工试要来回好几轮。两段输出每行自解释，**贴出来就够定位**，不需要再补充上下文。
 
