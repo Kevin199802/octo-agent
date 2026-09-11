@@ -83,6 +83,8 @@ curl  GET  manifest.json                            → 200
 | 按 **User-Agent** 拦（curl 的 UA 被拦，浏览器 UA 放行） | 同一个 `.tar.gz`，加 `-A "Mozilla/5.0 …"` 后变 200 |
 | 需要**登录态**（浏览器有 cookie） | 上面两条都排除后，带浏览器 cookie 重试 |
 
+> **受控对比现在有现成命令了**（v15）：`bash install.sh --check`（Windows 是 `-Check`）会在**同一台机器、同一个 HTTP 客户端、同一套代理开关**下，把 manifest 与 `node.platforms` 里**每一个平台**的包各打一行 `ASSET_*: HEAD=… GET=… len=… type=…`，非 2xx 的响应体原文写进日志。第一条假设（按扩展名拦）一跑就能看出来 —— `.json` 200 而 `.tar.gz` 403 会直接摆在相邻两行上。后两条（UA / 登录态）仍要人另外试，`--check` 不会去伪装浏览器 UA：那样它就不再走"与真实安装完全相同的代码路径"了，而那正是它存在的理由。
+
 顺带：浏览器把 `.tar.gz` 渲染成文本而不是下载，说明 nginx 没给它配 MIME
 （`.zip` 配了，所以直接下载）。这本身不导致 403，但说明服务端对这两类文件的处理确实不同。
 
@@ -98,9 +100,9 @@ curl  GET  manifest.json                            → 200
 | S9 | **`install.ps1` 的 `Fail` 定义在调用之后** —— PowerShell 函数执行到 `function` 语句才注册，`-Proxy` 畸形时裸崩、打不出契约行（[§4.4.8](fastui-env-hosting.md#448-首装踩到的坑内网实测分两批2026-09-07--09-08) 第二批坑 5） | ✅ **已修**（PR #21，二轮 review 发现） | `install.ps1` |
 | S10 | **裸机上 skill 完全跑不起来**(2026-09-09 内网实测) —— 工作流第一步是 `node scripts/ensure-env.mjs`,而这一步本身要 node;裸机上它只报 `command not found`,agent 拿不到 `ENV_MISSING` 与 `HINT`,SKILL.md 全文又没有一处讲"没有 node 怎么办",于是自由发挥:让用户自己去 nodejs.org 下载(内网上不去)、改用纯 HTML 糊一个"看起来像"的预览。**更深一层是硬约束 0.1 把"装环境"和"装不上"混成了一句**,agent 读成"没有 node 也归用户"——它其实是在遵守我们的规则,是规则漏了一个分支。修法:工作流加 ⓪ 确认 node(裸机上只有那两个安装脚本能起步)、新增硬约束 0.2 把两件事分开写死 | ✅ **已修**(PR #23) | SKILL.md |
 | S11 | **中文路径下起不来 dev server**(2026-09-09 内网实测,工作目录 `D:\10 agent测试\`) —— PowerShell 5.1 按系统 ANSI 代码页(内网 GBK)解释命令行参数,而 Node 按 UTF-8 编码 argv 传出去,路径含中文必然乱码,`Start-Process` 报"找不到路径"。与 `install.ps1` 那条「必须存 UTF-8 with BOM」**同源**。修法:改走 `-EncodedCommand`(收 UTF-16LE 的 Base64,完全绕开代码页,微软给的标准解法),并把 PowerShell 的 `[Console]::OutputEncoding` 定成 UTF-8 让中文报错可读。⚠️ review 补:失败文案取 `e.stderr` 而非 `e.message` —— 后者是 `Command failed: <完整 argv>\n<stderr>`,而 argv 里那串 base64 有 1300+ 字符,会把真正的报错挤出 `RESULT:` 行,正好撞上 [§5.1.2](#512-硬性安全约束所有脚本--skillmd)「错误信息必须能读」 | ✅ **已修**(PR #23) | `verify.mjs` |
-| **S2** | **doctor 探针重做** —— 见 [§10 Q10](#10-待确认与遗留)，方案未拍板 | ⏸ **阻塞**（等 Q10） | `doctor.mjs` / SKILL.md |
-| **S5** | **日志落盘补全**：`log()` 落盘、`run()` 捕获子进程输出、install 脚本全程 tee | ⏳ **未做** | [§5.1.1](#511-统一输出契约所有脚本) |
-| **S8** | 两个安装脚本都有**不经 `Fail` 的裸崩路径**（ps1 读 `env.manifest.json` / `ConvertFrom-Json` 在 try 之外；sh 的 `mktemp` / `read`），那几条路上打不出 `RESULT: FAIL`，§8.4「截图就能定位」不成立 | ⏳ **未做**（review 发现，单独 PR） | `install.ps1` / `install.sh` |
+| S2 | **doctor 探针重做**（Q10 定案）：网络探测整段删掉、移到安装脚本的 `--check`；doctor 砍成环境快照（静态清点 + 本进程代理变量），并打印 `NET_CHECK_CMD` 指向那条命令 | ✅ **已修**（v15）| `doctor.mjs` / `install.sh` / `install.ps1` / SKILL.md，见 [§4.4.9](fastui-env-hosting.md#449-装不上时跑什么) |
+| S5 | **日志落盘补全**：`log()` / `warn()` / `block()` 落盘、`run()` 改 `spawnSync` 捕获子进程原文（成功也写、留尾部 64KB、Buffer 不解码）、两个安装脚本全程 tee、curl 去掉 `-f` 把失败响应体存下来、`fail()` 自动补 `LOG:` 行 | ✅ **已修**（v15，本地起假 nginx 逐条实测）| [§5.1.1](#511-统一输出契约所有脚本) |
+| S8 | 两个安装脚本都有**不经 `Fail` 的裸崩路径**（ps1 读 `env.manifest.json` / `ConvertFrom-Json` 在 try 之外；sh 的 `mktemp` / `read`），那几条路上打不出 `RESULT: FAIL`，§8.4「截图就能定位」不成立 | ✅ **已修**（v15）：sh 加 `trap ERR` → `UNEXPECTED`，ps1 主体外包 `catch { Fail "UNEXPECTED" }`；顺带把 manifest 非 JSON 提前判成 `MANIFEST_NOT_JSON`，别让它绕成一条 UNEXPECTED | `install.ps1` / `install.sh` |
 
 > **S1 的关键教训**：第一版只堵了 curl，而 npm / yarn 走的是另一条继承链。
 > 2026-09-07 日志里 `YARN_INSTALL_FAILED: … <池子>/node/bin/npm install -g yarn` 就是证据 ——
@@ -128,6 +130,7 @@ curl  GET  manifest.json                            → 200
 | **完全没装过 node 的机器** | ⚠️ **2026-09-08 走到了，当场炸出四处**（[§4.4.8](fastui-env-hosting.md#448-首装踩到的坑内网实测分两批2026-09-07--09-08) 第二批）—— 代理挡住 manifest、macOS yarn 路径错等。修完要再走一遍 |
 | **agent 进程环境（而非终端）** | 这次的根因只在 agent 宿主进程里存在（代理），人在终端复现不出来。**以后验首装必须由 agent 全程跑**，不能人工代跑任何一步 |
 | **Intel Mac（`darwin-x64`）** | manifest 里有这个平台的包，没人验过 |
+| **`install.ps1` 的 v15 改动（S5 落盘 / S8 兜底 catch / `-Check`）** | 本机没有 pwsh，只做了静态检查：UTF-8 with BOM 仍在、括号平衡、`Fail` 等函数全部定义在调用点之前。**逻辑一次都没跑过**，Windows 上第一次跑要盯着看 —— 对照的 macOS 侧同样几条路径已本地实测通过 |
 
 **跟外部团队的开口**
 
@@ -661,20 +664,24 @@ ERRORS_END
 >
 > **按平台展开的绝对路径、可直接粘贴的查看命令，写在 [find-local-logs.md](../../find-local-logs.md) 的 ⑤⑥ 两类里**（那份是全 app 通用的「日志在磁盘哪儿」指南，查日志去那边，不要在本 spec 里找）。
 
-##### 日志里必须有什么（v14）
+##### 日志里必须有什么（v15 已落地，S5）
 
-落点定了不等于内容够。**现状是只有契约行落盘**：`result.mjs` 的 `persist()` 只被 `ok()` / `fail()` 调用，`log()` 只写 stderr；而 `run()` 用 `stdio: ["ignore", "inherit", "inherit"]` 让子进程输出直接继承到父进程 —— 于是**失败时最该看的那段全丢了**。
+落点定了不等于内容够。**v14 的现状是只有契约行落盘**：`result.mjs` 的 `persist()` 只被 `ok()` / `fail()` 调用，`log()` 只写 stderr；`run()` 用 `stdio: ["ignore", "inherit", "inherit"]` 让子进程输出直接继承到父进程；两个安装脚本一个字都不落盘 —— 于是**失败时最该看的那段全丢了**。
 
-2026-09-08 的实例：日志里留下了 `YARN_INSTALL_FAILED: 安装 yarn 失败: Command failed: … npm install -g yarn --registry=…`，但 npm 自己打的几十行错误原文（504、具体 URL、重试记录）一个字节都没留下。排查只能靠"agent 的思考过程里提过 504"这种二手记忆，白绕了一大圈。
+2026-09-08 的实例：日志里留下了 `YARN_INSTALL_FAILED: 安装 yarn 失败: Command failed: … npm install -g yarn --registry=…`，但 npm 自己打的几十行错误原文（504、具体 URL、重试记录）一个字节都没留下。排查只能靠"agent 的思考过程里提过 504"这种二手记忆，白绕了一大圈。2026-09-09 的 403 同理：响应体没存，现象消失后无从查起。
 
-| 必须落盘 | 现状 | 改法 |
+| 必须落盘 | v14 | v15 的做法 |
 |---|---|---|
-| 契约行（`RESULT:` / `HINT:` / `LOG:` / `WARN:`） | ✅ 已落 | — |
-| 过程行（`log()`：走了哪个分支、`$ <实际命令行>`） | ❌ 只进 stderr | `log()` 也走 `persist()` |
-| **子进程 stdout/stderr**（npm / yarn / curl 的原文） | ❌ 完全丢失 | `run()` 改 `stdio: ["ignore", "pipe", "pipe"]`，捕获后写日志（成功也写）；超长只留尾部 N KB |
-| `install.sh` / `install.ps1` 全程 | ❌ 一个字都不落盘 | 全程 tee 到同一个 `<envDir>/octo-fastui.log`；`curl` 加 `-w '%{http_code}'`，失败时把响应体一并存下 —— 网关错误页的正文就是定位依据 |
+| 契约行（`RESULT:` / `HINT:` / `LOG:` / `WARN:`） | ✅ 已落 | 另加 `block()`（编译错误原文）与 `usage()`；`fail()` **自动补 `LOG:` 行**（sink 已知，不该靠每个调用方记得手写） |
+| 过程行（`log()`：走了哪个分支、`$ <实际命令行>`） | ❌ 只进 stderr | `log()` 也走 `persist()`，带 `hh:mm:ss` —— 好看出是哪一步耗了十分钟 |
+| **子进程 stdout/stderr**（npm / yarn 的原文） | ❌ 完全丢失 | `run()` 改 `spawnSync` + `stdio: ["ignore", "pipe", "pipe"]`，**成功也写**，超长只留尾部 64KB；退出码与耗时单独一行。**不能用 `execFileSync`**：它只返回 stdout，成功时 stderr 直接丢，而 npm / yarn 的话都说在 stderr 上。**收到的 Buffer 不解码**：Windows 上那是 GBK 字节，按 UTF-8 解一遍再写回去就是乱码（§5.1.2 那条根因链的一环）。另：`maxBuffer` 要调大，默认 1MB 撑不下 `yarn install` 的输出 |
+| 契约行摘要 | — | 子进程失败时把 **stderr 末行**拼进 `RESULT:` 那行（ANSI 色码与控制字符先剔掉），别让契约行只剩个退出码 |
+| `install.sh` / `install.ps1` 全程 | ❌ 一个字都不落盘 | 全程 tee 到同一个 `<envDir>/octo-fastui.log`（sh 用 `exec 1> >(tee …)` 分别复制两条流，**交棒给 setup-env 前还原 fd**，否则它的输出会双份；ps1 每行输出经 `Say` / `Emit` 同步写盘） |
+| **失败响应体** | ❌ 没存 | curl **去掉 `-f`**（`-f` 会把错误页正文直接丢掉），改 `-w '%{http_code}'` 自己判状态码；ps1 从 `WebException.Response` 里读出正文。非 2xx 的正文原样进日志（超 64KB 或二进制只记大小） |
 
-判据只有一条：**"发日志就能定位"这句话，要对任何一次失败都成立。** 2026-09-08 这次不成立，这是它被写成规范而不是随手改掉的原因。
+判据只有一条：**"发日志就能定位"这句话，要对任何一次失败都成立。** 2026-09-08 / 09-09 两次都不成立，这是它被写成规范而不是随手改掉的原因。
+
+> **本地已实测**（外网可复现，不需要内网）：起一个本地 HTTP server 假扮内网 nginx，覆盖 manifest 504、manifest 返回 200 但不是 JSON、某个平台的包 403、完整下载安装、`mktemp` 失败这几条路径，逐条核对日志文件里**确实有**子进程原文 / 响应体正文 / 契约行。
 
 ### 5.1.2 硬性安全约束（所有脚本 + SKILL.md）
 
@@ -1328,7 +1335,7 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
 | ~~Q7~~ | ~~依赖外置（链接建在工程之外）~~ | — | ✅ **反转为最终方案**：第一次试失败的真正原因是启动路径而非解析能力；绕过 yarn+lerna 后实测成立，见 §1.6 / §2 |
 | ~~Q8~~ | ~~内网同步流程~~ | — | ✅ **已定**：见 §8.3 / §8.4 |
 | **Q9** | UXAI 侧三件事（[§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill)：导出按钮 / external URL tab 编辑类功能 gate / dev server 生命周期）的排期与归属 | 属 Design 模块，需走 [collab-pr-protocol](../../collab-pr-protocol.md) | **待与 Design 负责同事对齐**（不阻塞 skill 侧实现） |
-| **Q10** | **`doctor` 的网络探针要不要整个拿掉** —— 它用 Node 的 `fetch` 探测，而 `fetch`(undici)**完全忽略 `HTTP_PROXY` 环境变量**（2026-09-08 本地实测确认），install 脚本用的 curl 则会读。两者走的不是同一条路，于是 doctor 报 200、install 同时 504，**诊断工具给出了另一个问题的答案** | 平行实现必然漂移。倾向的方案：**网络探测整段删掉，改由 `install.sh --check` 提供**（只探测不下载，走与真实安装完全相同的代码路径，零漂移）；`doctor.mjs` 保留静态清点（池子里有什么、skill 组装了没、lockfile 对不对），需要网络结果时**调用** `install.sh --check` 拿回来 —— 入口仍是 `node doctor.mjs` 一条命令，名字不变 | **待讨论**。牵连 [§4.4.9](fastui-env-hosting.md#449-doctormjs--装不上时先跑它) 的重写与 S2/S5 的边界划分，不阻塞本轮六项修复 |
+| ~~Q10~~ | ~~`doctor` 的网络探针要不要整个拿掉~~ | — | ✅ **已定案并实现**（v15）：**网络探测整段从 `doctor.mjs` 删掉，改由 `install.sh --check` / `install.ps1 -Check` 提供** —— 只探测不下载，复用真实安装的同一套代理开关与同一个 HTTP 客户端，零漂移；`doctor` 砍成环境快照（静态清点 + **本进程的代理环境变量**，后者是纯读环境、不是探测，不会漂移），并打印 `NET_CHECK_CMD` 指向那条命令。**没有采纳原方案里「doctor 调用 --check 拿回结果」那一层** —— 入口保持两条命令、各答一个问题，doctor 里不留任何会发请求的代码，免得日后又长回去。落点见 [§4.4.9](fastui-env-hosting.md#449-装不上时跑什么) |
 | ~~Q11~~ | ~~`link.mjs` 的 win32「已存在」分支~~ | — | ✅ **已验证并改掉**（2026-09-09 内网 Windows 实测：junction 的 `lstat` 报 `isSymbolicLink() = true`、`readlinkSync()` 能读出目标 → junction 走的是真比对分支，原注释「无法读出目标」是错的）。**真正的风险也不是原先描述的「旧 junction 被静默复用」**，而是**真实目录**（有人在产物目录里手工跑过 `yarn install`）在 Windows 上被静默当成已复用 —— 依赖外置悄悄没生效，最后以「编译找不到模块」的形态爆出来。已删掉该特例，两平台一致抛错 |
 
 ### 明确不在本 spec 范围

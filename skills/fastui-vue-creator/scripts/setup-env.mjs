@@ -8,10 +8,10 @@
  *
  * 用法: node setup-env.mjs [--env-dir=] [--registry=] [--upgrade] [--proxy=<地址>]
  */
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
-import { setLogSink, ok, fail, log, parseArgs } from "./lib/result.mjs"
+import { setLogSink, ok, fail, log, logChild, lastLine, parseArgs } from "./lib/result.mjs"
 import { TEMPLATE_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs } from "./lib/paths.mjs"
 import { sha256File, sameHash } from "./lib/hash.mjs"
 
@@ -73,9 +73,48 @@ function childEnv() {
   return e
 }
 
+/**
+ * 跑子进程,**原文落盘**(v15 S5,§5.1.1「日志里必须有什么」)。
+ *
+ * v14 用的是 `stdio: ["ignore", "inherit", "inherit"]` —— 子进程输出直接继承到父进程,
+ * 一个字节都不经日志。于是 2026-09-08 排 504 时,日志里只有一句
+ * `YARN_INSTALL_FAILED: … npm install -g yarn`,npm 自己打的几十行(状态码、URL、
+ * 重试记录)全丢了,只能靠"agent 的思考过程里提过 504"这种二手记忆。
+ *
+ * 三个要点:
+ * - **成功也写**。装成功但依赖树不对时,要能回头看 yarn 当时说了什么。
+ * - 用 `spawnSync` 而不是 `execFileSync`:后者只返回 stdout,**成功时 stderr 直接丢**
+ *   (只有抛错时才挂在 e.stderr 上),而 npm/yarn 的话都说在 stderr 上。
+ * - 不设 `encoding`,拿到的就是 Buffer。**不解码**:Windows 上 npm 输出是 GBK 字节,
+ *   按 UTF-8 解一遍再写回去就是乱码(§5.1.2 那条根因链的一环)。
+ *
+ * 代价:输出不再实时透传,要等子进程结束才一次性出现。agent 本来就是拿完整输出,
+ * 没有人盯着终端看进度条,这个代价可以接受。
+ */
+const RUN_MAX_BUFFER = 256 * 1024 * 1024   // yarn install 的输出能到几 MB,默认 1MB 会 ENOBUFS
 const run = (bin, argv, cwd) => {
   log(`$ ${bin} ${argv.join(" ")}${cwd ? `   (cwd=${cwd})` : ""}`)
-  return execFileSync(bin, argv, { cwd, stdio: ["ignore", "inherit", "inherit"], env: childEnv() })
+  const started = Date.now()
+  const r = spawnSync(bin, argv, {
+    cwd,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: childEnv(),
+    maxBuffer: RUN_MAX_BUFFER,
+  })
+  logChild(`${path.basename(bin)} stdout`, r.stdout)
+  logChild(`${path.basename(bin)} stderr`, r.stderr)
+  log(`[exit] ${path.basename(bin)} status=${r.status ?? "null"} ${Date.now() - started}ms`)
+  // spawnSync 不抛异常,失败要自己造 —— 调用方接着用 e.message 拼 RESULT 行,
+  // 所以这里就把**最有用的那一行**(子进程 stderr 的末行)带上,别让契约行只剩个退出码。
+  if (r.error) {
+    r.error.message = `${bin}: ${r.error.message}`
+    throw r.error
+  }
+  if (r.status !== 0) {
+    const tail = lastLine(r.stderr) || lastLine(r.stdout)
+    throw new Error(`${path.basename(bin)} 退出码 ${r.status}${tail ? ` | ${tail}` : ""}`)
+  }
+  return r.stdout
 }
 
 /**

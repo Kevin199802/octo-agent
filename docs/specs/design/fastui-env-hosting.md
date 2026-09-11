@@ -213,34 +213,61 @@ done
 
 > **坑 1 给方法论的教训**：`doctor` 这次不但没帮上忙，还给出了误导性的 `MANIFEST_HTTP_STATUS: 200` —— 因为人是在**终端**跑的它，而问题只存在于 **agent 进程**。诊断工具跑错环境，比没有诊断工具更糟。订正见 §4.4.9。
 
-### 4.4.9 `doctor.mjs` —— 装不上时先跑它
+### 4.4.9 装不上时跑什么
+
+两条命令，各答一个问题：`doctor.mjs` 是**环境快照**（这台机器上有什么），安装脚本的 `--check` 是**网络探测**（内网资源拉不拉得到）。
 
 **必须由 agent 在它自己的进程里跑，不能让人去终端跑**（2026-09-08 订正）。
 
-理由是上面第二批坑 1：代理这类问题**只存在于 agent 宿主进程的环境里**。人在终端跑 doctor 会得到一个看起来一切正常的假象 —— 实测拿到 `MANIFEST_HTTP_STATUS: 200`，而 agent 在同一台机器上同时报 504。doctor 的价值前提是"和失败发生在同一个环境"，**跑错环境比不跑更糟**：它把排查方向直接带偏了一轮。
+理由是上面第二批坑 1：代理这类问题**只存在于 agent 宿主进程的环境里**。人在终端跑会得到一个看起来一切正常的假象 —— 实测拿到 `MANIFEST_HTTP_STATUS: 200`，而 agent 在同一台机器上同时报 504。诊断的价值前提是"和失败发生在同一个环境"，**跑错环境比不跑更糟**：它把排查方向直接带偏了一轮。
+
+**v15 把诊断拆成两条命令**，各答一个问题，装不上时两条都要跑：
 
 ```bash
-# 由 agent 调用，不要转述给人去终端执行
+# ① 环境快照：这台机器上有什么
 node <skill>/scripts/doctor.mjs
+
+# ② 网络：内网资源到底拉不拉得到（macOS）
+bash <skill>/scripts/install/install.sh --check
+```
+```powershell
+# ② 网络（Windows）
+powershell -ExecutionPolicy Bypass -File <skill>\scripts\install\install.ps1 -Check
 ```
 
-必须打印（v14 补齐）：
+#### 为什么网络探测从 doctor 里搬走了（v15 Q10 定案）
+
+v14 的 doctor 自己用 Node 的 `fetch` 探 manifest，于是有了 2026-09-08 那次**诊断工具回答了另一个问题**：
+
+| | doctor 用的 | install 用的 | 后果 |
+|---|---|---|---|
+| macOS | `fetch`（undici）—— **完全忽略 `HTTP_PROXY` 环境变量** | `curl` —— 读环境变量 | doctor 报 200、install 同时 504 |
+| Windows | 同上 | `Invoke-WebRequest`（.NET）—— 读**系统代理设置** | 同上；而且两边连"代理"指的都不是同一样东西 |
+
+**平行实现必然漂移。** 所以探测只保留一份，放进真正会去下载的那个脚本里：`--check` 复用**同一套代理开关、同一个 HTTP 客户端、同一条 URL 拼法**，走的就是真实安装的那条代码路径，零漂移。doctor 只做静态清点；代理变量仍然由它打印 —— 那是**纯读本进程的环境**，不是探测，不会漂移。
+
+#### `doctor.mjs` 打印什么
 
 | 组 | 字段 |
 |---|---|
-| **进程环境** | 平台 / node 版本；**本进程看到的** `HTTP_PROXY` `HTTPS_PROXY` `NO_PROXY`（含小写共六个）。一个都没有时也要显式打一行 `PROXY: (无)` —— 否则分不清"没有代理"和"没查代理" |
-| **网络 ×4** | `manifest` 与 `node 包 HEAD`，各测**直连**与**走代理**两种走法。四种组合都打 HTTP 状态、耗时、响应体前 120 字节 |
-| 共享池 | node / yarn / deps / lockfile / `env.lock.json`。⚠️ `POOL_YARN_JS` 的值域已从 `OK/MISSING` 改为**「解析出的绝对路径」/ MISSING** —— 只说 MISSING 而不说去哪找的、找到了什么，正是 2026-09-08 白花一轮才发现路径猜错的原因（§4.4.8 第二批坑 3） |
+| **进程环境** | 平台 / node 版本；**本进程看到的** `HTTP_PROXY` `HTTPS_PROXY` `ALL_PROXY` `NO_PROXY`（含小写共八个）。一个都没有时也要显式打一行 `PROXY: (无)` —— 否则分不清"没有代理"和"没查代理" |
+| skill 组装 | 占位文件在不在、`template/` 的 package.json 与 yarn.lock |
+| 共享池 | node / yarn / deps / lockfile / `env.lock.json`，外加 `LOCKFILE_MATCH`（两个 lockfile 哈希等不等，即 ensure-env 的主判据）。⚠️ `POOL_YARN_JS` 的值域是**「解析出的绝对路径」/ MISSING** —— 只说 MISSING 而不说去哪找的、找到了什么，正是 2026-09-08 白花一轮才发现路径猜错的原因（§4.4.8 第二批坑 3） |
 | 系统 | 系统 node / yarn / npm |
+| 出口 | `MANIFEST_URL`（静态读，不发请求）、`NET_CHECK_CMD`（就是②那条命令，路径已展开可直接执行）、两份日志的路径 |
 
-网络那四格是这次事故的直接产物：只测 manifest 一种走法，既分不出"网络不通"和"代理挡了"，也答不了"node 包（50MB）能不能下下来"——manifest 才 799 字节，它通不代表大文件通（§4.4.4 要求核对 `Content-Length`，一直没做过）。
+#### `--check` / `-Check` 打印什么
 
-现有两个洞，一并修：
+只探测，**不下载整包、不装任何东西**：
 
-- **504 时打不出响应体**：`MANIFEST_HEAD` 困在 `if (res.ok)` 分支里，而网关错误页恰恰只在非 2xx 时才有 —— body 预览要挪到 `res.ok` 外面
-- **证书放行是无效的**：传的是 `agent: new Agent({ rejectUnauthorized: false })`，而 Node 的 `fetch`（undici）只认 `dispatcher`，`agent` 被静默忽略。**doctor 实际在严格校验证书**，与 `install.sh` 的 `curl -k` 并不等价 —— 要么改 `dispatcher`，要么显式打一行 `TLS_VERIFY: ON/OFF`。不能让读的人以为已放行
+- `PROXY_MODE`（direct / via …）、`TLS_VERIFY`（ON/OFF）、curl 或 PowerShell 版本、本进程的代理环境变量（同样"没有也要打一行"）
+- `MANIFEST_HTTP` / `MANIFEST_BYTES` / `MANIFEST_MS`；拿到 200 却不是 JSON 会单独报 `MANIFEST_NOT_JSON` —— 代理 / 网关 / SSO 的错误页就是这个形态
+- **manifest 里每一个平台各一行**：`ASSET_DARWIN_ARM64: HEAD=403 GET=403 len=97 type=text/html`
 
-存在的理由：内网出问题时人只能截图（[§8.4](fastui-vue-codegen-pipeline.md#84-内网同步单向)），而"装不上"背后有十几种可能，挨个手工试要来回好几轮。输出每行自解释，**截图发出来就够定位**，不需要再补充上下文。
+  HEAD 与 GET 两件都做，不是只做 HEAD：2026-09-09 的阻塞正是「同一个 URL 浏览器 / HEAD 拿得到、curl **GET** 403」，只验 HEAD 会给出一个假的全绿 —— 那就又变成"诊断工具回答了另一个问题"。GET 带 `Range: bytes=0-0` 只取 1 字节；macOS 侧另加 `--max-filesize` 兜住服务端忽略 Range 的情况，不会真把包拉下来（Windows 侧靠 `GET_BYTES` 把这种情况显出来）
+- 任一平台的 GET 非 2xx → `RESULT: FAIL | ASSET_UNREACHABLE: n/m …`，且**非 2xx 的响应体原文写进日志** —— 网关 / WAF 错误页的正文就是定位依据
+
+存在的理由：内网出问题时人只能截图（[§8.4](fastui-vue-codegen-pipeline.md#84-内网同步单向)），而"装不上"背后有十几种可能，挨个手工试要来回好几轮。两段输出每行自解释，**贴出来就够定位**，不需要再补充上下文。
 
 ### 4.4.7 你在内网要做的事，按顺序
 
