@@ -78,21 +78,36 @@ node scripts/ensure-env.mjs
 | `SKILL_NOT_ASSEMBLED` | 停下。这是 skill 没在内网组装好,**不是用户能解决的问题**,如实说明并给出 `HINT` 里的路径 |
 | `WARN:` 开头的行 | 不阻塞,不用管,更不要转述给用户 |
 
-**装不上时先跑 `doctor`,再报给用户** —— 别让用户自己去猜是网络、代理还是证书:
+**装不上时先跑这两条,再报给用户** —— 别让用户自己去猜是网络、代理还是证书。
+两条各答一个问题,**都要跑**:
 
 ```bash
+# ① 环境快照:这台机器上有什么、本进程看到的代理变量是什么
 node scripts/doctor.mjs
+
+# ② 网络:内网资源到底拉不拉得到(macOS)
+bash "<skillDir>/scripts/install/install.sh" --check
+```
+```powershell
+# ② 网络(Windows)
+powershell -ExecutionPolicy Bypass -File "<skillDir>\scripts\install\install.ps1" -Check
 ```
 
-它一次打印平台、skill 组装状态、共享池各部件、系统 node/yarn、**代理环境变量**、manifest 的 HTTP 状态与耗时、返回的是不是 JSON(代理错误页会在这里现形)。
+`doctor` 打印平台、skill 组装状态、共享池各部件、系统 node/yarn、**本进程的代理环境变量**、
+两份日志的路径,以及 `NET_CHECK_CMD`(就是上面第②条,路径已展开,照抄即可)。**它不做网络探测**
+—— 探测在安装脚本里,那样走的才是真实安装的同一条代码路径(§4.4.9)。
 
-**把 `OCTO_FASTUI_DOCTOR` 开头那整段原样贴给用户**,并指出其中异常的那几行(比如 `PROXY_*` 有值、`MANIFEST_HAS_MY_PLATFORM: NO`)。这些是环境问题,该由人处理,你绕不过去 —— 见硬约束 0.1。
+`--check` / `-Check` **只探测、不下载、不安装**:manifest 能不能拉到、是不是 JSON,以及
+manifest 里**每一个平台**的 node 包各自 HEAD 与 1 字节 Range GET 的状态码、大小、Content-Type。
+非 2xx 时响应体会写进日志 —— 网关/WAF 错误页的正文就是定位依据。
 
-> ⚠️ **`MANIFEST_HTTP_STATUS` 目前不可信,不要拿它下结论。** doctor 用 Node 的 `fetch` 探测,
-> 而 `fetch`(undici)**完全忽略 `HTTP_PROXY` 环境变量**,install 脚本用的 curl 则会读 ——
-> 两者走的根本不是同一条路。2026-09-08 内网就出现过 doctor 报 200、install 同时 504 的情况,
-> 白白带偏了一轮排查。真正能说明问题的是 `PROXY_*` 那几行和 install 脚本自己的报错。
-> 这个探针待重做,见 SPEC-DES-001 §10 的 Q10。
+**把 `OCTO_FASTUI_DOCTOR` 那整段、以及 `--check` 的整段输出原样贴给用户**,并指出异常的那几行
+(比如 `PROXY_HTTP_PROXY` 有值、`ASSET_DARWIN_ARM64: HEAD=403`、`SKILL_ASSEMBLED: NO`)。
+这些是环境问题,该由人处理,你绕不过去 —— 见硬约束 0.1。
+
+> **两条命令必须由你(agent)在自己的进程里跑,不能转述给人去终端执行。** 代理这类问题
+> 只存在于 agent 宿主进程的环境里:2026-09-08 内网实测,人在终端跑得到"一切正常",
+> 而 agent 在同一台机器上同时报 504。**诊断跑错环境,比不跑更糟。**
 
 ### ② `new-session.mjs` —— 每个会话建一次工程(幂等)
 
@@ -206,7 +221,7 @@ agent 把用户的正常目录当成"失败操作留下的残留",执行 `Remove
 | 情况 | 谁的活 |
 |---|---|
 | 机器上没有 node / 没有共享池 / 依赖树过期 | **你的活。** 跑 ⓪ 的安装脚本或 `HINT:` 给的命令,自动装完继续。设计师全程不该接触任何安装命令 |
-| 装的过程中失败了(拉不到 manifest、包下不动、权限不足) | **人的活。** 跑 `doctor`,把输出原样给用户,说明卡在哪一步 |
+| 装的过程中失败了(拉不到 manifest、包下不动、权限不足) | **人的活。** 跑 `doctor` 与安装脚本的 `--check`,把两段输出原样给用户,说明卡在哪一步 |
 
 装不上时,以下"兜底"一律禁止:
 
