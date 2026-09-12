@@ -17,7 +17,7 @@ version: 0.1.0
 ```
 ⓪ 确认 node  →  ① ensure-env  →  ② new-session  →  ③ 写代码  →  ④ verify  →  ⑤ 输出预览
   (没有就装)                                          ↑             │
-                                                      └── 编译失败 ──┘  循环至通过
+                                                      └── 验证未过 ──┘  循环至通过
 
 ⑥ export-zip   ← 用户说"导出代码/打个包/给我代码"时才跑
 ```
@@ -76,7 +76,7 @@ node scripts/ensure-env.mjs
 |---|---|
 | `ENV_MISSING` / `ENV_OUTDATED` / `ENV_NODE_MISMATCH` | **直接执行 `HINT:` 里那条命令**(安装/升级脚本),完成后重跑 `ensure-env`。这一步可能要几分钟,告诉用户在装环境 |
 | `SKILL_NOT_ASSEMBLED` | 停下。这是 skill 没在内网组装好,**不是用户能解决的问题**,如实说明并给出 `HINT` 里的路径 |
-| `WARN:` 开头的行 | 不阻塞,不用管,更不要转述给用户 |
+| `WARN:` 开头的行 | 不阻塞,不用管,更不要转述给用户(**仅限 `ensure-env` 的 WARN**:那些讲的是环境,不是你的代码。`verify` 的 WARN 讲的是你写的页面,必须处理,见 ④) |
 
 **装不上时先跑这两条,再报给用户** —— 别让用户自己去猜是网络、代理还是证书。
 两条各答一个问题,**都要跑**:
@@ -141,7 +141,17 @@ node scripts/verify.mjs --session-dir="…" --port=8081
 - `RESULT: OK` → 拿 `PREVIEW_URL` 走第 ⑤ 步
 - `RESULT: FAIL | COMPILE_ERROR` → **读 `ERRORS_BEGIN`…`ERRORS_END` 之间的原文**,里面有 `file:line`,
   按它改代码,然后**再跑一次 verify**。改完必须重新验证,不要凭感觉判断
+- `RESULT: FAIL | MISSING_VUE_IMPORT` → 你用了 `ref` / `computed` / `onMounted` 这类 vue 的 API 却没 import。
+  **编译能过,但运行时 `ReferenceError`、页面整片白**。读 `MISSING_IMPORTS_BEGIN`…`MISSING_IMPORTS_END`,
+  里面直接给出了要补的那行 `import { … } from 'vue'`,补到块里点名的那个文件顶部
+  (`.vue` 就放进它的 `<script>` 块,`.ts` / `.js` 直接放文件头),**再跑一次 verify**
+- `WARN: … 用了 X 但没有 import`(组件,不阻塞)→ **照样必须回去补**,别因为 `RESULT: OK` 就当作做完了。
+  它没做成 FAIL 只是因为脚手架理论上可能全局注册过某个组件,不代表可以不管
 - 首次编译要 1–3 分钟,属正常
+
+> ⚠️ **上面这三条都是你自己的代码问题,按提示改完重跑就是了 —— 不要当成"脚本报错"转述给用户。**
+> §0.1 那条"把 `RESULT:` / `HINT:` 原样告诉用户"针对的是环境类失败(装不上、拉不到、起不来),
+> 不是编译错误和漏 import。
 
 ### ⑤ 输出预览 —— 不能省
 
@@ -209,6 +219,10 @@ agent 把用户的正常目录当成"失败操作留下的残留",执行 `Remove
 
 **脚本报错不是让你想办法绕开的障碍,是让你转达的信息。** 把 `RESULT:` / `DETAIL:` / `HINT:` 原样告诉用户,
 说明卡在哪一步。
+
+> **这条说的是环境类失败**(装不上、拉不到、起不来)。`verify` 的 `COMPILE_ERROR` 与
+> `MISSING_VUE_IMPORT` 不在此列 —— 那是**你自己写的代码**的问题,按提示改完重跑即可,
+> 不要转述给用户,更不要就此停下。
 
 > **系统里已有的 `node` / `yarn` 是可以用的** —— 脚本会优先用共享池里的版本,没有时回退到系统的,能跑起来就行。
 > 真正不可替代的是**共享池里那 1GB 依赖**(`@lake/*` 等内网组件库),那个没有装好谁都跑不起来。
@@ -303,6 +317,37 @@ import { ElButton } from 'element-plus'
 > 不能因为 `RESULT: OK` 就当作做完了**。
 
 具体有哪些组件、各自的 API,查本 skill `vendor/` 下那三份组件文档。
+
+### 3.1 vue 的 API 也要 import —— **每个文件各自 import**
+
+`ref` / `reactive` / `computed` / `watch` / `nextTick` / `onMounted` / `provide` / `inject` …
+这些不是"到处都能用的全局函数",是 `vue` 这个包的导出:
+
+```vue
+<script lang="ts" setup>
+import { ref, computed, onMounted } from 'vue'   // ← 用到哪几个就写哪几个
+
+const rows = ref([])
+const total = computed(() => rows.value.length)
+onMounted(() => { /* … */ })
+</script>
+```
+
+**一个文件 import 过,不代表另一个文件也能用。** 模块作用域是按文件算的 ——
+父组件里 `import { ref }`,子组件里直接写 `ref(0)`,子组件照样炸。**每个文件各写各的**,
+抽出去的 `useXxx.ts` 也一样(门禁连它一起查)。
+
+> ⚠️ 这一类和组件漏 import 一样:**webpack 编译照过,浏览器里 `ReferenceError: ref is not defined`,
+> setup 抛错、整页白屏。** 区别是它没有任何豁免可能(组件还有"被全局注册"的余地,vue API 没有),
+> 所以 `verify` 对它是 **`RESULT: FAIL | MISSING_VUE_IMPORT`,直接阻断**,不是警告。
+>
+> **例外:编译宏不用 import** —— `defineProps` / `defineEmits` / `defineExpose` / `defineOptions` /
+> `defineModel` / `withDefaults` 由编译器处理,写 import 反而多余。
+>
+> **`verify` 只查得出 `vue` 这一批。** element-plus 的命令式 API(`ElMessage` / `ElMessageBox` /
+> `ElNotification` / `ElLoading`)同样得 `import { ElMessage } from 'element-plus'`,但**门禁查不到**
+> —— 漏了不会白屏,而是用户点下去那一刻功能失效、console 里 `ElMessage is not defined`。
+> 别指望门禁替你检查,写的时候就把 import 补全。
 
 ### 4. golden example
 
