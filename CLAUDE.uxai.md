@@ -40,6 +40,7 @@ push 前跑 test(pre-push hook 只跑 typecheck;insight 的用例 CI 也不跑)�
 
 - spec 完成 / 变更后,更新 `ROADMAP.md`
 - 查 bug 先看 `docs/insight-debugging.md`(`[octo:*]` 日志字典,console 日志的手工镜像);新增 / 改 / 删日志前缀 / 字段 / `octoDebug` 命令时同步它
+- fastui skill 的 bug 查 `docs/fastui-debugging.md`(错误码字典 + `--check` 判读 + 把日志交给外网 AI 的提示词模板);新增 / 改 / 删 `RESULT: FAIL` 的错误码、契约字段、日志前缀时同步它
 - UI 遇占位 / 缺数据,记 `docs/specs/ui/design-assets-needed.md`
 - 沉淀踩坑 / 机制理解,写 learning 笔记放 `docs/learning/`;新增 / 删笔记同步 `docs/learning/README.md` 索引
 

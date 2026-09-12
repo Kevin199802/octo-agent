@@ -66,6 +66,8 @@
 
 **跑起来之后的问题，⑤⑥ 两份日志在同一个会话目录里**，看一处就够；只有装不上那类才去共享池找。
 
+> 找到之后**怎么读**：[fastui-debugging.md](fastui-debugging.md) —— 日志分节标记、错误码字典、症状→判据表。这份只管「在哪」。
+
 > ⚠️ Windows 用 `%LOCALAPPDATA%`(`…\AppData\Local`)**不是 `%APPDATA%`**(Roaming)——共享池有 1GB 依赖，放 Roaming 会被域环境的漫游配置同步，登录时卡死。这与上面 ①②④ 的 `<userData>` 规则**不同**，别套用。
 
 ```powershell

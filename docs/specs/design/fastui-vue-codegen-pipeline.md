@@ -754,6 +754,8 @@ ERRORS_END
 
 > 主进程侧另有一份：Electron 的 electron-log，搜 `[fastui]` 前缀。那份记的是"宿主起没起 dev server"，与脚本侧互补。
 >
+> **拿到日志之后怎么读成结论，见 [fastui-debugging.md](../../fastui-debugging.md)** —— 错误码字典、`--check` 判读、症状→判据表，以及把日志片段交给外网 AI 分析的最小信息集与提示词模板。本节只规定「必须落什么」，那份管「落下来怎么用」。
+>
 > **按平台展开的绝对路径、可直接粘贴的查看命令，写在 [find-local-logs.md](../../find-local-logs.md) 的 ⑤⑥ 两类里**（那份是全 app 通用的「日志在磁盘哪儿」指南，查日志去那边，不要在本 spec 里找）。
 
 ##### 日志里必须有什么（v15 已落地，S5）
