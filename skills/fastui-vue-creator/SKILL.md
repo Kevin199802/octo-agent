@@ -17,7 +17,7 @@ version: 0.1.0
 ```
 ⓪ 确认 node  →  ① ensure-env  →  ② new-session  →  ③ 写代码  →  ④ verify  →  ⑤ 输出预览
   (没有就装)                                          ↑             │
-                                                      └── 编译失败 ──┘  循环至通过
+                                                      └── 验证未过 ──┘  循环至通过
 
 ⑥ export-zip   ← 用户说"导出代码/打个包/给我代码"时才跑
 ```
@@ -143,7 +143,8 @@ node scripts/verify.mjs --session-dir="…" --port=8081
   按它改代码,然后**再跑一次 verify**。改完必须重新验证,不要凭感觉判断
 - `RESULT: FAIL | MISSING_VUE_IMPORT` → 你用了 `ref` / `computed` / `onMounted` 这类 vue 的 API 却没 import。
   **编译能过,但运行时 `ReferenceError`、页面整片白**。读 `MISSING_IMPORTS_BEGIN`…`MISSING_IMPORTS_END`,
-  里面直接给出了要补的那行 `import { … } from 'vue'`,补到对应文件的 `<script setup>` 顶部,**再跑一次 verify**
+  里面直接给出了要补的那行 `import { … } from 'vue'`,补到块里点名的那个文件顶部
+  (`.vue` 就放进它的 `<script>` 块,`.ts` / `.js` 直接放文件头),**再跑一次 verify**
 - `WARN: … 用了 X 但没有 import`(组件,不阻塞)→ **照样必须回去补**,别因为 `RESULT: OK` 就当作做完了。
   它没做成 FAIL 只是因为脚手架理论上可能全局注册过某个组件,不代表可以不管
 - 首次编译要 1–3 分钟,属正常
@@ -333,7 +334,8 @@ onMounted(() => { /* … */ })
 ```
 
 **一个文件 import 过,不代表另一个文件也能用。** 模块作用域是按文件算的 ——
-父组件里 `import { ref }`,子组件里直接写 `ref(0)`,子组件照样炸。**每个 `.vue` 各写各的。**
+父组件里 `import { ref }`,子组件里直接写 `ref(0)`,子组件照样炸。**每个文件各写各的**,
+抽出去的 `useXxx.ts` 也一样(门禁连它一起查)。
 
 > ⚠️ 这一类和组件漏 import 一样:**webpack 编译照过,浏览器里 `ReferenceError: ref is not defined`,
 > setup 抛错、整页白屏。** 区别是它没有任何豁免可能(组件还有"被全局注册"的余地,vue API 没有),

@@ -12,7 +12,7 @@
 import { spawn } from "node:child_process"
 import { existsSync, openSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import path from "node:path"
-import { setLogSink, ok, fail, usage, warn, log, block, parseArgs } from "./lib/result.mjs"
+import { setLogSink, ok, fail, usage, warn, log, block, emit, logPath, parseArgs } from "./lib/result.mjs"
 import { envDir, envPaths, readManifest, readJson, sessionPaths } from "./lib/paths.mjs"
 import { findFreePort, isServing } from "./lib/port.mjs"
 import { parseRounds, extractErrors } from "./lib/compile.mjs"
@@ -341,9 +341,9 @@ while (Date.now() - t0 < timeoutMs) {
     // 编译通过不等于页面能渲染:漏 import webpack 编不出错,但浏览器里整页白屏。
     // 这是 verify 唯一能在"返回 OK"之前替模型兜住的一类运行时错误,不查白不查。
     //
-    // **两类分两档,理由见 lib/lint.mjs 的文件头** —— 简言之不是按后果轻重
-    // (两类都是 100% 白屏),而是按「判据在不在本文件内闭合」:组件可能被脚手架
-    // 全局注册(lint 看不见那个文件)→ WARN;vue API 不存在全局注册 → FAIL。
+    // **两类分两档,理由见 lib/lint.mjs 的文件头** —— 简言之要同时满足「判据闭合」与
+    // 「实现对判据保真」才够格 FAIL:vue API 两条都过;组件那档栽在第二条上
+    // (usedComponents 只按标签形态猜,<component :is> / 动态组件全判不准)→ WARN。
     for (const r of lintMissingImports(writeDir)) {
       warn(`${path.relative(projectDir, r.file)} 用了 ${r.missing.join(" / ")} 但没有 import —— 页面会白屏,必须补上`)
     }
@@ -357,22 +357,32 @@ while (Date.now() - t0 < timeoutMs) {
       // **故意不输出 PREVIEW_URL** —— 有它模型就可能直接跳到第 ⑤ 步宣布完成。
       // dev server 不受影响(仍在跑、.devserver.json 已写),下一轮 verify 复用它,秒级返回。
       //
+      // **契约行在前、块在后,与下面的 COMPILE_ERROR 分支同形**(§5.1.1)。
+      // 人排障时的习惯动作是"从 `RESULT:` 那行往下截一段贴出去" —— 块要是放在
+      // RESULT 之前,截出来的正好没有文件名和该补哪个 API,而那是这个块的全部价值。
+      // 所以这里手写契约行(fail() 会立刻 exit,块排不到后面),用 emit() 保证同时落盘。
+      //
       // 块内一律 ASCII 标签(`MISSING` / `ADD` 而不是"缺" / "补")——
       // 内网 Windows 终端代码页是 GBK,中文在截图/复制出来的片段里可能是乱码,
       // 而这个块的全部用途就是**被人原样贴到外网来定位**(§5.1.1、§8.4)。
       // 路径里的中文躲不掉(产物名可以是中文),但 API 名和那行 import 必须始终可读。
-      const detail = apiMisses
-        .map((r) => `${path.relative(projectDir, r.file)}\n  MISSING: ${r.missing.join(", ")}\n  ADD: import { ${r.missing.join(", ")} } from 'vue'`)
-        .join("\n")
-      block("MISSING_IMPORTS", detail)
-      fail(
-        "MISSING_VUE_IMPORT",
-        `${apiMisses.length} 个文件用了 vue 的 API 但没 import —— 运行时 ReferenceError,页面会整页白屏`,
-        {
-          hint: "按上面 MISSING_IMPORTS 块给的 import 行补进对应文件的 <script setup> 顶部,然后重跑 verify。这是你自己改的代码问题,不要转述给用户",
-          extra: { PORT: port, PID: pid, PROJECT_DIR: projectDir, COMPILE: "OK" },
-        },
+      emit(
+        `RESULT: FAIL | MISSING_VUE_IMPORT: ${apiMisses.length} 个文件用了 vue 的 API 但没 import —— 运行时 ReferenceError,页面会整页白屏\n` +
+          `HINT: 按下面 MISSING_IMPORTS 块给的 import 行补进对应文件,然后重跑 verify\n` +
+          `PORT: ${port}\nPID: ${pid}\nPROJECT_DIR: ${projectDir}\nCOMPILE: OK\n` +
+          `LOG: ${logPath()}\nDEVSERVER_LOG: ${S.devserverLog}\n`,
       )
+      block(
+        "MISSING_IMPORTS",
+        apiMisses
+          .map(
+            (r) =>
+              `${path.relative(projectDir, r.file)}\n  MISSING: ${r.missing.join(", ")}\n` +
+              `  ADD: import { ${r.missing.join(", ")} } from 'vue'`,
+          )
+          .join("\n"),
+      )
+      process.exit(1)
     }
     ok({
       PREVIEW_URL: `http://127.0.0.1:${port}`,
@@ -386,8 +396,14 @@ while (Date.now() - t0 < timeoutMs) {
   }
 
   const errors = extractErrors(last)
-  process.stdout.write(`RESULT: FAIL | COMPILE_ERROR: webpack 编译未通过\n`)
-  process.stdout.write(`PORT: ${port}\nPID: ${pid}\nLOG: ${S.devserverLog}\n`)
+  // 用 emit() 而不是裸 process.stdout.write:后者绕过 persist,于是日志里只留下一个
+  // 没有上文的 ERRORS 块,连"这是哪次、哪个端口、失败码是什么"都查不到(v15 S5 的遗漏)。
+  // `LOG:` 两个失败分支指同一份(本脚本日志,自包含);webpack 原始输出另给一个 key,
+  // 免得同一个 key 在不同分支指向不同文件、把顺着它去找的人带偏。
+  emit(
+    `RESULT: FAIL | COMPILE_ERROR: webpack 编译未通过\n` +
+      `PORT: ${port}\nPID: ${pid}\nLOG: ${logPath()}\nDEVSERVER_LOG: ${S.devserverLog}\n`,
+  )
   block("ERRORS", errors)
   process.exit(1)
 }
