@@ -21,7 +21,7 @@ import { execFileSync } from "node:child_process"
 import { readdirSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, emit, log, parseArgs } from "./lib/result.mjs"
-import { SKILL_DIR, TEMPLATE_DIR, VENDOR_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs } from "./lib/paths.mjs"
+import { SKILL_DIR, TEMPLATE_DIR, VENDOR_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs, resolveRuntime } from "./lib/paths.mjs"
 import { sha256File } from "./lib/hash.mjs"
 
 const args = parseArgs()
@@ -36,6 +36,13 @@ put("PLATFORM", `${process.platform}-${process.arch}`)
 put("NODE_RUNNING_THIS", process.version)
 put("SKILL_DIR", SKILL_DIR)
 put("ENV_DIR", P.root)
+// 版本要打出来:外网排查时手里有整个仓库,`UNEXPECTED` 给的行号、错误码字典都随版本变,
+// 对错版本会指到别处。读不到不阻塞 —— doctor 的职责是"把看得见的都说出来",不是拦人。
+try {
+  put("SKILL_VERSION", readManifest().skillVersion ?? "unknown")
+} catch {
+  put("SKILL_VERSION", "读不到 references/env.manifest.json")
+}
 
 // ── skill 组装状态 ───────────────────────────────────────────────
 const placeholders = [path.join(TEMPLATE_DIR, "PLACEHOLDER.md"), path.join(VENDOR_DIR, "PLACEHOLDER.md")]
@@ -45,7 +52,9 @@ put("TEMPLATE_LOCK", exists(path.join(TEMPLATE_DIR, "yarn.lock")) ? "OK" : "MISS
 put("VENDOR_DIRS", exists(VENDOR_DIR) ? readdirSync(VENDOR_DIR).join(",") || "(空)" : "MISSING")
 
 // ── 共享池状态 ───────────────────────────────────────────────────
-put("POOL_NODE", exists(P.nodeBin) ? P.nodeBin : "MISSING")
+// POOL_NODE 是 MISSING **不等于环境有问题**:机器上有能跑的 node 时安装脚本会直接复用它,
+// 那种机器上共享池里本来就没有 node(§4.1)。真正在用哪个,看下面 EFFECTIVE_NODE。
+put("POOL_NODE", exists(P.nodeBin) ? P.nodeBin : "MISSING(不一定是问题,见 EFFECTIVE_NODE)")
 if (exists(P.nodeBin)) {
   try {
     put("POOL_NODE_VERSION", execFileSync(P.nodeBin, ["-v"], { encoding: "utf8" }).trim())
@@ -53,6 +62,8 @@ if (exists(P.nodeBin)) {
     put("POOL_NODE_VERSION", `执行失败: ${e.message}`)
   }
 }
+const RT = resolveRuntime(P)
+put("EFFECTIVE_NODE", `${RT.node}(${RT.source === "pool" ? "共享池" : "系统"})`)
 // 值域是「解析出的绝对路径」/ MISSING,不是 OK/MISSING —— 只说 MISSING 而不说去哪找的、
 // 找到了什么,正是 2026-09-08 白花一轮才发现路径猜错的原因(§4.4.8 第二批坑 3)
 put("POOL_YARN_JS", resolveYarnJs(P) ?? "MISSING")
@@ -71,16 +82,31 @@ if (exists(P.depsLock) && exists(path.join(TEMPLATE_DIR, "yarn.lock"))) {
 }
 
 // ── 系统 node/yarn(不是必需,但知道有没有对排查有用)────────────────
+const sysVersions = {}
 for (const [name, bin] of [["SYSTEM_NODE", "node"], ["SYSTEM_YARN", "yarn"], ["SYSTEM_NPM", "npm"]]) {
   try {
     // 这里的 shell: true 是安全的,与 §4.4.8 第二批坑 3 那次不同:
     // bin 是固定字面量、argv 只有 "-v",不含任何路径 —— 不存在空格被劈开或中文被代码页搞乱的问题。
     // Windows 上必须走 shell,否则找不到 yarn.cmd / npm.cmd(Node 18+ 不许直接 spawn .cmd)。
-    put(name, execFileSync(bin, ["-v"], { encoding: "utf8", shell: process.platform === "win32" }).trim())
+    sysVersions[name] = execFileSync(bin, ["-v"], { encoding: "utf8", shell: process.platform === "win32" }).trim()
+    put(name, sysVersions[name])
   } catch {
     put(name, "(没有)")
   }
 }
+// 安装脚本会不会去下载 node,这一行直接给结论 —— 让人自己拿上面几行去推,
+// 就是把"没查"和"没问题"混起来的另一种形态(§4.4.9)。
+// **不做版本判定**:有能跑的 node 就复用,不管大版本(§4.1)。
+// 判据必须与 install.sh 逐字一致:**要求 `node -v` 真的吐出 `vX.Y.Z`**,不是"命令没报错"。
+// 松一点点就会出现"doctor 说不用下载、install 却去下载"——诊断工具回答了另一个问题,
+// 正是 Q10 要根治的那一类(§4.4.9)。
+const sysNodeUsable = /^v\d+\./.test(sysVersions.SYSTEM_NODE ?? "")
+put(
+  "WILL_DOWNLOAD_NODE",
+  exists(P.nodeBin) || sysNodeUsable
+    ? "NO(手上已有能跑的 node,首装不需要下载,也不会读 manifest)"
+    : "YES(池子里和系统里都没有能跑的 node —— 这条路要网络,见 NET_CHECK_CMD)",
+)
 
 // ── 本进程看到的代理变量:内网最常见的拦路虎 ────────────────────────
 // 一个都没有时也要显式打一行,否则分不清"没有代理"和"没查代理"(§4.4.9)。

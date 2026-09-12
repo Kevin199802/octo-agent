@@ -41,21 +41,57 @@ export function envDir(override) {
 }
 
 /**
- * 共享池里的 node/yarn 优先,没有就用系统的 —— 能跑起来最重要。
- * 真正不可替代的是 deps/(1GB 内网组件库),不是运行时本身。
+ * 本次要用哪个 node —— **共享池里有 portable node 就用它,没有就用当前进程这个**。
+ *
+ * 真正不可替代的是 deps/(1GB 内网组件库),不是运行时本身:依赖树里唯一的原生模块是
+ * fsevents(optional + N-API,ABI 跨大版本稳定,加载失败 chokidar 自己回落到轮询),
+ * 所以 node 只要大版本对得上就能跑 —— 这是 §4.1 从"必须 portable node"退回
+ * "系统 node 够用就用系统的"的依据。
+ *
+ * 池子优先而不是系统优先:池子里那个是安装时定版的,`env.lock.json` 记的就是它;
+ * 系统 node 可能被人随手升级,让它盖过池子会让同一台机器上前后两次跑在不同运行时上。
  */
 export function resolveRuntime(P) {
-  const sysNode = process.execPath
+  const pooled = existsSync(P.nodeBin)
   return {
-    node: existsSync(P.nodeBin) ? P.nodeBin : sysNode,
-    nodeIsSystem: !existsSync(P.nodeBin),
+    node: pooled ? P.nodeBin : process.execPath,
+    source: pooled ? "pool" : "system",
   }
+}
+
+/** "v22.19.0" → 22;解析不出来返回 null(**不要回落成 0**,那会把两个坏值判成相等) */
+export function majorOf(version) {
+  const m = /^v?(\d+)\./.exec(String(version ?? "").trim())
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * npm 的 JS 入口 —— 与 `resolveYarnJs` 同一个理由:**不能直接 spawn `npm.cmd`**
+ * (Node 18 起禁止执行 .cmd/.bat,报 EINVAL),而系统 node 的 npm 布局又与池子里的不同。
+ * 所以顺着 node 二进制往它自己的 npm 找,两种官方布局各试一次。
+ *
+ * @returns {string|null} 找不到返回 null,由调用方决定怎么办
+ */
+export function resolveNpmJs(nodeBin) {
+  const dir = path.dirname(nodeBin)
+  for (const cand of [
+    path.join(dir, "node_modules", "npm", "bin", "npm-cli.js"), // Windows 官方包 / portable 包
+    path.join(dir, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"), // Unix(含 homebrew / nvm)
+  ]) {
+    const p = path.resolve(cand)
+    if (existsSync(p)) return p
+  }
+  return null
 }
 
 export const envPaths = (dir) => ({
   root: dir,
   node: path.join(dir, "node"),
   nodeBin: process.platform === "win32" ? path.join(dir, "node", "node.exe") : path.join(dir, "node", "bin", "node"),
+  // yarn 的落点 = `npm i -g yarn --prefix <dir>/node` 的产物(§4.1 ③)。
+  // **无论用池子的 node 还是系统 node,prefix 都固定指向这里** —— 于是 yarn 的路径与
+  // "node 是哪来的"解耦:先用系统 node 装好 yarn,之后哪天真去下了 portable node,
+  // 解压进同一个目录即可,yarn 不用重装、路径一个字都不用改。
   yarnBin: process.platform === "win32" ? path.join(dir, "node", "yarn.cmd") : path.join(dir, "node", "bin", "yarn"),
   deps: path.join(dir, "deps"),
   depsModules: path.join(dir, "deps", "node_modules"),

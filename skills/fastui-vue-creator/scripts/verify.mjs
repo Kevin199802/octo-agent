@@ -14,7 +14,7 @@ import { execFileSync, spawn } from "node:child_process"
 import { existsSync, openSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, usage, warn, log, block, emit, logPath, parseArgs } from "./lib/result.mjs"
-import { envDir, envPaths, readManifest, readJson, sessionPaths } from "./lib/paths.mjs"
+import { envDir, envPaths, readManifest, readJson, sessionPaths, resolveRuntime } from "./lib/paths.mjs"
 import { findFreePort, isServing } from "./lib/port.mjs"
 import { parseRounds, extractErrors } from "./lib/compile.mjs"
 import { lintMissingImports, lintMissingVueApis } from "./lib/lint.mjs"
@@ -49,6 +49,9 @@ const writeDir = path.join(portalDir, "src", "views")
 if (!existsSync(portalDir)) fail("NO_PROJECT", `工程目录不存在: ${portalDir}`, { hint: "先跑 new-session.mjs" })
 
 const P = envPaths(envDir())
+// 起 dev server 用哪个 node:共享池里有就用池子的,没有就用跑着本脚本的这个 ——
+// 系统 node 够用的机器上共享池里根本没有 node(§4.1),写死 P.nodeBin 会 ENOENT。
+const RT = resolveRuntime(P)
 
 // ── 解析 cli-service 入口(不硬编码路径:版本升级换了入口文件名也不会断)──
 function resolveCliService() {
@@ -225,7 +228,7 @@ if (!reused) {
         `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8`,
         `$env:OCTO_DEPS=${q(P.depsModules)}`,
         `$env:OCTO_PORT=${q(String(port))}`,
-        `$p = Start-Process -FilePath ${q(P.nodeBin)}` +
+        `$p = Start-Process -FilePath ${q(RT.node)}` +
           ` -ArgumentList @(${cliArgs.map(q).join(",")})` +
           ` -WorkingDirectory ${q(portalDir)}` +
           ` -RedirectStandardOutput ${q(S.devserverLog)}` +
@@ -258,7 +261,7 @@ if (!reused) {
       }
     } else {
       const fd = openSync(S.devserverLog, "a")
-      const child = spawn(P.nodeBin, cliArgs, {
+      const child = spawn(RT.node, cliArgs, {
         cwd: portalDir,
         env: childEnv,
         detached: true,
@@ -342,9 +345,9 @@ while (Date.now() - t0 < timeoutMs) {
     // 编译通过不等于页面能渲染:漏 import webpack 编不出错,但浏览器里整页白屏。
     // 这是 verify 唯一能在"返回 OK"之前替模型兜住的一类运行时错误,不查白不查。
     //
-    // **两类分两档,理由见 lib/lint.mjs 的文件头** —— 简言之要同时满足「判据闭合」与
-    // 「实现对判据保真」才够格 FAIL:vue API 两条都过;组件那档栽在第二条上
-    // (usedComponents 只按标签形态猜,<component :is> / 动态组件全判不准)→ WARN。
+    // **两类分两档,理由见 lib/lint.mjs 的文件头** —— 简言之不是按后果轻重
+    // (两类都是 100% 白屏),而是按「判据在不在本文件内闭合」:组件可能被脚手架
+    // 全局注册(lint 看不见那个文件)→ WARN;vue API 不存在全局注册 → FAIL。
     for (const r of lintMissingImports(writeDir)) {
       warn(`${path.relative(projectDir, r.file)} 用了 ${r.missing.join(" / ")} 但没有 import —— 页面会白屏,必须补上`)
     }
@@ -405,6 +408,41 @@ while (Date.now() - t0 < timeoutMs) {
     `RESULT: FAIL | COMPILE_ERROR: webpack 编译未通过\n` +
       `PORT: ${port}\nPID: ${pid}\nLOG: ${logPath()}\nDEVSERVER_LOG: ${S.devserverLog}\n`,
   )
+  // ── 运行时不兼容的指纹:命中就把方向指对(§4.1 / §5.5)──────────────
+  //
+  // 我们**不设 node 版本门禁**(手上有能跑的 node 就用,不管大版本),因为拿猜出来的版本名单
+  // 卡人的代价比风险本身大。代价是"node 大版本与老构建链不兼容"这类失败会以**编译错误**的
+  // 形态出现 —— 而 SKILL.md 把 COMPILE_ERROR 定性成"你自己写的代码的问题,改完重跑",
+  // 模型会拿着它去改 .vue **死循环**,永远不会怀疑 node。所以这里必须替它点出来。
+  //
+  // 判据是**精确字符串**,不是模糊猜测:这几条都是特定运行时错误的固定文本。
+  // 没命中就什么都不打 —— 绝不在编译错误上追加"也许是 node 的问题"这种噪音。
+  const RUNTIME_SIGNATURES = [
+    ["ERR_OSSL_EVP_UNSUPPORTED", "node 17+ 带的 OpenSSL 3 不再提供老 webpack 用的 md4 哈希"],
+    ["digital envelope routines", "同上 —— OpenSSL 3 的 EVP 不支持这个算法"],
+    ["error:0308010C", "同上 —— OpenSSL 3 的错误码"],
+    ["NODE_MODULE_VERSION", "有原生模块是给另一个 node 大版本编的(ABI 不匹配)"],
+    ["was compiled against a different Node.js version", "同上 —— 原生模块 ABI 不匹配"],
+  ]
+  const sig = RUNTIME_SIGNATURES.find(([needle]) => errors.includes(needle))
+  if (sig) {
+    let ver = ""
+    try {
+      ver = execFileSync(RT.node, ["-v"], { encoding: "utf8" }).trim()
+    } catch {
+      /* 版本拿不到不影响这条提示的价值 */
+    }
+    // 同上一段:必须走 emit —— 裸 stdout.write 绕过 persist,这两行就不进 octo-fastui.log。
+    // 而内网只能取到日志文件(或它的截图),这条又是 v16 去掉版本门禁之后**唯一**的补偿控制,
+    // 不落盘等于没有。
+    emit(
+      `NODE_SUSPECT: ${sig[0]} —— ${sig[1]}\n` +
+        `HINT: 这条编译错误**不是你写的代码的问题**,别改 .vue 重试。` +
+        `当前 node 是 ${ver || "(取不到版本)"}(${RT.node})。` +
+        `把这一行和 ERRORS 原样报给用户,并说明:换一个 node 大版本、或让安装脚本下载定版的 portable node` +
+        `(install.sh --force-portable-node / install.ps1 -ForcePortableNode)可以绕开\n`,
+    )
+  }
   block("ERRORS", errors)
   process.exit(1)
 }
@@ -429,8 +467,12 @@ const stageHint = {
     "日志已稳定但没识别出完整的编译轮次 —— 大概率是 lib/compile.mjs 的 MARKERS 与 turbo-ui-cli-service 的实际输出对不上。把下面 LOG_TAIL 里表示编译成功/失败的那几行发给开发,只改那一处即可",
 }[stage]
 
-process.stdout.write(`RESULT: FAIL | COMPILE_TIMEOUT: 等待编译结果超过 ${timeoutMs / 1000} 秒\n`)
-process.stdout.write(`STAGE: ${stage}\nROUNDS_SEEN: ${roundsSeen}\nPORT: ${port}\nPID: ${pid}\n`)
-process.stdout.write(`HINT: ${stageHint}\nLOG: ${S.devserverLog}\n`)
+// 同 COMPILE_ERROR 那段:走 emit 才落盘。超时是最难排查的一种失败,
+// 而它恰恰最依赖事后翻日志 —— 这三行以前一个字都不进 octo-fastui.log。
+emit(
+  `RESULT: FAIL | COMPILE_TIMEOUT: 等待编译结果超过 ${timeoutMs / 1000} 秒\n` +
+    `STAGE: ${stage}\nROUNDS_SEEN: ${roundsSeen}\nPORT: ${port}\nPID: ${pid}\n` +
+    `HINT: ${stageHint}\nLOG: ${logPath()}\nDEVSERVER_LOG: ${S.devserverLog}\n`,
+)
 block("LOG_TAIL", tailLines)
 process.exit(1)

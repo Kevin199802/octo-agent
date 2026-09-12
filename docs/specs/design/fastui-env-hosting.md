@@ -29,6 +29,13 @@
 
 **`deps` 整包第一版不做**（[§4.2](fastui-vue-codegen-pipeline.md#42-v2-整包分发仅在-v1-实测出现规模化安装失败时才推进)：仅在 v1 实测出现规模化安装失败时才推进）。所以 **nginx 上第一版只有 node 包 + 一个 manifest.json**。
 
+> **v16：portable node 变成兜底，但**[**照旧要托管**](fastui-vue-codegen-pipeline.md#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)。
+> 安装脚本现在会先看机器上有没有**能跑的 node**（`node -v` 跑得出来即可，**不看大版本、没有版本白名单**）——
+> 有就直接复用，**那种机器完全不碰这两样资产**（manifest 和 node 包都不读）。所以它们的实际命中率会明显下降
+> ——注意只是**这两样**：装 yarn 与那 1GB 依赖照旧走内网 npm 源，那条链路的投放要求不受影响。
+> **但不能因此撤掉**：一个 node 都没有的裸机仍然只能从这里取。
+> 换句话说它从"每台机器首装必经"降级为"裸机首装必需"，投放要求一个字没变。
+
 ### 4.4.2 下载哪些 node 文件（精确文件名）
 
 版本锁 **v22.19.0**（与内网现有环境一致）。官方目录 `https://nodejs.org/dist/v22.19.0/`，内网走已有 node 镜像同路径。**原样搬，不要解压重压**（重压会丢 Unix 权限位和 symlink）：
@@ -40,7 +47,7 @@
 | macOS Intel | `node-v22.19.0-darwin-x64.tar.gz` | 若无 Intel 机器可省 |
 
 > Windows ARM64 暂不列；确有此类机器再加 `node-v22.19.0-win-arm64.zip` 并在 manifest 里补一条。
-> **必须用 `.zip` / `.tar.gz`，不要用 `.msi` / `.pkg`** —— 安装器会写注册表、改 PATH、要管理员权限，与 [§4.1](fastui-vue-codegen-pipeline.md#41-v1-路线分发-portable-node--模板本机安装依赖) 的前提冲突。
+> **必须用 `.zip` / `.tar.gz`，不要用 `.msi` / `.pkg`** —— 安装器会写注册表、改 PATH、要管理员权限，与 [§4.1](fastui-vue-codegen-pipeline.md#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node) 的前提冲突。
 
 三个包解压后外层都有一级同名目录（如 `node-v22.19.0-win-x64/`），安装脚本按 manifest 的 `stripComponents: 1` 剥掉，最终落成 `<envDir>/node/node.exe`（Win）/ `<envDir>/node/bin/node`（Mac）。
 
@@ -136,7 +143,7 @@ curl -sI https://octo.hdesign.huawei.com/design/fastui-env/node/node-v22.19.0-da
 
 | 字段 | 含义 |
 |---|---|
-| `npmRegistry` | 只用于 [§4.1](fastui-vue-codegen-pipeline.md#41-v1-路线分发-portable-node--模板本机安装依赖) ③ 装 yarn。**不传给 `yarn install`** |
+| `npmRegistry` | 只用于 [§4.1](fastui-vue-codegen-pipeline.md#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node) ③ 装 yarn。**不传给 `yarn install`** |
 | `file` | **相对 manifest 所在目录**解析 |
 | `sha256` | 从 `SHASUMS256.txt` 抄，或按 §4.4.3 自算 |
 | `stripComponents` | 解压时剥掉的外层目录级数，node 官方包固定为 `1` |
@@ -268,6 +275,8 @@ v14 的 doctor 自己用 Node 的 `fetch` 探 manifest，于是有了 2026-09-08
 - 任一平台的 GET 非 2xx → `RESULT: FAIL | ASSET_UNREACHABLE: n/m …`，且**非 2xx 的响应体原文写进日志** —— 网关 / WAF 错误页的正文就是定位依据，"被谁拦的"（规则号 / MIME / UA）只写在那里面。HEAD 响应没有正文，它的等价物是**响应头**（Server / Set-Cookie / WAF 自定义头），失败时整份落盘
 
 存在的理由：内网出问题时人只能截图（[§8.4](fastui-vue-codegen-pipeline.md#84-内网同步单向)），而"装不上"背后有十几种可能，挨个手工试要来回好几轮。两段输出每行自解释，**贴出来就够定位**，不需要再补充上下文。
+
+> **这两条命令的输出怎么读成结论，在 [fastui-debugging.md](../../fastui-debugging.md)**：§2 错误码字典、§3 `ASSET_*` 与 curl 退出码的判读、§5 把日志交给外网 AI 的提示词模板。本节规定「跑什么、打印什么」，那份管「打出来之后怎么判」。
 
 ### 4.4.7 你在内网要做的事，按顺序
 

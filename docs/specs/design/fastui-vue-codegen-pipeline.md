@@ -1,6 +1,6 @@
 # SPEC-DES-001 — fastui/lake 组件代码生成：预览与交付管道
 
-> 状态：草案（v15，裸机起步与中文路径两条阻塞已修 PR #23；§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003） · 优先级 P1 · 规模 [L] · 领域 infra/design
+> 状态：草案（v17，漏 import 门禁补 vue API 一档；§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003） · 优先级 P1 · 规模 [L] · 领域 infra/design
 >
 > 上游已实现：✗ —— 本 spec 全部为 Design 侧新增；参考实现是 ICT 的 `ict-component-creator` skill（外部，React + 自制 mini bundler），**其管道分层可借鉴、具体实现不可照搬**（理由见 §1.3）
 >
@@ -9,6 +9,10 @@
 ---
 
 > ## 修订记录
+>
+> **2026-09-12：v17(漏 import 门禁补上 vue API 一档,并定下两档严重性的依据)**——模型在一个 `.vue` 里调 `ref()` 却没 import(它在**父组件**里 import 过),webpack 照编,运行时 `ReferenceError`、整页白屏,而 `verify` 返回 `RESULT: OK`。原来的 `lib/lint.mjs` 只查**组件标签**,不查**从 `'vue'` 导入的 API**,这一类完全没覆盖。本版:① `lint.mjs` 加一条闭集合白名单检查(纯正则、无新依赖、实测 16ms),排除注释 / 字符串 / 成员调用 / 编译宏 / 局部同名声明;② **定成 `FAIL` 而组件那档维持 `WARN`,依据不是后果轻重(两类都是 100% 白屏),而是「判据在不在本文件内闭合」** —— 组件有一条 lint 看不见的合法豁免路径(脚手架 `app.component()` 全局注册,那个文件在 `WRITE_DIR` 之外),vue API 没有。**门禁能不能 FAIL,看的是会不会冤枉一个正确的写法,不是漏了后果多严重**(§7.3.1);③ 配套收口 SKILL.md 里 `WARN` 的两处矛盾语义、以及 §0.1 那条"脚本报错原样转述给用户"(不限定的话模型会把 `MISSING_VUE_IMPORT` 当环境问题转述后停下 —— 那才是真正的"报错挂掉");④ 新增 `scripts/lib/lint.test.mjs`,18 条用例重心全在**"不该报"**那一侧(误报会让模型陷进"补 import → 撞名 → 编译错误"的死锁),本地全过(§9.1 V0-j);⑤ 顺带修 `verify.mjs` 漏 import `execFileSync`(v15 引入,**Windows 兜底启动路径必炸**,且被 `try/catch` 吞成 `SPAWN_FAILED: … execFileSync is not defined` 这种指向 PowerShell 的假线索 —— 与本版要防的是同一类 bug)。**2026-09-12 review 后重做了判定内核**:第一版「两边都用剥过噪声的文本」的实现被 10 个反例全数打穿(import 清单带注释、字符串/注释里落单的反引号或 `/*` 跨行吞掉声明、Options API 方法简写、多声明符、默认值之后的形参、箭头形参),其中前两类会**真死锁**(补 import → `SyntaxError` 撞名 → 编译门禁挡住 → 删掉又回到 MISSING)。改成**两边用不同文本**:判「被绑定」查未剥的原文,判「被调用」查剥过的,两边都朝漏报方向偏;反例全部固化进 `lint.test.mjs`。**规则本身也补了第二个必要条件**:光「判据闭合」不够,还要「实现对判据保真」—— 这次的误报没有一个来自豁免路径,全部来自正则精度;顺带纠正了组件档留在 `WARN` 的理由(不是「可能被全局注册」——SKILL.md 已断言没有全局注册,那条和它打架——而是 `usedComponents` 的精度不够)。门禁覆盖面同时扩到 `views/` 下的 `.ts` / `.js`(模型爱把逻辑抽进 `useXxx.ts`,那里漏 `ref` 一样白屏)。**覆盖面**:只查 `'vue'` 的白名单,不是通用 `no-undef` —— import 路径错由 webpack 兜,而 element-plus 的命令式 API(`ElMessage` 等)**是已知缺口、本版刻意未做**(判据同样闭合,但会牵动错误码语义,且后果轻一档:点击时失效而非整页白屏)。前提「脚手架没有 auto-import 插件」**已确认**(内网无此依赖;且实测报的就是 `ReferenceError`,有自动导入根本不会抛)。**门禁本身内网未验。**
+>
+> **2026-09-11：v16(首装不再必须下载 node —— 推翻一条被当成架构约束的假设)**——本版只改一件事:**"用哪个 node"从四处各自写死,收敛成一个判断 —— 手上有能跑的就用它**。① **§4.1 那条「`npm i -g yarn` 不需要 sudo 是必须用 portable node 而非系统 node 的核心原因之一」不成立**:要躲的 sudo 是真的(agent 内执行 sudo 会静默挂住等密码,没有交互通道),但决定要不要 sudo 的是 **global prefix 落在哪** —— 实测 `npm install -g yarn --prefix=<自定义目录>` 用系统 node 同样不需要 sudo,装到 `<prefix>/bin/yarn -> ../lib/node_modules/yarn/bin/yarn.js`,`yarn -v` 正常。把一个能用一个参数绕开的问题写成架构约束,代价是每台机器首装都得先过一遍 50MB 下载,而那条链路已经 504 过(代理)、403 过(WAF) —— [§0.0](#00-当前进度与待办改动后随手更新这一节) 的阻塞项就是它。② **`ENV_NODE_MISMATCH` 从精确相等放宽到大版本相同**(§5.2 第 4 条),小版本不同只出 `WARN:`。依据是事实而不是"差不多应该行":整棵依赖树里绑 node ABI 的原生模块只有 **fsevents** 一个(optional + N-API,ABI 跨大版本稳定,加载失败 chokidar 自己回落到轮询),依赖树一致性本来就由 `lockfileHash` 保证,node 版本从来不是它的代理指标;顺带更正 §4.2 原文"全仓 `*.node` 为 0"。③ **安装脚本优先复用手上的 node**(池子 → 系统,**不设版本门禁**:起草时设过一版大版本白名单 `systemNodeMajors`,定案去掉 —— 那个名单是猜的,而代价是让一台什么都不缺的机器去走已知 403 过的下载链路;真不兼容改由 `verify` 的 `NODE_SUSPECT` 在编译期精确指认,见 §4.1「为什么最后没设版本门禁」),yarn 一律 `--prefix=<envDir>/node` 装进共享池 —— 于是 yarn 的落点与"node 是哪来的"解耦。④ **不下载 node 时连 manifest 都不读**,registry 回落到 template 自带的 `.npmrc`(与 `yarn install` 读的是同一份)。v14 曾特意"无论要不要下载都拉一次 manifest"(§4.4.8 第二批坑 4),那是因为当时 registry 只有 manifest 一个来源;有了本地来源之后这条依赖不该再存在 —— **正是去掉它,已有 node 的机器整条首装链路才一次网络请求都不发**。⑤ 顺带两处:`python3` 从 macOS 的硬门槛降为"只有要解析 manifest 时才需要"(读 skill 自带的 `env.manifest.json` 有 node 就用 node);"池子里的 node 能不能用"的判据从「文件在不在 + 带不带 `--upgrade`」改成**跑一次 `node -v`** —— 原来那条是拿一次 50MB 下载替代一次版本查询。⑥ **没有放松的两件事**:`lockfileHash` 跨边界比对一个字没动;portable node 的内网托管照旧要做([SPEC-DES-002](fastui-env-hosting.md) 已注明),它从"每台机器首装必经"降级为"部分机器首装必需",投放要求不变。⑦ 本地 macOS 八项实测通过(§9.1 V0-i),**内网未验**。
 >
 > **2026-09-09：v15(裸机起步 + 中文路径 —— 两条都让 skill 在真实场景直接不可用)**——内网实测暴露的两条阻塞,均已修(PR #23),记入 [§0.0](#00-当前进度与待办改动后随手更新这一节) 的 S 表。① **S10 裸机上 skill 完全跑不起来**:工作流第一步 `ensure-env.mjs` 本身要 node,裸机上只报 `command not found`,而 SKILL.md 全文没讲过"没有 node 怎么办" —— agent 于是让用户自己去外网下 node、或改用纯 HTML 糊一个预览。**根因不在措辞在结构**:硬约束 0.1 把"装环境"和"装不上"混成一句,agent 读成"没有 node 也归用户",它是在遵守我们漏了分支的规则。修法是工作流加 ⓪ 确认 node、新增硬约束 0.2 把两件事分开写死(没 node / 没共享池 / 依赖过期 = 你的活;装的过程中失败 = 人的活),并禁掉"让用户去外网下 node""用纯 HTML 糊预览""拿系统别的 node 凑合装"三种兜底。② **S11 中文路径下起不来 dev server**:PS 5.1 按系统 ANSI 代码页读 argv、Node 按 UTF-8 传,路径含中文必乱码,改走 `-EncodedCommand` 绕开代码页 —— 与 `install.ps1` 的 UTF-8 BOM 那条同源。③ **review 补的三处**:失败文案取 `e.stderr` 而非 `e.message`(后者会把 1300+ 字符的 base64 argv 挤进 `RESULT:` 行,恰好违反 [§5.1.2](#512-硬性安全约束所有脚本--skillmd)「错误信息必须能读」);SKILL.md 里 `<skillDir>` 补上定义(⓪ 这一步恰恰拿不到 `ensure-env` 展开好的路径,而 [§8.6.2](fastui-uxai-integration.md#862-导出代码包按钮-的落点与契约) 记过 v12 猜错 skill 安装路径的前车);`$OutputEncoding` 那行删掉(它管的是 PS 经管道传给外部程序的 stdin 编码,此处空转)。④ 顺带写明 macOS 的 `install.sh` 需要系统 `python3`(仅用于解析 manifest),缺了会 `NO_PYTHON` 响亮失败,按 0.2 属"人的活"。
 >
@@ -49,9 +53,10 @@
 
 | | 状态 |
 |---|---|
-| 环境安装（共享池 node + deps） | ⚠️ **不要当已通** —— Windows ✅；macOS arm64 那次跑的是修复前的旧版、且绕过了 manifest（[§4.4.8 第二批](fastui-env-hosting.md#448-首装踩到的坑内网实测分两批2026-09-07--09-08)）（[§4.1](#41-v1-路线分发-portable-node--模板本机安装依赖)、[§4.4](fastui-env-hosting.md#44-内网托管要准备什么怎么放离线操作手册)） |
+| 环境安装（共享池 node + deps） | ⚠️ **不要当已通** —— Windows ✅；macOS arm64 那次跑的是修复前的旧版、且绕过了 manifest；v16 新增的「复用系统 node」这条路只在本地 macOS 验过（[§9.1](#91-外网可做本地-mac) V0-i），内网未验（[§4.4.8 第二批](fastui-env-hosting.md#448-首装踩到的坑内网实测分两批2026-09-07--09-08)）（[§4.1](#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)、[§4.4](fastui-env-hosting.md#44-内网托管要准备什么怎么放离线操作手册)） |
 | 会话工程创建（链接 + 复制模板 + 端口） | ✅ [§3.2](#32-会话布局沿用-design-现有约定)、[§5.3](#53-new-sessionmjs--创建会话工程) |
 | 编译门禁（起 dev server + 判定 + 错误回传） | ✅ [§5.5](#55-verifymjs--编译门禁) |
+| 漏 import 静态检查（组件 `WARN` / vue API `FAIL`） | 组件那档内网实测有效；**vue API 那档本地用例全过（[§9.1](#91-外网可做本地-mac) V0-j，含 2026-09-12 review 打出的 10 个反例），内网未验**（前提「脚手架无 auto-import」已确认）。**只覆盖 `'vue'` 白名单**（`views/` 下 `.vue`/`.ts`/`.js` 都查）（[§7.3.1](#731-编译门禁挡不住的一类漏-importliblintmjs)） |
 | 预览卡片（`text/link` → iframe） | ✅ 零改动，[§7.5](#75-预览容器现有-textlink-链路已支持预计零改动) |
 | 导出代码包（`export-zip`） | ✅ 中文名 / UTF-8 flag / 跳链接，[§5.6](#56-export-zipmjs--打交付包v12提为第一版正确性需求) |
 | dev server 宿主化 | ✅ UXAI PR #801 已合，[§8.6.1](fastui-uxai-integration.md#861-dev-server-由宿主起并持有-的完整方案) |
@@ -87,6 +92,28 @@ curl  GET  manifest.json                            → 200
 
 顺带：浏览器把 `.tar.gz` 渲染成文本而不是下载，说明 nginx 没给它配 MIME
 （`.zip` 配了，所以直接下载）。这本身不导致 403，但说明服务端对这两类文件的处理确实不同。
+
+> **v16 把这条阻塞的杀伤面缩小了一圈，但没有解除它。** 机器上有任何一个能跑的 node 时，
+> 首装**完全不走**这条链路（不读 manifest、不下 node 包，[§4.1](#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)）——
+> 内网多数机器装 opencode 时已经有 node，属于这一类。但**一个 node 都没有的裸机仍然只能走它**，
+> 所以这条 403 该查还得查，`nginx` 上的 node 包也不能撤。
+
+**v16：首装不再必须下载 node**（2026-09-11）
+
+| 改了什么 | 落点 |
+|---|---|
+| `ENV_NODE_MISMATCH` 判据：精确相等 → **大版本相同**（小版本只出 `WARN:`） | `ensure-env.mjs`，[§5.2](#52-ensure-envmjs--环境就绪校验) 第 4 条 |
+| 安装脚本**优先复用手上的 node**（池子 → 系统，**不设版本门禁**；起草时那版白名单定案去掉了）；yarn 一律 `npm i -g yarn --prefix=<envDir>/node`，**系统 node 下同样不需要 sudo** | `install.sh` / `install.ps1` / `setup-env.mjs`，[§4.1](#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node) |
+| 不下载 node 时**不读 manifest**；registry 回落到 template 自带的 `.npmrc`（与 `yarn install` 读的是同一份） | 同上 |
+| `python3` 从 macOS 的硬门槛降为「只有要解析 manifest 时才需要」 | `install.sh` |
+| 判据「池子里的 node 能不能用」从「文件在不在 + 带不带 `--upgrade`」改成**跑一次 `node -v`** —— 原来那条是拿一次 50MB 下载替代一次版本查询 | `install.sh` / `install.ps1` |
+| **`NODE_SUSPECT`（去掉版本门禁的配套补偿控制）**：编译错误里命中已知运行时不兼容指纹时点名，走 `emit` 落盘，并写进 SKILL.md 的 ④ 步与 [§5.5](#55-verifymjs--编译门禁) 的出参契约 —— 三者缺一，这条改动就只剩"放开"没有"兜底" | `verify.mjs` / SKILL.md / [§5.5](#55-verifymjs--编译门禁) |
+| 子进程日志与失败摘要：`run()` 传 label（v16 把 npm 改成 `node <npm-cli.js>` 之后标记全变成了 `node`，`--- npm stderr ---` 一度不存在）；`RESULT:` 行改成挑**真正的错误行**（npm 与 yarn 的末行恰好都是 boilerplate：一条"完整日志在哪"、一条 node 内部栈帧） | `setup-env.mjs` |
+
+> **spec 里被推翻的一条**：v1~v15 写着"`npm i -g yarn` 不需要 sudo 是必须用 portable node 的核心原因之一"。
+> 要躲的 sudo 是真的，结论是错的 —— 决定要不要 sudo 的是 global prefix 落在哪，而那是我们自己传
+> `--prefix` 就能定的事。详见 [§4.1 v16 那一节](#v16-更正--不需要-sudo-不是必须用-portable-node-的理由)。
+> **没有放松的是 `lockfileHash`**：依赖树一致性只能靠它，node 版本从来不是这件事的代理指标。
 
 **skill 侧首装修复**（[§4.4.8 第二批](fastui-env-hosting.md#448-首装踩到的坑内网实测分两批2026-09-07--09-08)，2026-09-08 内网暴露）
 
@@ -130,7 +157,7 @@ curl  GET  manifest.json                            → 200
 | **完全没装过 node 的机器** | ⚠️ **2026-09-08 走到了，当场炸出四处**（[§4.4.8](fastui-env-hosting.md#448-首装踩到的坑内网实测分两批2026-09-07--09-08) 第二批）—— 代理挡住 manifest、macOS yarn 路径错等。修完要再走一遍 |
 | **agent 进程环境（而非终端）** | 这次的根因只在 agent 宿主进程里存在（代理），人在终端复现不出来。**以后验首装必须由 agent 全程跑**，不能人工代跑任何一步 |
 | **Intel Mac（`darwin-x64`）** | manifest 里有这个平台的包，没人验过 |
-| **`install.ps1` 的 v15 改动（S5 落盘 / S8 兜底 catch / `-Check`）** | 本机没有 pwsh，只做了静态检查：UTF-8 with BOM 仍在、括号平衡、`Fail` 等函数全部定义在调用点之前。**逻辑一次都没跑过**，Windows 上第一次跑要盯着看 —— 对照的 macOS 侧同样几条路径已本地实测通过 |
+| **`install.ps1` 的 v15 + v16 改动**（v15：S5 落盘 / S8 兜底 catch / `-Check`；v16：node 来源决策 / 只在要下载时读 manifest / 交棒用 `$EffectiveNode`） | 本机没有 pwsh，只做了静态检查：UTF-8 with BOM 仍在、括号平衡、`Fail` 等函数全部定义在调用点之前。**逻辑一次都没跑过**，Windows 上第一次跑要盯着看 —— 对照的 macOS 侧同样几条路径已本地实测通过（v16 见 [§9.1](#91-外网可做本地-mac) V0-i 八项）。v16 的 Windows 侧另有两处只有 PowerShell 才验得了的点：`Get-Command node -CommandType Application` 取到的 `.Source`、以及 `& $NodeBin -v` 在拿错平台包时是抛异常还是只给非零退出码（两条都按"抛也接住"写了，但没实跑过） |
 
 **跟外部团队的开口**
 
@@ -138,7 +165,25 @@ curl  GET  manifest.json                            → 200
 |---|---|---|
 | Q4 | fastui 发版后谁触发重打、怎么通知设计师升级 | 机制已定（[§5.2.2](#522-升级机制lockfile-驱动的增量升级)），**流程待与 fastui 团队约定**，不阻塞 |
 
+**v17 漏 import 门禁的遗留**（2026-09-12）
+
+| # | 事项 | 状态 | 落点 |
+|---|---|---|---|
+| L1 | **element-plus 命令式 API（`ElMessage` / `ElMessageBox` / `ElNotification` / `ElLoading`）漏 import 没人兜** —— 判据同样闭合、理论上该进 `FAIL`，本版**刻意未做**（范围控制）。挂在这里免得"刻意留着"变成"忘了"。工作量不止加几个名字：CODE 要改成 `MISSING_IMPORT`、白名单按来源分组、`ADD:` 那行按来源分别生成、SKILL.md ④ 跟着改 | ⏸ 待做 | [§7.3.1](#731-编译门禁挡不住的一类漏-importliblintmjs) |
+
 ### 明确不做
+
+**给 `scripts/` 自己加静态检查（`selfcheck.test.mjs` 之类）** —— 2026-09-12 提出、当场否掉。
+
+起因是 `verify.mjs` 漏 import `execFileSync`（PR #25）。但那个 bug 的根因**不是"没有静态检查"，是那条代码路径在 macOS 上永远跑不到**（Windows 专属分支），静态检查只碰巧能兜住它的一种表现形式。
+
+> **边界在这里**：这个 skill 的职责是**替内网 agent 检查环境、和模型生成的代码**。`scripts/` 是我们自己写的代码，它的质量是我们的开发纪律，不是 skill 的功能。拿 skill 的职责去兜我们自己的活，逻辑上还会套娃——查脚本的脚本谁来查？
+>
+> 更一般的判据：**会被执行的代码不需要静态检查，不会被执行的才需要，而正确的应对是让它被执行**（Windows 专属分支要在 Windows 上跑一次，那是 §9.2 的事）。
+>
+> `lib/lint.test.mjs` **不在此列**，它测的是**交付给 agent 的门禁本身** —— 门禁误报会锁死模型，那是这个 skill 的核心功能（[§7.3.1](#731-编译门禁挡不住的一类漏-importliblintmjs)）。
+
+
 
 二次编辑回环（选中元素 → 属性面板 → 改 `.vue` → 重编译）、`vendor/` 里三份组件 skill 的内容与组织 —— 见[文末「明确不在本 spec 范围」](#明确不在本-spec-范围)。
 
@@ -348,8 +393,11 @@ Windows:  %LOCALAPPDATA%\OctoAgent\fastui-env\
 macOS:    ~/Library/Application Support/OctoAgent/fastui-env/
 
 fastui-env/
-├─ node/                        ← portable node（解压即用，不写注册表 / 不改 PATH / 不需要管理员权限）
-├─ deps/node_modules/           ← 共享依赖池（~1GB）
+├─ node/                        ← ① portable node（解压即用，不写注册表 / 不改 PATH / 不需要管理员权限）
+│                                 ② **也是 yarn 的 `npm --prefix` 落点**（`node/bin/yarn`）
+│                                 v16：机器上有能跑的 node 时**不下载 portable node**，
+│                                 这个目录下于是只有 yarn —— 属正常状态，不是环境坏了（§4.1）
+├─ deps/node_modules/           ← 共享依赖池（~1GB）**这一份才是不可替代的**
 └─ env.lock.json                ← 版本清单，见 §5.2
 
 （v9：template 不再进共享池，会话直接从 `<skillDir>/template/` 复制 —— 见下）
@@ -526,23 +574,93 @@ the variables unset the behaviour is identical to the original scaffold.
 
 ## 4. 环境分发
 
-### 4.1 v1 路线：分发 portable node + 模板，本机安装依赖
+### 4.1 v1 路线：手上有能跑的 node 就用它，一个都没有才分发 portable node
 
 这是**正式路线，必须能自助跑通**，不依赖人工上门。**设计师全程不接触任何安装命令** —— 他只调 skill 说要做什么页面，`ensure-env` 检出环境缺失/过期时由 agent 自动执行安装脚本。
 
 ```
-① 按平台下载 portable node → 解压到共享池 <envDir>/node/
+① 决定 node 来源(v16,三级):
+     --force-portable-node        → 强制下载(逃生开关)
+     手上有能跑的 node(池子优先)   → 直接复用,**不看大版本**,一个字节都不下载
+     一个都没有                    → 按平台下载 portable node → 解压到 <envDir>/node/
 ② (v9 删除:template 不进共享池,会话直接从 <skillDir>/template/ 复制)
-③ 用 portable node 的 npm 装 yarn(指定 --registry)
+③ 用 ① 选中的那个 node 的 npm 装 yarn:`npm i -g yarn --prefix=<envDir>/node`(指定 --registry)
 ④ 复制 template 的"依赖清单"到 <envDir>/deps/ → cwd=deps 跑 yarn install  ← 不传 registry
 ⑤ 写 env.lock.json → ensure-env 探针校验
 ```
 
 关键点：
 
-- **`npm i -g yarn` 在 portable node 下不需要 sudo** —— global prefix 落在 node 自己的目录里，不碰 `/usr/local`。这是必须用 portable node 而非系统 node 的核心原因之一：**Agent 内执行 `sudo` 会静默挂住等密码，没有交互通道**
-- 已验证：Windows 与 macOS 各走通一遍（node 离线装、yarn 指定 registry 可装、项目内 `yarn` 装依赖无阻碍）
+- **① 不设任何版本门禁** —— 判据只有「`node -v` 跑不跑得出来」。起草时设过一版大版本白名单（`systemNodeMajors`），定案时**去掉了**，理由见下面「为什么最后没设版本门禁」。代码里因此**没有** `systemNodeMajors` 这个字段，也没有任何地方比对大版本来决定装不装（`ensure-env` 的第 4 条比的是另一件事：**装依赖时**用的那个 node 与**现在**这个是不是同一个大版本，见 [§5.2](#52-ensure-envmjs--环境就绪校验)）
+- **③ 的 `--prefix` 固定指向 `<envDir>/node`**，与"node 是哪来的"解耦：先用系统 node 装好 yarn，之后哪天真去下了 portable node，解压进同一个目录即可，yarn 不用重装、路径一个字都不用改
+- 已验证：Windows 与 macOS 各走通一遍（node 离线装、yarn 指定 registry 可装、项目内 `yarn` 装依赖无阻碍）；复用系统 node 这条路 2026-09-11 在本地 macOS 走通（见 [§9.1](#91-外网可做本地-mac)）
 - **② 的 `template/` 来源路径不要硬编码**：skill（自定义技能与平台技能一致）落在 `.octo/skills/<skillName>/`，脚本一律用 `import.meta.url` 推导同级的 `../template/`。这样前期以自定义技能验证、后期上架平台技能，脚本不用改一个字
+
+#### v16 更正 —— 不需要 sudo 不是必须用 portable node 的理由
+
+v1~v15 的这一节写着：
+
+> ~~**`npm i -g yarn` 在 portable node 下不需要 sudo** —— global prefix 落在 node 自己的目录里，不碰 `/usr/local`。这是必须用 portable node 而非系统 node 的核心原因之一~~
+
+**要躲的东西是对的，结论是错的。** 要躲的是「Agent 内执行 `sudo` 会静默挂住等密码，没有交互通道」——
+这条今天依然成立、依然是硬约束。但 portable node 只是躲开它的**一种**办法，不是唯一一种：
+
+```
+npm install -g yarn --prefix=<自定义目录>      # 2026-09-11 实测,系统 node
+  → <prefix>/bin/yarn -> ../lib/node_modules/yarn/bin/yarn.js
+  → yarn -v 正常,全程不需要 sudo
+```
+
+真正决定要不要 sudo 的是 **global prefix 落在哪**，而那是我们自己传 `--prefix` 就能定的事，
+**跟 node 是不是 portable 无关**。把一个能用一个参数绕开的问题写成架构约束，代价是：
+内网每台机器首装都得先过一遍 50MB 下载，而那条链路已经 504 过（代理）、403 过（WAF）——
+[§0.0 的阻塞项](#00-当前进度与待办改动后随手更新这一节)就是它。
+
+**大版本相同就够用**的依据（不是"差不多应该行"）：
+
+| 判据 | 事实 |
+|---|---|
+| 原生模块（绑 node ABI 的那种） | 整棵依赖树里只有 **fsevents** 一个（内网 `find . -name '*.node'` 只有这一个）。它是 optional dependency + **N-API**，ABI 跨大版本稳定；加载失败时 chokidar 自己回落到轮询，只是慢一点，不会炸 |
+| 纯 JS 依赖对小版本的敏感度 | 无 —— 依赖树的一致性由 `lockfileHash` 保证（[§5.2.1](#521-lockfilehash-比的是谁和谁--v7-架构下这个变了)），那道门禁不动，**不靠 node 版本代劳** |
+| 现实样本 | 已有用户在 node 版本与清单不一致的情况下跑通过全流程 |
+
+于是 `ENV_NODE_MISMATCH` 的判据从「精确相等」放宽到「大版本相同」（[§5.2](#52-ensure-envmjs--环境就绪校验) 第 4 条）。
+小版本不同只出一条 `WARN:`，不阻塞 —— `env.lock.json` 仍然记录**实际的** `nodeVersion`（精确到小版本），那是诊断价值：「同一台机器行为变了」时，先看它是不是换了运行时。
+
+**收益**：内网很多人装 opencode 时已经有 node，这批人首装直接跳过 50MB 下载，也就整个绕开了
+manifest / node 包那条链路（504 与 403 都在那条链路上）。顺带，`python3` 也不再是 macOS 的
+硬门槛 —— 它只用来解析 manifest，而这条路不读 manifest（有 node 就用 node 解析 skill 自带的
+`env.manifest.json`）。
+
+#### 为什么最后没设版本门禁（起草时设过白名单，定案去掉）
+
+起草稿里有一条大版本白名单：`systemNodeMajors = [18, 20, 22]`，命不中就下载 portable node。
+理由是「node 大版本会带来 OpenSSL / webpack 上的真实断裂（webpack 老版本的 md4 在 node 17+ 就炸过），
+没验过的版本不该算满足要求」。**定案时整条去掉了**，三个理由：
+
+1. **那个名单本身是猜的。** `22` 来自内网托管的 portable 包、`20` 来自"内网普遍是 20/22"、`18` 是还算常见的旧 LTS；
+   排除 24/26 **不是因为验过它们坏，只是因为没人验过**。拿没有证据的猜测当门禁，是"用确定的代价换不确定的风险"。
+2. **代价落在一台什么都不缺的机器上。** node 24 的机器装 yarn、装 deps 全都没问题，却会因为一个猜出来的数字
+   被推去走 manifest / node 包那条**已知 403 过**的链路，然后死在那儿（[§0.0](#00-当前进度与待办改动后随手更新这一节) 的阻塞项）。
+   **不能因为环境卡别人** —— 这与 v13 给预览门禁定的规矩同源：[§8.6.5](fastui-uxai-integration.md#865-重启后预览白屏iframe-早于-dev-server-就绪) 那条"门禁超时必须降级放行 `src`，
+   否则预览就从'白屏可恢复'变成'永远打不开'，比不修更糟"。
+3. **真不兼容是可以在事后精确认出来的，不必事前猜。** 白名单想拦的那类断裂（webpack md4 / 原生模块 ABI）
+   都以**编译期报错**的固定文本出现，`verify` 命中就打一行 `NODE_SUSPECT`（[§5.5](#55-verifymjs--编译门禁)）——
+   spec 自己举的 md4 例子，恰好正是它第一条指纹覆盖的形态。
+
+**这不是"放任"，是把判据从猜测挪到证据上**：拦不住的那一小部分，由 `NODE_SUSPECT` 在真出事时精确指认，
+并且明确告诉模型"这不是你写的代码的问题"（否则它会拿着编译错误去死循环改 `.vue`）。
+
+> **配套是硬要求，不是可选项**：去掉门禁的前提就是 `NODE_SUSPECT` 这条补偿控制真的到位 ——
+> 它必须**落盘**（走 `emit`，[§5.1.1](#511-统一输出契约所有脚本)）、必须**进 SKILL.md 的 ④ 步**、必须**在 [§5.5](#55-verifymjs--编译门禁) 的出参契约里**。
+> 三者缺一，这条改动就只剩"放开"没有"兜底"。
+
+**没有放松的两件事**，别顺手一起改：
+
+| | 为什么保留 |
+|---|---|
+| `lockfileHash` 跨边界比对（[§5.2.1](#521-lockfilehash-比的是谁和谁--v7-架构下这个变了)） | 依赖树一致性只能靠它。node 版本从来不是这件事的代理指标 |
+| portable node 的托管与分发（[SPEC-DES-002](fastui-env-hosting.md)） | 它现在是**兜底**，不是主路径 —— 机器上一个能跑的 node 都没有时（裸机），仍然只能走它。**不要因此把 nginx 上的 node 包撤掉** |
 
 #### ④ 为什么在 `deps/` 里装，而不是"在模板里装完再移过去"
 
@@ -575,7 +693,7 @@ v6 及以前写的是"用 yarn 在模板里装依赖 → 移入共享池"。**�
 
 把「portable node + 共享池 + 模板」在标准机器上打包一次，设计师端只解压，把 `yarn install` 这一步从 N 台机器收敛到 1 台。
 
-**可行性已验证**：全仓 `*.node` 文件为 0 —— 没有 native 编译产物，不绑 node ABI，`node_modules` 整体拷贝的可移植性很好。
+**可行性已验证**：整棵依赖树里绑 node ABI 的原生模块只有 **fsevents** 一个（内网 `find . -name '*.node'` 只有它；v16 更正 —— 原文写的"全仓 `*.node` 为 0"不准确）。而它是 macOS 专有的 optional dependency + **N-API**（ABI 跨大版本稳定），加载失败时 chokidar 自己回落到轮询，所以 `node_modules` 整体拷贝的可移植性依然很好。这同时是 [§4.1](#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node) 敢把 node 判据放宽到"大版本相同"的依据。
 
 若要做，注意：
 - **每个平台各打一份**（`win-x64` / `darwin-arm64` / `darwin-x64`）——`.bin` 在 Windows 是 `.cmd` 实体文件、在 Unix 是 symlink，格式不同；且可能有平台特定的 optionalDependencies
@@ -662,6 +780,8 @@ ERRORS_END
 
 > 主进程侧另有一份：Electron 的 electron-log，搜 `[fastui]` 前缀。那份记的是"宿主起没起 dev server"，与脚本侧互补。
 >
+> **拿到日志之后怎么读成结论，见 [fastui-debugging.md](../../fastui-debugging.md)** —— 错误码字典、`--check` 判读、症状→判据表，以及把日志片段交给外网 AI 分析的最小信息集与提示词模板。本节只规定「必须落什么」，那份管「落下来怎么用」。
+>
 > **按平台展开的绝对路径、可直接粘贴的查看命令，写在 [find-local-logs.md](../../find-local-logs.md) 的 ⑤⑥ 两类里**（那份是全 app 通用的「日志在磁盘哪儿」指南，查日志去那边，不要在本 spec 里找）。
 
 ##### 日志里必须有什么（v15 已落地，S5）
@@ -717,9 +837,9 @@ ERRORS_END
 | # | 检查 | 不过时的 `RESULT: FAIL \| …` |
 |---|---|---|
 | 1 | **占位未填充**：`template/PLACEHOLDER.md` 或 `vendor/PLACEHOLDER.md` 仍存在；`template/package.json` 缺失；`vendor/` 三子目录不齐（§8.3 末尾的硬要求） | `SKILL_NOT_ASSEMBLED` —— skill 未完成内网组装 |
-| 2 | **共享池存在**：`<envDir>/node/`、`<envDir>/deps/node_modules/`、`<envDir>/env.lock.json` | `ENV_MISSING` —— 环境未安装 |
+| 2 | **共享池存在**：`<envDir>/deps/node_modules/`、`<envDir>/env.lock.json`。**`<envDir>/node/` 不在这条判据里**（v16）—— 复用系统 node 的机器上共享池里本来就没有 node（[§4.1](#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)），在这里判会把正常环境判成 `ENV_MISSING` | `ENV_MISSING` —— 环境未安装 |
 | 3 | **`lockfileHash` 比对（主判据，见 §5.2.1）** | `ENV_OUTDATED` —— 环境与当前 skill 的依赖清单不一致 |
-| 4 | `<envDir>/node/node -v` 比对 `env.lock.json` 的 `nodeVersion` | `ENV_NODE_MISMATCH` —— 拿错平台包或 node 被换过 |
+| 4 | **当前要用的那个 node**（池子里有 portable node 就是它，没有就是跑脚本这个系统 node）`-v` 比对 `env.lock.json` 的 `nodeVersion`，**只比大版本**（v16，[§4.1](#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)）。小版本不同只出 `WARN:`，不阻塞 | `ENV_NODE_MISMATCH` —— node 大版本与装依赖时的不是同一个 |
 | 5 | 抽查 `keyPackages` 各包的 `package.json` 版本号 | **不阻塞**，仅输出 `WARN:` 行（§5.2.3：仅供诊断，不作判据） |
 | 6 | **真实探针**（起一次 dev server 轮询到 200 再停掉）—— **默认关，`--probe` 才跑** | `ENV_PROBE_FAILED` |
 
@@ -742,7 +862,9 @@ ERRORS_END
   "envVersion":  "2026.09.02-1",       // 环境构建号,来自 template 里的声明
   "lockfileHash": "sha256:…",          // 装这棵树时用的 yarn.lock 的 hash —— 见 §5.2.1 的比对方式
   "platform": "win32", "arch": "x64",
-  "nodeVersion": "v22.19.0",
+  "nodeVersion": "v22.19.0",          // 实际装依赖时用的那个 node,精确到小版本;判据只比大版本
+  "nodeSource": "system",             // pool | system —— 这台机器当时用的是池子里的还是系统的
+  "nodePath": "C:\\Program Files\\nodejs\\node.exe",
   "yarnVersion": "1.22.5",
   "templateVersion": "2026.09.02",     // 脚手架模板版本(我们从他们脚手架裁剪来的那份)
   "fastuiRelease": "…",                // fastui 团队的发布标识,用于对账(若他们有)
@@ -911,9 +1033,33 @@ LOG: <日志绝对路径>
       PORT / PID / PROJECT_DIR / REUSED / COMPILE_MS / LOG
 
       RESULT: FAIL | COMPILE_ERROR: webpack 编译未通过
-      PORT / PID / LOG
+      PORT / PID / LOG / DEVSERVER_LOG
+      NODE_SUSPECT: <指纹> —— <一句话原因>   ← **仅在命中时才有**,见下
+      HINT: …                                ← 跟在 NODE_SUSPECT 后面
       ERRORS_BEGIN … ERRORS_END              ← 错误原文,含 file:line
+
+      RESULT: FAIL | MISSING_VUE_IMPORT: …   ← 漏 import 静态检查(§7.3.1),编译之前就返回
+      RESULT: FAIL | COMPILE_TIMEOUT: …      ← STAGE / ROUNDS_SEEN / HINT / LOG_TAIL
 ```
+
+**`NODE_SUSPECT` —— 去掉 node 版本门禁之后的唯一补偿控制（v16，[§4.1](#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)）**
+
+我们不拦"没验过的 node 大版本"，代价是那类不兼容会以**编译错误**的形态出现。而 SKILL.md 把
+`COMPILE_ERROR` 定性为"你自己写的代码的问题，改完重跑" —— 模型会拿着它去改 `.vue` **死循环**，
+永远不会怀疑 node。所以 `verify` 必须替它认出来：
+
+| 指纹（**精确字符串**，命中即打，没命中什么都不打） | 是什么 |
+|---|---|
+| `ERR_OSSL_EVP_UNSUPPORTED` / `digital envelope routines` / `error:0308010C` | node 17+ 带的 OpenSSL 3 不再提供老 webpack 用的 md4 |
+| `NODE_MODULE_VERSION` / `was compiled against a different Node.js version` | 原生模块是给另一个 node 大版本编的（ABI 不匹配） |
+
+`HINT:` 里写死三件事：**这不是你写的代码的问题、别改 `.vue` 重试**；当前 node 的版本与路径；
+绕法（换一个 node 大版本，或 `install.sh --force-portable-node` / `install.ps1 -ForcePortableNode`
+让脚本去下我们定版的那个）。
+
+> **两条硬要求**（缺一这条控制就等于不存在）：① 走 `emit()` 落盘 —— 内网只能取到日志文件或它的截图（[§5.1.1](#511-统一输出契约所有脚本)）；
+> ② **SKILL.md 的 ④ 步必须有对应处理**，否则模型照"编译错误=改自己的代码"那条走，恰好做了这行想拦的事。
+
 
 两处实现决定：
 
@@ -1111,6 +1257,103 @@ webpack 编译通过 = 能跑，这是最硬的信号。缺的是**把错误喂�
 
 > **输出解析**：直连启动（§2.4）后 stdout 是原始 webpack 输出，不带 `lerna run serve --parallel` 的 `demo-portal: <s>` 前缀，解析干净。实测编译失败时的形态是 `ERROR Failed to compile with N errors` + 逐条 `[plugin] …` 明细，可直接回传。
 
+#### 7.3.1 编译门禁挡不住的一类：漏 import（`lib/lint.mjs`）
+
+**webpack 编译通过 ≠ 页面能渲染。** 有两类错它结构上就编不出来，失败形态还特别有误导性——**`verify` 返回 `RESULT: OK`，页面却整片白**，真相只在浏览器 console 里，而内网的 console 截图带不出来（§8.4）。所以在 `verify` 判定 `RESULT: OK` **之前**加一道纯静态检查（正则、无新依赖、实测 16ms）：
+
+| 查什么 | 运行时表现 | 严重性 |
+|---|---|---|
+| 组件标签（`<el-table>`、PascalCase） | `[Vue warn] Failed to resolve component` → 白屏 | `WARN`（不阻塞 `RESULT: OK`） |
+| 从 `'vue'` 导入的 API（`ref` / `computed` / `onMounted`…） | `ReferenceError: ref is not defined` → setup 抛错 → 白屏 | **`FAIL | MISSING_VUE_IMPORT`（阻断）** |
+
+##### 为什么分两档——依据不是后果，是「判据闭不闭合」
+
+**两类的后果完全一样，都是 100% 白屏。** 如果按后果定档，这两档就该是同一档，spec 里这条区别迟早会被人"顺手统一掉"。真正的依据是另一件事：
+
+> **门禁能不能 `FAIL`，取决于「这个检查会不会冤枉一个正确的写法」，而不是「漏了后果有多严重」。后果严重性只决定它值不值得查。**
+
+"会不会冤枉"要拆成**两个都得过的必要条件**，按顺序问：
+
+| | 问什么 | 不过会怎样 |
+|---|---|---|
+| ① **判据闭合** | 有没有一条本检查**看不见**的合法豁免路径？<br>——先问它是不是**脚手架的固定属性**：是的话验明一次即为常量，**不构成"不闭合"** | 合法写法被判错，且检查器无从知道 |
+| ② **实现保真** | 实现对这个判据保真吗——在能力范围内会不会把合法写法判错？ | 同样冤枉正确代码，只是错在解析精度而非豁免 |
+
+**两条都过才能 `FAIL`。** ② 不是凑数的：本节这道检查的判据确实闭合，而 2026-09-12 的 review 打出来的 10 个反例**没有一个来自"全局注册"这类豁免，全部来自正则解析精度**（详见下面"误报率为零"一节）。只写 ① 的话，"判据闭合"会被当成充分条件——而绝大多数静态检查的判据都是闭合的（拼写、未用变量、类型不匹配……），那就成了"什么都该 `FAIL`"。
+
+反方向也要挡住：**不能"只要编得出一条豁免就降级成 `WARN`"**，那样几乎任何检查都能被编出一条豁免、门禁全线降级。豁免必须是真实存在、且不是脚手架固定属性的，才算数。
+
+按这把尺子看两档：
+
+- **vue API**：① 过——它们是模块导出，不存在"全局注册"这回事；唯一的豁免是 `unplugin-auto-import` 这类编译期插件，而那是脚手架的固定属性（已确认无）。② 过——见下一节，反例已逐条修掉并固化成用例。→ **`FAIL`**
+- **组件**：① **其实也过**——`SKILL.md` 白纸黑字写着"这个脚手架没有全局注册 element-plus 或 lake 的组件"，按同一把尺子，全局注册同样是脚手架的固定属性、同样验明一次即为常量。**真正拦住它升级成 `FAIL` 的是 ②**：`usedComponents` 只按标签形态猜（`<component :is>`、动态组件、slot 里的自定义标签、`<router-view>` 之类全都判不准），精度比 vue API 那档差一个量级。→ **`WARN`**
+
+> ⚠️ 这里曾经写成"组件的豁免路径是全局注册，所以判据不闭合"——**那个理由和 SKILL.md 已经断言的事实互相打架**，第一个较真的人上来就会问"到底有没有全局注册"。已按上面改正：组件留在 `WARN` 是**实现精度**问题，不是豁免问题。
+
+⚠️ **别把两者统一成 `WARN`，也别统一成 `FAIL`。** 统一成 `WARN`，等于把一个 100% 可判定的致命错误降级成一行模型有正当理由忽略的提示——`WARN` 在 SKILL.md 里的既定语义就是"不阻塞、不用管"；统一成 `FAIL`，会因为组件检查的精度不够而把模型锁死在一道它满足不了的门禁前。
+
+**第三点：后果也决定误报的代价。** 严格说 `FAIL` 门禁的判据是"误报代价 vs 漏报代价"的比较。这次误报代价异常高（死锁，模型出不来），恰恰说明门槛要**比"判据闭合"更高**，而不是等于它——这也是 ② 必须并列成条件的原因。
+
+##### `FAIL` 这一档的成立前提：误报率为零
+
+误报的代价不是"多提醒一次"，是**死锁**：模型照提示补 `import { ref } from 'vue'`，撞上文件里已有的同名绑定 → `SyntaxError: Identifier 'ref' has already been declared` → 编译门禁挡住 → 删掉又回到 `MISSING_VUE_IMPORT` → 两道门互卡，再也出不来。
+
+**第一版实现塌在这一条上。** 2026-09-12 的 review 构造了 10 个反例，**全部命中**，其中两类会真死锁（已用 `node --check` 确认撞名就是 `SyntaxError`）：
+
+| 反例 | 为什么误报 |
+|---|---|
+| `import { ref, // 响应式\n computed } from 'vue'` | import clause 在**未剥注释**的原文上按逗号切，第二段成了 `" // 响应式\n computed"`，整段当别名收走，`computed` 自己反而没收录 —— **而逐项写注释是模型最常见的写法之一** |
+| 字符串/注释里一个落单的 `` ` `` 或 `/*` | 剥噪声的两条正则**会跨行**，一路吃到下一个配对符号，把中间的 `const ref = …` **声明吞掉**、而下面的 `ref(1)` 还在 |
+| `provide() { … }`（Options API 方法简写） | 判"声明过"只认 `const/let/var/function/class`，对象与 class 的方法简写一个都不认 |
+| `let a = 1, watch = null`、`function f(a = 0, nextTick)`、`(unref) => unref()` | 多声明符、默认值之后的形参、箭头形参都没被当成"绑定" |
+
+**修法是把判定拆成两边、各用不同的文本，都朝漏报方向偏：**
+
+| 问什么 | 查哪份文本 | 为什么 |
+|---|---|---|
+| 这个名字**被绑定**了吗 | **未剥噪声的原文** | 剥噪声会跨行吞掉声明 → 报一个本文件明确声明过的名字 → 死锁 |
+| 这个名字**被调用**了吗 | **剥过噪声的文本** | 不剥的话注释和字符串里的 `ref(` 都算数 |
+
+"被绑定"收得很宽——import（clause 先剥注释）、`const`/`let`/`var` 声明列表（**按逗号切开后只取 `=` 左边**，右边是初始化表达式，`const n = ref(0)` 的 `ref` 绝不能算成"声明过"，否则真阳性全灭）、函数名与类名、方法简写 `NAME(...) {`、函数与箭头的形参。另外：白名单是**闭集合**且刻意**不收 `h`**（单字母，撞名概率高于收益）；排除成员调用（`store.ref(`、`$nextTick(`）与编译宏；兼容 TS 泛型 `ref<number>(0)`。
+
+> **已知残留**（都不死锁）：嵌套模板字符串会把内层字符串内容漏成代码；跨行的解构声明只认第一行。
+>
+> ⚠️ **别为了修"多声明符"把取 `=` 左边这个边界放宽** —— 实测放宽后 `const n = ref(0)` 自己就被当成"声明过 ref"，**真阳性全灭**。那个 `=` 边界是载荷。
+
+`scripts/lib/lint.test.mjs` 把上面每一条（含那 10 个反例）都钉成了用例，重心全在**"不该报"**那一侧（见 §9.1 V0-j）。**改这个模块、或往白名单加名字之前，先在那里补一条"不该报"的用例。**
+
+##### 覆盖面：**只查 `'vue'` 的白名单，不是通用的「用了没导入」**
+
+这道门禁是**闭集合白名单**，不是 `no-undef`。清楚它不管什么，比清楚它管什么更重要：
+
+| 一类"用了没导入" | 谁兜住 |
+|---|---|
+| import **路径**写错 / 包名不存在 | **webpack**（`COMPILE_ERROR`，带 file:line）——模块解析是编译期的事 |
+| import 的**导出名**不存在 | **通常**是 webpack 报错；但对 CommonJS / `export *` 形态的模块它只给 warning（`export 'X' was not found in 'Y'`），编译仍然 `Compiled successfully` → verify 照样 `RESULT: OK` + 白屏。element-plus 是 ESM、大概率会 error。**这条需拿脚手架确认，外网验不了** |
+| `'vue'` 白名单里的 API（`ref` / `computed` / `onMounted`…） | **本检查**（`FAIL \| MISSING_VUE_IMPORT`），`views/` 下的 `.vue` / `.ts` / `.js` 都查（抽出去的 `useXxx.ts` 漏 `ref` 一样白屏） |
+| 模板里的组件标签（`<ElTable>`） | 本检查（`WARN`），只查 `.vue` |
+| **element-plus 的命令式 API**（`ElMessage` / `ElMessageBox` / `ElNotification` / `ElLoading`） | **没人兜。** 已知缺口，见下 |
+| 任意第三方包的导出（lodash、dayjs…）、自定义 composable、`useRouter` / `useRoute` | **没人兜。** 白名单主义的代价 |
+
+**为什么不做通用的 `no-undef`**：要判断"这个名字是不是未定义"，就得知道全部合法的全局——`window` / `document` / `console` / `process`、TS 的类型位置、脚手架经 `ProvidePlugin` 注入的东西。纯正则做不到，做到了也要靠 ESLint + `vue-eslint-parser`（往 1GB 池子加依赖、配 parser，且规则一多模型会陷进"修 lint 的循环"）。**这道门禁的定位是「用极低成本兜住最高频的那一类」，不是查全。**
+
+> **已知缺口 —— element-plus 的命令式 API**（本版**未做**，刻意留着，已挂进 [§0.0](#00-当前进度与待办改动后随手更新这一节) 待办）：模型写 `ElMessage.success('保存成功')` 而不 import，是很常见的一笔。它同样是模块导出、同样没有全局注册、**判据同样闭合**，理论上该进 `FAIL` 那一档。
+>
+> 没在本版做的原因是**范围控制**：本版要先把 vue API 这档送出去。**后果通常也轻一档**——`ElMessage` / `ElNotification` 一般写在事件回调里，是点击时功能失效而不是整页白屏；但 `ElLoading` / `ElMessageBox` 常在 `onMounted` 里调，那就是首屏就炸、和白屏没差。
+>
+> 要做的时候：CODE 改成 `MISSING_IMPORT`，白名单按来源分组，**`ADD:` 那行要按来源分别生成**（`from 'vue'` 与 `from 'element-plus'` 得拆成两行），SKILL.md 的 ④ 也要跟着改——不是"加几个名字"那么轻。
+
+##### 配套的语义收口（SKILL.md）
+
+`FAIL` 要真的落地成"退回重做"而不是"报错停下"，SKILL.md 里有两处必须同时改，否则模型会走偏：
+
+- **`WARN` 的语义本来是自相矛盾的**：`ensure-env` 段写着"`WARN:` 开头的行不阻塞、不用管、不要转述给用户"，而组件漏 import 段写着"看到这个警告必须回去补"。同一个前缀两条反向指令，推理时强的那条会输。已把前者限定到 `ensure-env` 范围内。
+- **§0.1 那句"脚本报错原样告诉用户"是给环境类失败写的**。不加限定，模型很可能把 `MISSING_VUE_IMPORT` 当环境问题转述给用户然后停下——**那才是真正的"报错挂掉"**。已在 §0.1 与 ④ 两处写明：`COMPILE_ERROR` / `MISSING_VUE_IMPORT` 是自己的代码问题，改完重跑，不转述。
+
+另外 `FAIL` 时**故意不输出 `PREVIEW_URL`**（只留 `PORT` / `PID` / `PROJECT_DIR` / `COMPILE: OK`），否则模型可能拿着它直接跳到第 ⑤ 步宣布完成。dev server 不受影响——仍在跑、`.devserver.json` 已写，下一轮 `verify` 复用它，秒级返回。
+
+> **前提已确认（2026-09-12）**：内网脚手架没有 `unplugin-auto-import` 这个依赖。更硬的一条证据是**现象本身**——内网实测报的是 `ReferenceError: ref is not defined`，有自动导入就压根不会抛这个错。将来脚手架真加了这类插件，这一档要退回 `WARN`。
+
 ### 7.4 第三层 — 运行时错误捕获｜落在 **模板内置 bridge + 宿主监听**
 
 编译通过 ≠ 渲染正确（prop 类型传错、组件内部抛异常，编译都能过）。
@@ -1296,11 +1539,22 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
 - **V0-f ZIP 中文文件名**：产物名与页面名都用中文，断言 UTF-8 flag 已置、CRC 校验通过、包内无 `node_modules`、链接被跳过（v12 实测通过）
 - **V0-g 编译判定不 flaky**（v8 新增）：连续快速改两次文件，断言 `verify` 采信的是**最后一次**编译结果而非中间态；再断言"复用已跑的 dev server"时不会读到上一轮的成功记录（§5.5.1）
 - **V0-h 升级链路能被触发**（v8 新增）：改动 `<skillDir>/template/yarn.lock` 后重跑 `ensure-env`，断言返回 `ENV_OUTDATED` —— 这条直接验的是 §5.2.1 那个跨边界比对，比错了整条升级链是死的
+- **V0-i 复用系统 node 的首装**（v16 新增，2026-09-11 本地 macOS 实测通过）：造一个最小 template（公网 npm 的两个小包 + `.npmrc` 指公网源）当假脚手架，`bash install.sh --env-dir=<临时目录>`，逐条断言：
+  1. `[node] 来源: system`，**一次网络请求都没发**（日志里没有任何 `[http]` 行、没读 manifest）
+  2. `npm i -g yarn --prefix=<envDir>/node` 全程无 sudo，落点是 `<envDir>/node/bin/yarn -> ../lib/node_modules/yarn/bin/yarn.js`
+  3. `ensure-env` → `RESULT: OK`，`NODE_SOURCE: system`
+  4. 把 `env.lock.json` 的 `nodeVersion` 改成**同大版本、不同小版本** → 仍然 `OK`，多一条 `WARN:`
+  5. 改成**不同大版本** → `FAIL | ENV_NODE_MISMATCH`，按它 `HINT:` 的 `install --upgrade` 跑一遍后回到 `OK`（闭环，不然 agent 会在这里死循环）
+  6. 池子里放一个 node 后重跑 → `[node] 来源: pool`，`NODE_SOURCE: pool`（池子优先于系统）
+  7. 机器上完全没有 node（PATH shim 抽掉 `node`）→ 落回下载分支（用一个必定连不上的 `--manifest` 断言它确实去拉了）；`--force-portable-node` 在有 node 时也必须落回下载
+  8. **PATH 里只有 node、没有 python3** → 照样装完（老版本会在第一步 `NO_PYTHON` 直接死）
+- **V0-j 漏 import 检查不误报**（§7.3.1）：`node scripts/lib/lint.test.mjs`，零依赖、毫秒级，断言**全部用例通过**（不写死条数——加用例是常态，写死了每次都得改 spec）。**重心在"不该报"那一侧**：注释、字符串、成员调用、编译宏、局部同名绑定、`import as` 别名，以及 2026-09-12 review 打出来的那 10 个反例。误报会让模型陷进"补 import → 撞名 → `SyntaxError` → 删掉 → 又 MISSING"的死锁。
+  > **判据的一部分**：改 `lint.mjs`、或往白名单加名字，**必须先在这里补一条"不该报"的用例**再动实现。通过这个用例集只证明**没回归**——它是自造的，证明不了"不误报"，那件事只有 §9.2 阶段 3 第 5 条那种真实页面回归才验得了。
 
 ### 9.2 内网验证
 
 **阶段 1 — 环境包**（不涉及 AI）
-1. 干净机器上按 §4.1 走完五步，**全程无管理员权限、无 sudo、无人工介入**
+1. 干净机器上按 §4.1 走完五步，**全程无管理员权限、无 sudo、无人工介入**。v16 起这一步有**两条路，都要验**：① 机器上已有能跑的 node（任意大版本）→ 断言 `[node] 来源: system`、不读 manifest、装完 `ensure-env` 通过（这条是内网多数机器的实际路径，也是绕开 504 / 403 的那条）；② 裸机（一个 node 都没有）→ 断言落回下载 portable node
 2. `ensure-env` 探针通过
 3. **`flushdns` + 断网**后重跑，页面仍能渲染 lake 组件 ✅ *（已验证）*
 4. Windows / macOS 各做一遍
@@ -1316,7 +1570,10 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
 **阶段 3 — 生成闭环**
 1. agent 写入 `views/<页面名>/index.vue` 并改 `views/index.vue` → 编译通过 → 预览可见（`<artifact type="text/link">http://127.0.0.1:<port></artifact>`）
 2. **故意注入一个编译错误**（错的 import 路径），断言 `verify` 捕获、错误原文含 file:line 回到 agent、agent 自行修复后通过
-3. **故意注入一个运行时错误**（prop 类型错误），断言第三层捕获
+3. **故意漏一个 vue API 的 import**（页面里写 `ref(0)` 但不 import），断言 ① `verify` 返回 `FAIL | MISSING_VUE_IMPORT` 而不是 `OK`、② **agent 是自己补 import 重跑，不是把错误转述给用户后停下**（§7.3.1 那两处语义收口就是为了这个，也是这次真正的风险点）、③ 补完一轮即通过（§7.3.1）
+   > ⚠️ **跑这条之前先重新组装 / 投放 skill。** 内网用的是装在 skill 目录下的**一份拷贝**，SKILL.md 与 `scripts/` 改了不重新投放，跑的还是旧的 —— 会验出一个漂亮的假结果。
+4. **反向回归：正常写法不会被 FAIL**（比第 3 条更重要）——拿前几次内网跑通的那几个页面**原样重跑 `verify`**，断言 `RESULT: OK`、没有 `MISSING_VUE_IMPORT`。这才是误报率的真实检验；V0-j 的用例是自造的，只证明没回归。成本几乎为零，**每次改 `lint.mjs` 都该跑**
+5. **故意注入一个运行时错误**（prop 类型错误），断言第三层捕获
 
 **阶段 4 — 交付**
 1. `outputs/<产物名>/` 整目录压缩 < 1MB，**不含任何 node_modules、无任何链接**

@@ -10,13 +10,16 @@
 # CommandNotFoundException,而且在 $ErrorActionPreference = "Stop" 下裸崩、
 # 打不出 RESULT: FAIL 契约行。零成本静态检查:比较 `function Fail` 与首次 `Fail "` 的行号。
 #
-# 本脚本只负责一件事:把 portable node 弄到共享池里。
+# 本脚本只负责一件事:**弄到一个能用的 node**。
+# **手上有能跑的 node 就用它,不管大版本**(§4.1);一个都没有才下载 portable node ——
+# 内网很多机器装 opencode 时已经有 node,这批人首装因此完全不碰 manifest / node 包那条链路。
 # 拿到 node 之后立刻调 setup-env.mjs —— 装 yarn、装依赖、写清单那些跨平台逻辑
 # 只在 .mjs 里写一份,PowerShell 和 bash 各写一遍必然漂移。
 #
 # 用法:
 #   powershell -ExecutionPolicy Bypass -File install.ps1 [-Manifest <url|path>] [-EnvDir <路径>]
-#              [-FromLocal <目录>] [-Registry <npm 源>] [-Upgrade] [-SkipNode]
+#              [-FromLocal <目录>] [-Registry <npm 源>] [-Upgrade] [-SkipNode] [-ForcePortableNode]
+#              (-SkipNode 现在基本是历史开关:手上有能跑的 node 时本来就不会下载)
 #              [-Proxy <地址>]   # 默认强制直连,只有确实必须经代理才传
 #   powershell -ExecutionPolicy Bypass -File install.ps1 -Check   # 只探测网络,不下载、不安装
 
@@ -28,6 +31,7 @@ param(
   [string]$Registry = "",
   [switch]$Upgrade,
   [switch]$SkipNode,
+  [switch]$ForcePortableNode,   # 逃生开关:系统 node 可疑时强制走下载
   [switch]$StrictCert,
   [switch]$Check,
   [string]$Proxy = ""
@@ -254,15 +258,18 @@ $SkillDir = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
 # Fail 走的是 exit,PowerShell 的流程控制不会被 catch 接住;$script:Failing 是双保险。
 try {
 
-  # manifest 默认从 skill 的 env.manifest.json 里读(§4.4.6:URL 直接写死在那里)
+  # skill 自带的 env.manifest.json(随 skill 走,不走网络):
+  # 内网 manifest 的 URL(§4.4.6)在里面(**没有** node 版本白名单那种东西,§4.1 定案不设版本门禁)。
+  # **读不了不当场失败** —— 只有"要用它里面某个值"的那一步才失败,否则
+  # 一台什么都不缺的机器会因为一个它根本用不到的文件被拦下。
+  $emPath = Join-Path $SkillDir "references\env.manifest.json"
+  $em = $null; $emErr = ""
+  try { $em = Get-Content $emPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $emErr = $_.Exception.Message }
   if (-not $Manifest -and -not $FromLocal) {
-    $emPath = Join-Path $SkillDir "references\env.manifest.json"
-    try {
-      $em = Get-Content $emPath -Raw -Encoding UTF8 | ConvertFrom-Json
-      $Manifest = $em.manifestUrl
-    } catch {
-      Fail "SKILL_MANIFEST_BROKEN" "读不了 skill 自带的 env.manifest.json" "$emPath | $($_.Exception.Message)" "确认 skill 组装完整;也可以直接传 -Manifest <url> 绕过它"
+    if (-not $em) {
+      Fail "SKILL_MANIFEST_BROKEN" "读不了 skill 自带的 env.manifest.json" "$emPath | $emErr" "确认 skill 组装完整;也可以直接传 -Manifest <url> 绕过它"
     }
+    $Manifest = $em.manifestUrl
   }
 
   $PlatformKey = "win32-x64"
@@ -377,20 +384,76 @@ try {
     exit 0
   }
 
-  $needNode = -not ($SkipNode -or ((Test-Path $NodeBin) -and $Upgrade))
-  if (-not $needNode) { Say "[skip] 复用已有 node: $NodeBin" }
+  # ── 决定用哪个 node(§4.1)────────────────────────────────────
+  #
+  # 三级,没有第四种情况:
+  #   ① -ForcePortableNode     逃生开关:怀疑手上这个 node 有问题时强制走下载
+  #   ② 手上有能跑的 node       复用(池子优先于系统)——**不看大版本**
+  #   ③ 一个都没有              下载 portable node(唯一需要网络的路径)
+  #
+  # **为什么不设版本门禁**(v16 定案,§4.1):设过一版白名单,判据是"没验过的大版本不算满足
+  # 要求" —— 但那个名单本身是猜的,而代价很实:一台什么都不缺的机器会因为一个猜出来的数字
+  # 被推去走已知 403 过的下载链路然后死在那儿。**不能因为环境卡别人。** 真不兼容的形态是
+  # webpack / OpenSSL 那类编译期报错,由 verify 的 NODE_SUSPECT 提示认出来(§5.5)。
+  #
+  # ② 的判据是「`node -v` 跑得出来」,不是「文件在不在」。v15 之前写的是
+  # "不带 -Upgrade 时即使 node 已在也会重下重解",理由是 ENV_MISSING 时环境状态存疑 ——
+  # 但那是拿一次 50MB 下载去替代一次 `node -v`,而后者是直接判据:能跑就是好的,
+  # 跑不起来(拿错平台包 / 解压截断)照样落到 ③ 去重下。
+  $SysNode = ""; $SysNodeVer = ""
+  try {
+    $c = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($c) {
+      $SysNode = $c.Source
+      $SysNodeVer = (& $SysNode -v 2>$null | Select-Object -First 1)
+    }
+  } catch { }
+  # 版本号只用来打日志(诊断),不参与任何判断 —— 跑不出版本号的当没有
+  if ("$SysNodeVer" -notmatch '^v\d+\.') { $SysNode = ""; $SysNodeVer = "" }
+
+  $PoolNodeOk = $false
+  if (Test-Path $NodeBin) {
+    try {
+      & $NodeBin -v 2>$null | Out-Null
+      if ($LASTEXITCODE -eq 0) { $PoolNodeOk = $true }
+    } catch { }
+  }
+
+  $needNode = $false; $nodeSrc = ""; $EffectiveNode = ""
+  if ($ForcePortableNode) {
+    $needNode = $true; $nodeSrc = "download(-ForcePortableNode)"
+  } elseif ($PoolNodeOk) {
+    $nodeSrc = "pool"; $EffectiveNode = $NodeBin
+  } elseif ($SysNode) {
+    $nodeSrc = "system"; $EffectiveNode = $SysNode
+  } elseif ($SkipNode) {
+    # -SkipNode 明说别碰 node,可是手上一个都没有 —— 这是调用方的矛盾,直接说清楚
+    Fail "NODE_MISSING" "-SkipNode 要求机器上已有可用的 node,但池子里和系统里都没有" $null "去掉 -SkipNode 重跑,让脚本自己下载 portable node"
+  } else {
+    $needNode = $true; $nodeSrc = "download(机器上没有 node)"
+  }
+  $nodeLine = "[node] 来源: $nodeSrc"
+  if ($EffectiveNode) { $nodeLine += " -> $EffectiveNode" }
+  if ($SysNodeVer) { $nodeLine += ";系统 node $SysNodeVer" }
+  Say $nodeLine
 
   $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("octo-fastui-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
   New-Item -ItemType Directory -Path $Tmp -Force | Out-Null
   try {
     # ── 取 manifest ────────────────────────────────────────────
-    # **无论要不要装 node,这一段都要跑**(v14,§4.4.8 第二批坑 4)。
-    # v13 把它整块放在"要装 node"的分支里,于是走 -SkipNode 时 $Registry 一直是空、
-    # 不传给 setup-env,同一台机器上带不带 -SkipNode 会用两个不同的 npm 源 ——
-    # npm 源的取值挂在了"要不要下载 node"这个毫不相干的条件上。
+    # **只在要下载 node 时才读**(v16 改)。
+    #
+    # v14 特意做成"无论要不要装都读一次"(§4.4.8 第二批坑 4),是因为当时 npm 源**只有**
+    # manifest 这一个来源,不读就等于同一台机器上带不带 -SkipNode 会用两个不同的源。
+    # 现在 registry 有了本地来源(setup-env 从 template 的 .npmrc 回落取,与 yarn install
+    # 读的是同一份),这条依赖就不该再存在 —— 而正是去掉它,才让「已有 node 的机器」
+    # 引导脚本这一段一次网络请求都不发,彻底绕开曾经 504 / 403 过的那条链路
+    # (装 yarn 与 1GB 依赖仍走内网 npm 源,那是 setup-env 的事,不在这条链路上)。
     $m = $null
     $base = ""
-    if ($FromLocal) {
+    if (-not $needNode) {
+      if ($Manifest -or $FromLocal) { Say "[skip] 不需要下载 node,不读 manifest;registry 由 setup-env 从 template/.npmrc 取" }
+    } elseif ($FromLocal) {
       $mjson = Join-Path $FromLocal "manifest.json"
       if (-not (Test-Path $mjson)) { Fail "NO_MANIFEST" "离线目录里没有 manifest.json: $mjson" $null $null }
       try {
@@ -415,28 +478,23 @@ try {
           # 拿到 200 却不是 JSON,现实里就是代理/网关/SSO 的错误页 —— 直接说出来,
           # 别让它拖到后面变成"$m.node 是 null"这种离根因很远的形态(§4.4.8)。
           LogBody "manifest 正文" $resp.Content
-          if ($needNode) {
-            Fail "MANIFEST_NOT_JSON" "manifest 拿到了但不是合法 JSON(多半是代理/网关/SSO 的错误页)" (OneLine $resp.Content 200) "响应体已记进 LOG。跑 -Check 看每个平台各是什么状态"
-          }
-          Say "[warn] manifest 不是 JSON,registry 回落到本机 npm 配置"
-          $m = $null
+          # 走到这里一定是"要下载 node"(上面 -not $needNode 已经提前分流),所以直接失败,
+          # 不再有 v15 那条"只为拿 registry,读不到就回落"的软路径 —— 那条路现在根本不经过这里。
+          Fail "MANIFEST_NOT_JSON" "manifest 拿到了但不是合法 JSON(多半是代理/网关/SSO 的错误页)" (OneLine $resp.Content 200) "响应体已记进 LOG。跑 -Check 看每个平台各是什么状态"
         }
       } catch {
         $d = WebErrorDetail $_
         LogBody "manifest 错误响应" $d.body
         $detail = OneLine "$($_.Exception.Message) | HTTP $($d.code) | $($d.body)" 300
         if ($_.Exception.InnerException) { $detail = OneLine "$detail | inner: $($_.Exception.InnerException.Message)" 400 }
-        if ($needNode) {
-          Fail "DOWNLOAD_FAILED" "拉不到 manifest: $Manifest" $detail "已强制直连(不经代理),响应体已记进 LOG。先跑 -Check 看每个平台的包各是什么状态;若这台机器确实必须经代理才能到内网,传 -Proxy <地址>;或改用 -FromLocal <本地目录> 离线安装"
-        }
-        # 只是为了拿 registry 的话不阻塞:node 已经在了,registry 缺省也能继续
-        Say "[warn] 拉不到 manifest($detail),registry 回落到本机 npm 配置"
+        Fail "DOWNLOAD_FAILED" "拉不到 manifest: $Manifest" $detail "已强制直连(不经代理),响应体已记进 LOG。先跑 -Check 看每个平台的包各是什么状态;若这台机器确实必须经代理才能到内网,传 -Proxy <地址>;或改用 -FromLocal <本地目录> 离线安装。另:走到下载这一步,说明这台机器上一个能跑的 node 都没有(见上面那行 [node] 来源) —— 用任何方式装上一个 node(**版本不限**)就能整个跳过这条链路"
       }
-    } elseif ($needNode) {
-      Fail "NO_MANIFEST" "没有 manifest 地址" $null "传 -Manifest <url> 或 -FromLocal <目录>"
+    } else {
+      Fail "NO_MANIFEST" "要下载 node,但没有 manifest 地址" $null "传 -Manifest <url> 或 -FromLocal <目录>"
     }
 
-    # registry 从 manifest 取;命令行 -Registry 优先
+    # registry 从 manifest 取;命令行 -Registry 优先。
+    # 两个都没有时不作数 —— setup-env 会回落到 template 的 .npmrc(§4.1 ③)。
     if (-not $Registry -and $m) { $Registry = $m.npmRegistry }
 
     # ── 下载 + 校验 + 解压 node ──────────────────────────────────
@@ -475,6 +533,7 @@ try {
       if ($LASTEXITCODE -ne 0) { Fail "EXTRACT_FAILED" "解压失败: $pkg" "tar exit=$LASTEXITCODE" "确认系统自带 tar.exe(Win10 1803+)" }
       if (-not (Test-Path $NodeBin)) { Fail "EXTRACT_FAILED" "解压后找不到 $NodeBin(stripComponents 可能不对)" $null $null }
       Say "[node] $(& $NodeBin -v) -> $NodeDir"
+      $EffectiveNode = $NodeBin
     }
   } finally {
     # 只删自己刚 New-Item 出来的临时目录 —— 判一下再删,别让一个空变量把删除范围放大(§5.1.2)
@@ -487,7 +546,8 @@ try {
   if ($Upgrade) { $argv += "--upgrade" }
   if ($Proxy) { $argv += "--proxy=$Proxy" }   # 不透传的话,逃生开关只对下载 node 那一步有效
   # 它自己会往同一个日志文件写,所以这边不转录它的输出 —— 转录了日志里就是双份。
-  Say "[handoff] setup-env.mjs $(Redact ($argv[1..($argv.Length-1)] -join ' '))"
+  if (-not $EffectiveNode) { Fail "NODE_MISSING" "没能确定用哪个 node(内部状态异常)" "nodeSrc=$nodeSrc" "把 LOG 里这次运行的整段发出来" }
+  Say "[handoff] $EffectiveNode setup-env.mjs $(Redact ($argv[1..($argv.Length-1)] -join ' '))"
   # ⚠️ 交棒期间把 $ErrorActionPreference 降成 Continue。
   # PS 5.1 在 "Stop" 下,native 命令写 stderr 有可能被当成 NativeCommandError 抛出来,
   # 而 v15 让 setup-env 往 stderr 的输出量**大增**(logChild 把子进程原文整段转发)。
@@ -496,7 +556,9 @@ try {
   # 而这道保险是零成本的:退出码照样从 $LASTEXITCODE 取。
   $prevEAP = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
-  & $NodeBin @argv
+  # 用 $EffectiveNode 而不是写死 $NodeBin:复用系统 node 时池子里根本没有 node,
+  # setup-env 也就顺势跑在系统 node 上(它自己用 process.execPath 认出这一点)。
+  & $EffectiveNode @argv
   $childCode = $LASTEXITCODE
   $ErrorActionPreference = $prevEAP
   exit $childCode
