@@ -56,9 +56,9 @@ if (!exists(templatePkg) || !exists(templateLock)) {
 }
 
 // ── 2. 共享池存在 ────────────────────────────────────────────────
-// **node 不在这条判据里**(§4.1):共享池里可以没有 portable node —— 系统 node 大版本
-// 够用时安装脚本会直接复用它,那种机器上 <envDir>/node/ 下只有 yarn。node 能不能用
-// 由下面第 4 步判(那里比的是"当前会用哪个 node"),在这里判会把正常环境判成 ENV_MISSING。
+// **node 不在这条判据里**(§4.1):共享池里可以没有 portable node —— 机器上有能跑的 node 时
+// 安装脚本会直接复用它(不看大版本),那种机器上 <envDir>/node/ 下只有 yarn。
+// node 能不能用由下面第 4 步判,在这里判会把正常环境判成 ENV_MISSING。
 if (!exists(P.depsModules)) {
   fail("ENV_MISSING", `共享依赖池未安装,找不到 ${P.depsModules}`, { hint: installHint })
 }
@@ -90,7 +90,9 @@ if (!sameHash(wantHash, gotHash)) {
 // 小版本差异对这棵树没有影响。而精确相等会让一批本来跑得好好的机器被判成
 // ENV_NODE_MISMATCH,然后去重装一遍 50MB 的 node —— 拦住的不是问题,是它们自己。
 //
-// 大版本仍然拦:node 大版本会带来 OpenSSL / webpack 兼容性上的真实断裂。
+// 大版本仍然拦 —— 但注意**这不是版本门禁**(装环境时不看版本,§4.1):这里比的是
+// 「装依赖时用的那个 node」与「现在这个」是不是同一个大版本,不一致时按 HINT 跑一次
+// install --upgrade 就地对齐(离线可自愈,不下载)。它拦的是"运行时被换掉了"这件事。
 const rt = resolveRuntime(P)
 let nodeVersion = ""
 try {
@@ -108,7 +110,13 @@ if (wantMajor !== null && gotMajor !== wantMajor) {
 // 小版本对不上不阻塞,但要留一行 —— env.lock.json 记的是"装的时候到底是哪个 node",
 // 排查"同一台机器行为变了"时,这一行就是线索(§5.2.3)。
 if (lock.nodeVersion && nodeVersion !== lock.nodeVersion) {
-  warn(`node 实际 ${nodeVersion},清单记录 ${lock.nodeVersion}(大版本一致,不阻塞)`)
+  // 清单值解析不出大版本时(比如 envVersion 那种 "unknown"),上面第 103 行正确地没拦,
+  // 但这里也不能顺口说"大版本一致" —— 那是假的,而这行是要给人看的。
+  warn(
+    wantMajor === null
+      ? `node 实际 ${nodeVersion},清单记录 ${lock.nodeVersion}(清单里这个值解析不出大版本,没法比,不阻塞)`
+      : `node 实际 ${nodeVersion},清单记录 ${lock.nodeVersion}(大版本一致,不阻塞)`,
+  )
 }
 
 // ── 5. keyPackages 抽查(诊断,不阻塞,§5.2.3)──────────────────────

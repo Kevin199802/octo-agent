@@ -432,9 +432,12 @@ while (Date.now() - t0 < timeoutMs) {
     } catch {
       /* 版本拿不到不影响这条提示的价值 */
     }
-    process.stdout.write(`NODE_SUSPECT: ${sig[0]} —— ${sig[1]}\n`)
-    process.stdout.write(
-      `HINT: 这条编译错误**不是你写的代码的问题**,别改 .vue 重试。` +
+    // 同上一段:必须走 emit —— 裸 stdout.write 绕过 persist,这两行就不进 octo-fastui.log。
+    // 而内网只能取到日志文件(或它的截图),这条又是 v16 去掉版本门禁之后**唯一**的补偿控制,
+    // 不落盘等于没有。
+    emit(
+      `NODE_SUSPECT: ${sig[0]} —— ${sig[1]}\n` +
+        `HINT: 这条编译错误**不是你写的代码的问题**,别改 .vue 重试。` +
         `当前 node 是 ${ver || "(取不到版本)"}(${RT.node})。` +
         `把这一行和 ERRORS 原样报给用户,并说明:换一个 node 大版本、或让安装脚本下载定版的 portable node` +
         `(install.sh --force-portable-node / install.ps1 -ForcePortableNode)可以绕开\n`,
@@ -464,8 +467,12 @@ const stageHint = {
     "日志已稳定但没识别出完整的编译轮次 —— 大概率是 lib/compile.mjs 的 MARKERS 与 turbo-ui-cli-service 的实际输出对不上。把下面 LOG_TAIL 里表示编译成功/失败的那几行发给开发,只改那一处即可",
 }[stage]
 
-process.stdout.write(`RESULT: FAIL | COMPILE_TIMEOUT: 等待编译结果超过 ${timeoutMs / 1000} 秒\n`)
-process.stdout.write(`STAGE: ${stage}\nROUNDS_SEEN: ${roundsSeen}\nPORT: ${port}\nPID: ${pid}\n`)
-process.stdout.write(`HINT: ${stageHint}\nLOG: ${S.devserverLog}\n`)
+// 同 COMPILE_ERROR 那段:走 emit 才落盘。超时是最难排查的一种失败,
+// 而它恰恰最依赖事后翻日志 —— 这三行以前一个字都不进 octo-fastui.log。
+emit(
+  `RESULT: FAIL | COMPILE_TIMEOUT: 等待编译结果超过 ${timeoutMs / 1000} 秒\n` +
+    `STAGE: ${stage}\nROUNDS_SEEN: ${roundsSeen}\nPORT: ${port}\nPID: ${pid}\n` +
+    `HINT: ${stageHint}\nLOG: ${logPath()}\nDEVSERVER_LOG: ${S.devserverLog}\n`,
+)
 block("LOG_TAIL", tailLines)
 process.exit(1)

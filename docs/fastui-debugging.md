@@ -45,7 +45,9 @@ powershell -ExecutionPolicy Bypass -File "<skillDir>\scripts\install\install.ps1
 
 日志可能很长，截图必然只能截一段。**按这个优先级截**：
 
-1. `RESULT: FAIL | <CODE>: …` 连同它下面的 `DETAIL:` / `HINT:` / `LOG:` —— 这四行是一个整体，缺一行就少一半信息
+1. `RESULT: FAIL | <CODE>: …` 连同它下面的 `DETAIL:` / `HINT:` / `LOG:` —— 这几行是一个整体，缺一行就少一半信息。
+   ⚠️ **但不是每条失败路径都有四行**：`DETAIL:` / `HINT:` 是可选的，`YARN_INSTALL_FAILED` 这类天然只有
+   `RESULT:` + `LOG:` 两行（[§2.2](#22-装依赖阶段--setup-envmjs)）。**只有两行不等于你截漏了**，照发
 2. 往上找最近的 `===== <时间> <完整命令行>` —— 它说明这次是哪个脚本、带什么参数跑的
 3. 失败那一步的子进程原文：`--- npm stderr ---` 或 `--- yarn stderr ---` 之后的**最后 20 行**
 4. 有 `[body]` 开头的段落就一定要带上 —— 那是网关/WAF 的错误页正文，通常是唯一能说清"被谁拦了"的东西
@@ -121,7 +123,7 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 
 | CODE | 含义 | 最可能的原因 | 内网下一步 | 外网还需要什么 |
 |---|---|---|---|---|
-| `NO_PYTHON` | macOS 上没有 python3（只用来解析 manifest，与 node 无关）。**v16 起只在真要下载 node 或跑 `--check` 时才报** —— 机器上已有 node 且大版本命中白名单时这条根本不会出现 | 干净的 macOS，且这台机器没有可复用的 node | `xcode-select --install`；或先确认 `[node] 来源` 那行为什么判成了要下载 | 无 |
+| `NO_PYTHON` | macOS 上没有 python3（只用来解析 manifest，与 node 无关）。**v16 起只在真要下载 node 或跑 `--check` 时才报** —— 机器上有任何一个能跑的 node 时这条根本不会出现 | 干净的 macOS，且这台机器一个能跑的 node 都没有 | `xcode-select --install`；或先确认 `[node] 来源` 那行为什么判成了要下载 | 无 |
 | `NO_MANIFEST` | 没有 manifest 地址，或离线目录里没有 `manifest.json` | 参数传错 / 离线包不完整 | 看 `HINT` 给的两个开关 | 完整命令行（`=====` 那行） |
 | `SKILL_MANIFEST_BROKEN` | 读不了 skill 自带的 `references/env.manifest.json`（**仅 ps1**） | skill 包没组装好 / 文件被编辑坏 | 重新上架 skill | `DETAIL` 里的异常原文 |
 | `MANIFEST_UNREACHABLE` | manifest 请求失败（`--check` 模式下的码） | **代理 / 网络 / 证书**，见 §3.3 | 跑一次 `--check` 全量 | `[http]` 行的两个码 + `[body]` |
@@ -143,7 +145,7 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 | CODE | 含义 | 最可能的原因 | 内网下一步 | 外网还需要什么 |
 |---|---|---|---|---|
 | `NODE_MISSING` | 手上一个能用的 node 都没有（v16 起**不再等于"共享池里没有"** —— 复用系统 node 是正常状态） | 引导脚本那步没跑完 | 重跑 install 脚本 | 上一段 `=====`（install 的） |
-| `NPM_NOT_FOUND` | 找到了 node，但找不到它自带的 npm | node 是精简发行版 / 被裁剪过（企业镜像里见过） | 用不带 `--skip-node` 的 install 让它下 portable node | `[node] 系统 node: …` 那行的路径 |
+| `NPM_NOT_FOUND` | 找到了 node，但找不到它自带的 npm | node 是精简发行版 / 被裁剪过（企业镜像里见过） | 用不带 `--skip-node` 的 install 让它下 portable node | `[node] 来源: system -> <路径>;系统 node vX.Y.Z` 那行 |
 | `SKILL_NOT_ASSEMBLED` | `template/` 缺 `package.json` 或 `yarn.lock` | **skill 没在内网组装**，不是用户能解决的 | 走 skill 上架流程 | 无 |
 | `YARN_INSTALL_FAILED` | 装 yarn 或装依赖失败 | **首选怀疑代理**（历史上就是它）。另一种形态是 `npm 报成功,但 <池子>/node/bin/yarn 不存在` —— 那是机器上的 `~/.npmrc` 里有 `prefix=` 抢走了落点 | 把 `--- npm stderr ---` 整段发出来；后一种情形发 `npm config list` | 子进程原文尾部 20 行 |
 | `YARN_NOT_FOUND` | yarn 装上了却找不到 JS 入口（Windows 上响亮失败） | npm 全局落点与预期不符 | 把 `<池子>/node` 的目录树发出来 | `POOL_YARN_JS:`（doctor 那行） |
@@ -169,13 +171,15 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 | `COPY_FAILED` / `TEMPLATE_INCOMPLETE` | 模板复制失败或复制不全 | 磁盘空间 / 权限 / 中文路径；重跑可自愈 |
 | `LINK_FAILED` | 依赖链接建不起来 | Windows 看是不是 junction 建不了；**产物目录里手工跑过 `yarn install` 也会撞这条** |
 | `UNSAFE_CLEANUP` | 路径断言没过，脚本拒绝删除 | **这是护栏生效，不是 bug** —— 把 `--artifact-dir` 传了什么发出来 |
+| `RESET_FAILED` | `--reset` 删半成品时删失败了 | 路径断言已经过了，是**删不动**：文件被占用（dev server 还在跑那个目录）/ 权限 / Windows 上目录被资源管理器锁着。先按 `.devserver.json` 里的 pid 停掉 dev server 再重跑 |
 | `NO_FREE_PORT` | 连续 50 个端口都被占 | 关掉别的 dev server |
 
 ### 2.5 编译与预览 —— `verify.mjs`
 
 | CODE | 含义 | 下一步 |
 |---|---|---|
-| `COMPILE_ERROR` | webpack 编译没过 | **`ERRORS_BEGIN … ERRORS_END` 里就是原文**，直接看它改代码 |
+| `COMPILE_ERROR` | webpack 编译没过 | **`ERRORS_BEGIN … ERRORS_END` 里就是原文**，直接看它改代码。**先看有没有跟着一行 `NODE_SUSPECT:`**（见本表下面那段）——有的话就不是代码问题 |
+| `MISSING_VUE_IMPORT` | 用了 `ref` / `computed` / `onMounted` 这类 `'vue'` 的 API 却没 import（v17 起是 **FAIL 档**，编译之前就返回） | `MISSING_IMPORTS_BEGIN … END` 块里直接给出了要补的那行 `import { … } from 'vue'` 和文件名，补完重跑 verify。**编译本来能过**，炸在运行时（`ReferenceError`、整页白屏），所以必须拦在编译前 |
 | `COMPILE_TIMEOUT` | 等编译结果超时 | 看 `LOG_TAIL` 块；若日志已稳定却识别不出编译轮次，是 `lib/compile.mjs` 的 MARKERS 与 cli-service 输出对不上 |
 | `DEVSERVER_EXITED` | dev server 起来就退了 | 看 `devserver.log` 尾部 |
 | `SPAWN_FAILED` | 起不来（Windows `Start-Process`） | **中文路径**曾是根因（已改 `-EncodedCommand`）；看 `DETAIL` |
@@ -183,6 +187,22 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 | `NO_SESSION` / `NO_PROJECT` | 会话状态或工程目录不存在 | 先跑 `new-session` |
 | `PORT_RACE` | 连续 3 次端口被抢 | 并发起太多会话 |
 | `ATTACH_FAILED` | 指定端口上没有在跑的服务 | 参数用法问题 |
+
+**`NODE_SUSPECT:` —— 不是错误码，是跟在 `COMPILE_ERROR` 后面的一行提示**
+
+```
+RESULT: FAIL | COMPILE_ERROR: webpack 编译未通过
+NODE_SUSPECT: ERR_OSSL_EVP_UNSUPPORTED —— node 17+ 带的 OpenSSL 3 不再提供老 webpack 用的 md4 哈希
+HINT: 这条编译错误不是你写的代码的问题,别改 .vue 重试。当前 node 是 v24.…(/usr/local/bin/node)
+```
+
+只在编译错误里命中已知的**运行时不兼容指纹**时才出现（OpenSSL 3 的 md4 / 原生模块 ABI 不匹配）。
+它是 v16「**不设 node 版本门禁**」那条决定的补偿控制：我们不事前按版本号拦人，改成事后精确指认。
+
+| 看到它 | 怎么办 |
+|---|---|
+| 有这一行 | **环境问题**，不是代码问题。按 `HINT:` 给的绕法：换一个 node 大版本，或 `install.sh --force-portable-node` / `install.ps1 -ForcePortableNode` 让脚本去下我们定版的那个 node |
+| 没有这一行 | 就是普通编译错误，看 `ERRORS` 改代码 |
 
 ### 2.6 导出 —— `export-zip.mjs`
 
@@ -227,6 +247,10 @@ ASSET_DARWIN_ARM64: HEAD=403 GET=403 len=97 type=text/html
 | 非 2xx | 2xx | 服务端不接受 HEAD（405 之类），不影响真实安装 |
 
 `type=` 和 `len=` 也要看：`.tar.gz` 却返回 `text/html`、`len` 只有几百字节 —— 那多半是错误页伪装成 200。
+
+> ⚠️ **`len=` 与 `type=` 取自 HEAD 响应，不是 GET。** 所以在 `HEAD=200 / GET=403` 那一格里，
+> 这两个值**必然看着全绿**（`len` 是真实包大小、`type` 也对）—— 别因为它们正常就放过那一格，
+> 那格的判据是 `GET=` 那个码本身。
 
 ### 3.3 两个码一起看：`code=` 与 `exit=`
 
@@ -285,19 +309,25 @@ HTTP 码这边：`504` / `502` 基本可断定是**代理或网关自己发的**
 
 ### 4.6 装完了，但日志里既没有下载也没有 `[http]` 行 —— 是不是没装?
 
-**这是正常的**（v16 起）。机器上已有 node 且大版本命中白名单时，安装脚本直接复用它：不读 manifest、不下 node 包，**整个安装一次网络请求都不发**。
+**这是正常的**（v16 起）。机器上有**任何一个能跑的 node**时（`node -v` 跑得出来即可，**不看大版本、没有版本白名单**），安装脚本直接复用它：不读 manifest、不下 node 包，所以 `install.sh` / `install.ps1` 这一段**一个 `[http]` 行都不会有**。
+
+> ⚠️ **别把这句读成"整个安装不联网"。** 不发请求的只是**引导脚本这一段**（manifest + node 包，也就是曾经 504 / 403 的那条链路）。紧接着的 `setup-env.mjs` 仍然要连**内网 npm 源**装 yarn、再装那 1GB 依赖——那两步的失败长成 `YARN_INSTALL_FAILED`（[§2.2](#22-装依赖阶段--setup-envmjs)），原文在 `--- npm stderr ---` / `--- yarn stderr ---` 里，不在 `[http]` 行里。**"没有 `[http]` 行"不等于"没联网"。**
 
 判据，三行对上就是装好了：
 
 | 看哪里 | 正常长什么样 |
 |---|---|
 | install 日志 | `[node] 来源: system -> /usr/local/bin/node;系统 node v22.x.x` |
-| `doctor` | `POOL_NODE: MISSING(不一定是问题,见 EFFECTIVE_NODE)` + `EFFECTIVE_NODE: …(系统)` + `SYSTEM_NODE_REUSABLE: YES(…)` |
+| `doctor` | `POOL_NODE: MISSING(不一定是问题,见 EFFECTIVE_NODE)` + `EFFECTIVE_NODE: …(系统)` + `WILL_DOWNLOAD_NODE: NO(手上已有能跑的 node,首装不需要下载,也不会读 manifest)` |
 | `ensure-env` | `RESULT: OK` + `NODE_SOURCE: system` |
 
 **`POOL_NODE: MISSING` 在这种机器上不是故障** —— 共享池里的 `node/` 目录此时只放 yarn（`node/bin/yarn`）。真正不可替代的是 `deps/node_modules`（那 1GB 内网组件库），它缺了才是 `ENV_MISSING`。
 
-反过来，`SYSTEM_NODE_REUSABLE: NO(major xx 不在白名单里…)` 说明这台机器会走下载分支 —— 那条链路要网络，§4.2 / §4.3 才适用。白名单在 skill 的 `references/env.manifest.json`（`systemNodeMajors`），要放开一个新大版本得先在那个版本上验过，不是随手加。
+反过来，`WILL_DOWNLOAD_NODE: YES(池子里和系统里都没有 node …)` 说明这台机器会走下载分支 —— 那条链路要网络，§4.2 / §4.3 才适用。
+
+**这里没有"版本够不够新"这一说**：判据只有「`node -v` 跑不跑得出来」。一台 node 18 和一台 node 24 的机器
+走的是同一条路（都复用）。真出现"node 大版本与老构建链不兼容"，会在编译阶段以 `NODE_SUSPECT:` 的形态
+被点名（[§2.5](#25-编译与预览--verifymjs)），而不是在装环境这一步被拦下。
 
 ---
 
@@ -307,11 +337,12 @@ HTTP 码这边：`504` / `502` 基本可断定是**代理或网关自己发的**
 
 一次能定位的请求，至少要包含：
 
-1. **`RESULT: FAIL` 那四行**（含 `DETAIL` / `HINT` / `LOG`）
+1. **`RESULT: FAIL` 那几行**（含 `DETAIL` / `HINT` / `LOG`）—— `DETAIL` / `HINT` 是可选的，有的路径天然只有两行（[§0.3](#03-只能截图时至少要框住哪几行)）
 2. **最近一个 `=====` 行**（哪个脚本、什么参数）
 3. 失败那步的**子进程原文尾部**或 `[body]` 段
 4. `doctor` 整段（尤其 `PROXY*` / `POOL_*` / `SKILL_ASSEMBLED`）
 5. 若与网络有关：`--check` 整段
+6. **`SKILL_VERSION`**（`doctor` 那行；取不到就发 `references/env.manifest.json`）—— 行号和错误码都随版本变，见 §5.4
 
 ### 5.2 可直接粘的提示词模板
 
@@ -331,6 +362,20 @@ HTTP 码这边：`504` / `502` 基本可断定是**代理或网关自己发的**
 
 - **不要把 `HINT:` 当成结论**。`HINT` 是脚本预设的下一步，它不知道现场；真正的判据在 `[http]` / `[body]` / 子进程原文里。
 - **`RESULT: FAIL | UNEXPECTED` 不要单独下结论**。它是兜底，意味着"这条路径没人专门处理过"，必须连上下文整段看。
+
+### 5.4 别忘了：分析方手里还有整个仓库
+
+§6 诚实列了"这份日志答不了什么"。对称地，也要记得**日志之外还有什么能用** —— 分析在外网，
+而 skill 的全部源码就在 [`skills/fastui-vue-creator/`](../skills/fastui-vue-creator/)。这一条最常被浪费：
+
+| 线索 | 怎么用 |
+|---|---|
+| **`UNEXPECTED` 里的行号** | `安装脚本在第 484 行意外中止` —— 直接翻开 `install.sh` 第 484 行。这是这条兜底码**唯一但足够强**的线索，别因为"要整段日志"就把它放过 |
+| `RESULT` 行里的错误码 | `grep -rn '<CODE>' skills/fastui-vue-creator/scripts/` 能找到抛它的那一行，连同上下文注释——注释里通常写着当初为什么要拦这个 |
+| 过程行前缀（`[node]` / `[deps]` / `[exit]`） | 同样能 grep 到产出它的那行代码，比猜语义准 |
+
+> ⚠️ **先对齐版本再用行号。** 内网跑的 skill 未必是外网 `dev` 的最新版：拿 `doctor` 的
+> `SKILL_VERSION` 对上再翻，否则行号会指到别处，那种误导比没有线索更贵。
 
 ---
 

@@ -138,12 +138,14 @@ PLATFORM_KEY="darwin-$ARCH"
 
 # ── 系统 node:先认出来,它决定后面几乎所有分支(§4.1)────────────────
 SYS_NODE="$(command -v node || true)"
-SYS_NODE_VER=""; SYS_NODE_MAJOR=""
+SYS_NODE_VER=""
 if [ -n "$SYS_NODE" ]; then
   SYS_NODE_VER="$("$SYS_NODE" -v 2>/dev/null || true)"
+  # 版本号只用来打日志(诊断),**不参与任何判断** —— 判据是"跑不跑得出版本号"。
+  # 跑不出来的当没有:那种 node 后面 spawn 也会挂,不如当场落回下载。
   case "$SYS_NODE_VER" in
-    v[0-9]*) SYS_NODE_MAJOR="${SYS_NODE_VER#v}"; SYS_NODE_MAJOR="${SYS_NODE_MAJOR%%.*}" ;;
-    *) SYS_NODE=""; SYS_NODE_VER="" ;;   # `node -v` 都跑不出版本号的,当没有
+    v[0-9]*) ;;
+    *) SYS_NODE=""; SYS_NODE_VER="" ;;
   esac
 fi
 
@@ -389,7 +391,8 @@ echo "[node] 来源: $NODE_SRC${EFFECTIVE_NODE:+ -> $EFFECTIVE_NODE}${SYS_NODE_V
 # manifest 这一个来源,不拉就等于同一台机器上带不带 --skip-node 会用两个不同的源。
 # 现在 registry 有了本地来源(setup-env 从 template 的 .npmrc 回落取,与 yarn install
 # 读的是同一份),这条依赖就不该再存在 —— 而正是去掉它,才让「已有 node 的机器」
-# 整条首装链路一次网络请求都不发,彻底绕开曾经 504 / 403 过的那条链路。
+# 引导脚本这一段一次网络请求都不发,彻底绕开曾经 504 / 403 过的那条链路
+# (装 yarn 与 1GB 依赖仍走内网 npm 源,那是 setup-env 的事,不在这条链路上)。
 if [ -n "$NEED_NODE" ]; then require_py; fi
 
 MJSON=""; BASE=""
@@ -413,7 +416,7 @@ elif [ -n "$MANIFEST" ]; then
     # 不再有 v15 那条"只为拿 registry,拉不到就回落"的软路径 —— 那条路现在根本不经过这里。
     fail DOWNLOAD_FAILED "拉不到 manifest: $MANIFEST(HTTP $HTTP_CODE / curl exit $CURL_EXIT)" \
       "$(body_preview "$MJSON")" \
-      "已强制直连(不经代理),响应体已记进 LOG。先跑 bash \"$SCRIPT_DIR/install.sh\" --check 看每个平台的包各是什么状态;若这台机器确实必须经代理才能到内网,传 --proxy=<地址>。另:这台机器若已有 node,大版本命中白名单时本来不需要下载 —— 看上面那行 [node] 来源"
+      "已强制直连(不经代理),响应体已记进 LOG。先跑 bash \"$SCRIPT_DIR/install.sh\" --check 看每个平台的包各是什么状态;若这台机器确实必须经代理才能到内网,传 --proxy=<地址>。另:走到下载这一步,说明这台机器上一个能跑的 node 都没有(见上面那行 [node] 来源) —— 用任何方式装上一个 node(**版本不限**)就能整个跳过这条链路"
   fi
 else
   fail NO_MANIFEST "要下载 node,但没有 manifest 地址" "" "传 --manifest=<url> 或 --from-local=<目录>"

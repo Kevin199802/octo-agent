@@ -11,7 +11,7 @@
 import { execFileSync, spawn } from "node:child_process"
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
-import { setLogSink, ok, fail, log, logChild, lastLine, tailBuffer, parseArgs } from "./lib/result.mjs"
+import { setLogSink, ok, fail, warn, log, logChild, lastLine, tailBuffer, parseArgs } from "./lib/result.mjs"
 import { TEMPLATE_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs, resolveNpmJs, resolveRuntime } from "./lib/paths.mjs"
 import { sha256File, sameHash } from "./lib/hash.mjs"
 
@@ -80,6 +80,57 @@ function childEnv() {
 }
 
 /**
+ * 从子进程输出里挑**一行**拼进 `RESULT:` 行 —— **不能直接取末行**。
+ *
+ * 实测(2026-09-12 复核):两个工具的末行恰好都是最没用的一行 ——
+ *   npm : `npm error A complete log of this run can be found in: /Users/…/_logs/….log`(固定 boilerplate)
+ *   yarn: `    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)`(node 内部栈帧,看着像代码 bug)
+ * 真因(`ECONNREFUSED` + 那个 registry URL)在上面十几到二十行处。而这一行是要直接进
+ * 契约行、被截图发出来的(§8.4),取错等于整条失败路径只剩一个退出码。
+ *
+ * 判据是**固定 boilerplate 的精确模式**,不是"猜哪行重要":命中就继续往上找,
+ * 全是 boilerplate 时退回末行 —— 不会比以前更差。
+ */
+// 两个工具都在每行前面加自己的前缀(`npm error ` / `npm ERR! `),判据先剥掉它再看
+const TOOL_PREFIX = /^npm (error|ERR!)\s?/i
+// **噪音**:出现在末尾、但不含任何定位信息的固定文本
+const TAIL_NOISE = [
+  /^A complete log of this run can be found in/i, // npm 的固定结尾
+  /^If you are behind a proxy/i, //                 npm 的通用建议(两行)
+  /^'proxy' config is set properly/i,
+  /^info /i, //                                    yarn 的 info(含 "Visit https://yarnpkg.com/…")
+  /^\s*at /, //                                    node 栈帧
+  /^[{}[\],]*$/, //                                错误对象 dump 的括号行
+  /^\w+:\s*'[^']*',?$/, //                         错误对象 dump 的字段行(code: 'ECONNREFUSED',)
+]
+// **高信号**:真正带原因的那一行,按优先级从高到低
+const TAIL_SIGNALS = [
+  /\b\w*Error:\s/, //            `FetchError: request to <url> failed, reason: connect ECONNREFUSED …`
+  /^error code [A-Z0-9_]+/i, //  npm 的规范码行(`npm error code ECONNREFUSED`)
+  /^error\s+\S/i, //             yarn 1 的 `error An unexpected error occurred: "…"`
+]
+const MAX_SCAN_LINES = 60
+function errorTail(buf, max = 200) {
+  const lines = (buf?.toString("utf8") ?? "")
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .split(/\r?\n/)
+    .map((l) => l.replace(/[\x00-\x1f\x7f]/g, " ").trim())
+    .map((l) => l.replace(TOOL_PREFIX, "").trim())
+  const window = lines.slice(-MAX_SCAN_LINES).filter(Boolean)
+  const clip = (l) => (l.length > max ? `${l.slice(0, max)}…` : l)
+  // ① 先找高信号行(从后往前,同一档取最靠后的那条)
+  for (const sig of TAIL_SIGNALS) {
+    for (let i = window.length - 1; i >= 0; i--) if (sig.test(window[i])) return clip(window[i])
+  }
+  // ② 没有高信号就退回"跳过 boilerplate 的最后一条"
+  for (let i = window.length - 1; i >= 0; i--) {
+    if (!TAIL_NOISE.some((re) => re.test(window[i]))) return clip(window[i])
+  }
+  // ③ 全是 boilerplate —— 退回原行为,不会比以前更差
+  return lastLine(buf, max)
+}
+
+/**
  * 跑子进程:**原文实时转发到 stderr,同时把尾部落盘**(v15 S5,§5.1.1「日志里必须有什么」)。
  *
  * v14 用的是 `stdio: ["ignore", "inherit", "inherit"]` —— 子进程输出直接继承到父进程,
@@ -101,7 +152,14 @@ function childEnv() {
  * - 内存有界:只留尾部 64KB(`tailBuffer`),不把整段攒在内存里。
  */
 const RUN_TAIL_KB = 64
-const run = async (bin, argv, cwd) => {
+/**
+ * `label` 是日志里那段原文的标记(`--- <label> stderr ---`)。**必须显式传**:
+ * v16 之后 npm 与 yarn 都是 `run(RT.node, [<那个工具的 .js>, …])` 起的(Node 18+ 不许
+ * spawn `.cmd`),`path.basename(bin)` 对两者都是 `node` —— 一次安装里两段原文长得一模一样,
+ * 分不出是哪一步挂的;而排查手册正让内网的人去搜 `--- npm stderr ---` 这个字符串。
+ */
+const run = async (bin, argv, cwd, label) => {
+  const tag = label || path.basename(bin)
   log(`$ ${bin} ${argv.join(" ")}${cwd ? `   (cwd=${cwd})` : ""}`)
   const started = Date.now()
   const child = spawn(bin, argv, { cwd, stdio: ["ignore", "pipe", "pipe"], env: childEnv() })
@@ -129,18 +187,19 @@ const run = async (bin, argv, cwd) => {
     child.on("close", (code) => finish({ status: code, error: null }))
   })
   // echo: false —— 上面已经边跑边转发过了,这里只补日志,不然人会看到两份
-  logChild(`${path.basename(bin)} stdout`, outTail.buffer(), { tailKb: RUN_TAIL_KB, total: outTail.total, echo: false })
-  logChild(`${path.basename(bin)} stderr`, errTail.buffer(), { tailKb: RUN_TAIL_KB, total: errTail.total, echo: false })
-  log(`[exit] ${path.basename(bin)} status=${r.status ?? "null"} ${Date.now() - started}ms`)
+  logChild(`${tag} stdout`, outTail.buffer(), { tailKb: RUN_TAIL_KB, total: outTail.total, echo: false })
+  logChild(`${tag} stderr`, errTail.buffer(), { tailKb: RUN_TAIL_KB, total: errTail.total, echo: false })
+  log(`[exit] ${tag} status=${r.status ?? "null"} ${Date.now() - started}ms`)
   // 这里不抛 spawn 的原始异常就没人抛了 —— 调用方接着用 e.message 拼 RESULT 行,
-  // 所以把**最有用的那一行**(子进程 stderr 的末行)带上,别让契约行只剩个退出码。
+  // 所以把**最有用的那一行**(由 errorTail 挑,不是末行 —— 见它的注释)带上,
+  // 别让契约行只剩个退出码。
   if (r.error) {
     r.error.message = `${bin}: ${r.error.message}`
     throw r.error
   }
   if (r.status !== 0) {
-    const tail = lastLine(errTail.buffer()) || lastLine(outTail.buffer())
-    throw new Error(`${path.basename(bin)} 退出码 ${r.status}${tail ? ` | ${tail}` : ""}`)
+    const tail = errorTail(errTail.buffer()) || errorTail(outTail.buffer())
+    throw new Error(`${tag} 退出码 ${r.status}${tail ? ` | ${tail}` : ""}`)
   }
 }
 
@@ -157,14 +216,14 @@ const run = async (bin, argv, cwd) => {
  */
 const runYarn = async (argv, cwd) => {
   const yarnJs = resolveYarnJs(P)
-  if (yarnJs) return run(RT.node, [yarnJs, ...argv], cwd)
+  if (yarnJs) return run(RT.node, [yarnJs, ...argv], cwd, "yarn")
   if (process.platform === "win32") {
     fail("YARN_NOT_FOUND", `装好了 yarn 却找不到它的 JS 入口(${P.node} 下)`, {
       hint: `把 ${P.node} 的目录树报给用户,由人判断是重装还是修复。不要自己执行删除命令(见 SKILL.md 硬约束 0)`,
     })
   }
   log(`[warn] 找不到 yarn 的 JS 入口,直接执行 ${P.yarnBin}`)
-  return run(P.yarnBin, argv, cwd)
+  return run(P.yarnBin, argv, cwd, "yarn")
 }
 
 /**
@@ -203,7 +262,16 @@ function registryFromTemplateNpmrc() {
 // 权限、软链都正常)。Agent 内执行 sudo 会静默挂住等密码、没有交互通道 ——
 // 要躲的是这个,而 portable node 只是躲开它的**一种**办法,不是唯一一种(§4.1)。
 if (!exists(P.yarnBin)) {
-  const registry = String(args.registry || process.env.OCTO_NPM_REGISTRY || registryFromTemplateNpmrc() || "")
+  const fromTemplate = registryFromTemplateNpmrc()
+  const registry = String(args.registry || process.env.OCTO_NPM_REGISTRY || fromTemplate || "")
+  // **两个源不一致要留痕**(v16 复核):`--registry` 是安装脚本从 manifest 取来的,而它
+  // **只在要下载 node 时才会拿到** —— 于是同一个内网里,"这台机器碰巧有没有 node"决定了
+  // 装 yarn 用哪个源。两个值一致时这无所谓,不一致时就是一次静默漂移,而下一步
+  // `yarn install` 读的始终是 template 那份(§4.1「③④ 的 registry 必须分开处理」)。
+  // 不阻塞、不自动选一个 —— 只在日志里说清楚,否则出事时没人会往这个方向想(v14 坑 4 的同款形态)。
+  if (args.registry && fromTemplate && String(args.registry) !== fromTemplate) {
+    warn(`装 yarn 用的 registry(${args.registry},来自 manifest)与 template/.npmrc 里的(${fromTemplate})不一致 —— 下一步 yarn install 读的是后者`)
+  }
   // npm 也不能直接 spawn `npm.cmd`(Node 18+ 禁执行 .cmd/.bat,报 EINVAL),
   // 而系统 node 的 npm 布局与 portable 包的又不同 —— 顺着 node 二进制去找它自己的 npm。
   const npmJs = resolveNpmJs(RT.node)
@@ -216,7 +284,7 @@ if (!exists(P.yarnBin)) {
   if (registry) argv.push(`--registry=${registry}`)   // ← 只有装 yarn 这一步传 registry
   log(`[yarn] 装到 ${P.node}${registry ? `,registry=${registry}` : ",registry 用本机 npm 配置"}`)
   try {
-    await run(RT.node, argv)
+    await run(RT.node, argv, undefined, "npm")
   } catch (e) {
     fail("YARN_INSTALL_FAILED", `安装 yarn 失败: ${e.message}`, { hint: registry ? undefined : "试试 --registry=<内网 npm 源>" })
   }

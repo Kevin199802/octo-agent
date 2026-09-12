@@ -259,7 +259,7 @@ $SkillDir = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
 try {
 
   # skill 自带的 env.manifest.json(随 skill 走,不走网络):
-  # 内网 manifest 的 URL(§4.4.6)与「可复用的系统 node 大版本白名单」(§4.1)都在里面。
+  # 内网 manifest 的 URL(§4.4.6)在里面(**没有** node 版本白名单那种东西,§4.1 定案不设版本门禁)。
   # **读不了不当场失败** —— 只有"要用它里面某个值"的那一步才失败,否则
   # 一台什么都不缺的机器会因为一个它根本用不到的文件被拦下。
   $emPath = Join-Path $SkillDir "references\env.manifest.json"
@@ -447,7 +447,8 @@ try {
     # manifest 这一个来源,不读就等于同一台机器上带不带 -SkipNode 会用两个不同的源。
     # 现在 registry 有了本地来源(setup-env 从 template 的 .npmrc 回落取,与 yarn install
     # 读的是同一份),这条依赖就不该再存在 —— 而正是去掉它,才让「已有 node 的机器」
-    # 整条首装链路一次网络请求都不发,彻底绕开曾经 504 / 403 过的那条链路。
+    # 引导脚本这一段一次网络请求都不发,彻底绕开曾经 504 / 403 过的那条链路
+    # (装 yarn 与 1GB 依赖仍走内网 npm 源,那是 setup-env 的事,不在这条链路上)。
     $m = $null
     $base = ""
     if (-not $needNode) {
@@ -486,7 +487,7 @@ try {
         LogBody "manifest 错误响应" $d.body
         $detail = OneLine "$($_.Exception.Message) | HTTP $($d.code) | $($d.body)" 300
         if ($_.Exception.InnerException) { $detail = OneLine "$detail | inner: $($_.Exception.InnerException.Message)" 400 }
-        Fail "DOWNLOAD_FAILED" "拉不到 manifest: $Manifest" $detail "已强制直连(不经代理),响应体已记进 LOG。先跑 -Check 看每个平台的包各是什么状态;若这台机器确实必须经代理才能到内网,传 -Proxy <地址>;或改用 -FromLocal <本地目录> 离线安装。另:这台机器若已有 node,大版本命中白名单时本来不需要下载 —— 看上面那行 [node] 来源"
+        Fail "DOWNLOAD_FAILED" "拉不到 manifest: $Manifest" $detail "已强制直连(不经代理),响应体已记进 LOG。先跑 -Check 看每个平台的包各是什么状态;若这台机器确实必须经代理才能到内网,传 -Proxy <地址>;或改用 -FromLocal <本地目录> 离线安装。另:走到下载这一步,说明这台机器上一个能跑的 node 都没有(见上面那行 [node] 来源) —— 用任何方式装上一个 node(**版本不限**)就能整个跳过这条链路"
       }
     } else {
       Fail "NO_MANIFEST" "要下载 node,但没有 manifest 地址" $null "传 -Manifest <url> 或 -FromLocal <目录>"
