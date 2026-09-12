@@ -12,7 +12,7 @@ import { execFileSync, spawn } from "node:child_process"
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, log, logChild, lastLine, tailBuffer, parseArgs } from "./lib/result.mjs"
-import { TEMPLATE_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs } from "./lib/paths.mjs"
+import { TEMPLATE_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs, resolveNpmJs, resolveRuntime } from "./lib/paths.mjs"
 import { sha256File, sameHash } from "./lib/hash.mjs"
 
 const args = parseArgs()
@@ -23,7 +23,13 @@ const manifest = readManifest()
 const P = envPaths(envDir(args["env-dir"]))
 const isUpgrade = Boolean(args.upgrade)
 
-if (!exists(P.nodeBin)) fail("NODE_MISSING", `共享池里没有 node: ${P.nodeBin}`, { hint: "先跑 install.ps1 / install.sh" })
+/**
+ * 用哪个 node:共享池里有 portable node 就用它,没有就是**跑着本脚本的这个**(系统 node)——
+ * install.sh / install.ps1 决定复用系统 node 时,正是用系统 node 来 exec 本脚本的(§4.1)。
+ * 所以这里不再硬性要求共享池里有 node,只要求手上有一个能跑的。
+ */
+const RT = resolveRuntime(P)
+log(`[node] ${RT.source === "pool" ? "共享池" : "系统"} node: ${RT.node}`)
 
 const templatePkgPath = path.join(TEMPLATE_DIR, "package.json")
 const templateLockPath = path.join(TEMPLATE_DIR, "yarn.lock")
@@ -151,7 +157,7 @@ const run = async (bin, argv, cwd) => {
  */
 const runYarn = async (argv, cwd) => {
   const yarnJs = resolveYarnJs(P)
-  if (yarnJs) return run(P.nodeBin, [yarnJs, ...argv], cwd)
+  if (yarnJs) return run(RT.node, [yarnJs, ...argv], cwd)
   if (process.platform === "win32") {
     fail("YARN_NOT_FOUND", `装好了 yarn 却找不到它的 JS 入口(${P.node} 下)`, {
       hint: `把 ${P.node} 的目录树报给用户,由人判断是重装还是修复。不要自己执行删除命令(见 SKILL.md 硬约束 0)`,
@@ -161,18 +167,65 @@ const runYarn = async (argv, cwd) => {
   return run(P.yarnBin, argv, cwd)
 }
 
-// ── ③ 装 yarn ────────────────────────────────────────────────────
-// portable node 的 global prefix 落在 node 自己的目录里,不碰 /usr/local,
-// 所以不需要 sudo —— Agent 内执行 sudo 会静默挂住等密码,没有交互通道。
-if (!exists(P.yarnBin)) {
-  const registry = String(args.registry || process.env.OCTO_NPM_REGISTRY || "")
-  const npmBin = process.platform === "win32" ? path.join(P.node, "npm.cmd") : path.join(P.node, "bin", "npm")
-  const argv = ["install", "-g", "yarn"]
-  if (registry) argv.push(`--registry=${registry}`)   // ← 只有装 yarn 这一步传 registry
+/**
+ * registry 的回落源:**template 自带的 `.npmrc`**(§4.1 ③)。
+ *
+ * 装 yarn 这一步必须显式给 registry —— 此刻还没有任何项目级配置可依赖(cwd 不在 deps/ 下)。
+ * 命令行 `--registry` 优先(安装脚本从 manifest 取到时会传),但系统 node 够用时安装脚本
+ * **根本不去拉 manifest**(那正是这条改动的收益:绕开曾经 504 / 403 的那条链路),
+ * 于是需要一个本地的、与依赖树同版本的源 —— template 的 `.npmrc` 就是它,
+ * 后面 `yarn install` 读的也是从它复制过去的那一份,两步用同一个源。
+ *
+ * 只取顶层 `registry=`,不碰 `@scope:registry=`:scope 源是给 yarn install 那步用的,
+ * 而这里装的是 yarn 本身。
+ */
+function registryFromTemplateNpmrc() {
   try {
-    await run(npmBin, argv)
+    const lines = readFileSync(path.join(TEMPLATE_DIR, ".npmrc"), "utf8").split(/\r?\n/)
+    let found = ""
+    for (const raw of lines) {
+      const line = raw.trim()
+      if (!line || line.startsWith("#") || line.startsWith(";")) continue
+      const m = /^registry\s*=\s*(\S+)$/.exec(line)
+      if (m) found = m[1] // 后面的覆盖前面的,与 npm 自己的行为一致
+    }
+    return found
+  } catch {
+    return ""
+  }
+}
+
+// ── ③ 装 yarn ────────────────────────────────────────────────────
+//
+// **`--prefix` 固定指向共享池里的 `node/`**,这一步因此与"node 是哪来的"无关:
+// 全局安装落在我们自己的目录里,不碰 /usr/local,**系统 node 下同样不需要 sudo**
+// (2026-09-11 实测:`npm i -g yarn --prefix=<自定义目录>` 装到 <prefix>/bin/yarn,
+// 权限、软链都正常)。Agent 内执行 sudo 会静默挂住等密码、没有交互通道 ——
+// 要躲的是这个,而 portable node 只是躲开它的**一种**办法,不是唯一一种(§4.1)。
+if (!exists(P.yarnBin)) {
+  const registry = String(args.registry || process.env.OCTO_NPM_REGISTRY || registryFromTemplateNpmrc() || "")
+  // npm 也不能直接 spawn `npm.cmd`(Node 18+ 禁执行 .cmd/.bat,报 EINVAL),
+  // 而系统 node 的 npm 布局与 portable 包的又不同 —— 顺着 node 二进制去找它自己的 npm。
+  const npmJs = resolveNpmJs(RT.node)
+  if (!npmJs) {
+    fail("NPM_NOT_FOUND", `找不到 ${RT.node} 对应的 npm`, {
+      hint: "这个 node 没带 npm(精简发行版或被裁剪过)。装一个自带 npm 的 node,或让安装脚本下载 portable node:install.sh / install.ps1 不带 --skip-node 重跑",
+    })
+  }
+  const argv = [npmJs, "install", "-g", "yarn", `--prefix=${P.node}`]
+  if (registry) argv.push(`--registry=${registry}`)   // ← 只有装 yarn 这一步传 registry
+  log(`[yarn] 装到 ${P.node}${registry ? `,registry=${registry}` : ",registry 用本机 npm 配置"}`)
+  try {
+    await run(RT.node, argv)
   } catch (e) {
     fail("YARN_INSTALL_FAILED", `安装 yarn 失败: ${e.message}`, { hint: registry ? undefined : "试试 --registry=<内网 npm 源>" })
+  }
+  if (!exists(P.yarnBin) && !resolveYarnJs(P)) {
+    // npm 退出码 0 但东西不在该在的地方 —— 多半是机器上的 `~/.npmrc` 里写死了 `prefix=`。
+    // 在这里响亮失败,别让它拖到后面变成"找不到 yarn 的 JS 入口"那种离根因很远的形态。
+    fail("YARN_INSTALL_FAILED", `npm 报成功,但 ${P.yarnBin} 不存在`, {
+      hint: "多半是 ~/.npmrc 里有 prefix= 之类的全局配置在抢落点。把 npm config list 的输出报给用户",
+    })
   }
 } else {
   log(`[skip] yarn 已存在: ${P.yarnBin}`)
@@ -262,12 +315,12 @@ if (!sameHash(wantHash, gotHash)) {
   })
 }
 
-const nodeVersion = execFileSync(P.nodeBin, ["-v"], { encoding: "utf8" }).trim()
+const nodeVersion = execFileSync(RT.node, ["-v"], { encoding: "utf8" }).trim()
 let yarnVersion = ""
 try {
   const yarnJs = resolveYarnJs(P)
   yarnVersion = yarnJs
-    ? execFileSync(P.nodeBin, [yarnJs, "-v"], { encoding: "utf8" }).trim()
+    ? execFileSync(RT.node, [yarnJs, "-v"], { encoding: "utf8" }).trim()
     : execFileSync(P.yarnBin, ["-v"], { encoding: "utf8" }).trim()
 } catch {
   /* 诊断字段,拿不到不阻塞 */
@@ -293,7 +346,11 @@ const lock = {
   lockfileHash: gotHash,
   platform: process.platform,
   arch: process.arch,
+  // 记的是**实际装依赖时用的那个 node**,精确到小版本 —— ensure-env 只比大版本(§5.2),
+  // 这两个字段是诊断用:"同一台机器行为变了"时,先看它是不是换了运行时。
   nodeVersion,
+  nodeSource: RT.source,
+  nodePath: RT.node,
   yarnVersion,
   installedAt: new Date().toISOString(),
   keyPackages,
@@ -304,6 +361,7 @@ ok({
   ENV_DIR: P.root,
   ENV_VERSION: lock.envVersion,
   NODE_VERSION: nodeVersion,
+  NODE_SOURCE: RT.source,
   YARN_VERSION: yarnVersion,
   DEPS_DIR: P.depsModules,
   LOCKFILE_HASH: gotHash,

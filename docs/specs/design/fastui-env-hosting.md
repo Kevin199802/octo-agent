@@ -29,6 +29,12 @@
 
 **`deps` 整包第一版不做**（[§4.2](fastui-vue-codegen-pipeline.md#42-v2-整包分发仅在-v1-实测出现规模化安装失败时才推进)：仅在 v1 实测出现规模化安装失败时才推进）。所以 **nginx 上第一版只有 node 包 + 一个 manifest.json**。
 
+> **v16：portable node 变成兜底，但**[**照旧要托管**](fastui-vue-codegen-pipeline.md#41-v1-路线系统-node-够用就复用不够才分发-portable-node)。
+> 安装脚本现在会先看机器上有没有 node —— 大版本命中白名单（`systemNodeMajors`，当前 `[18,20,22]`）就直接复用，
+> **那种机器一次网络请求都不发**，manifest 和 node 包都不读。所以这两样资产的实际命中率会明显下降。
+> **但不能因此撤掉**：没装过 node 的机器、以及大版本命不中的机器，仍然只能从这里取 node。
+> 换句话说它从"每台机器首装必经"降级为"部分机器首装必需"，投放要求一个字没变。
+
 ### 4.4.2 下载哪些 node 文件（精确文件名）
 
 版本锁 **v22.19.0**（与内网现有环境一致）。官方目录 `https://nodejs.org/dist/v22.19.0/`，内网走已有 node 镜像同路径。**原样搬，不要解压重压**（重压会丢 Unix 权限位和 symlink）：
@@ -40,7 +46,7 @@
 | macOS Intel | `node-v22.19.0-darwin-x64.tar.gz` | 若无 Intel 机器可省 |
 
 > Windows ARM64 暂不列；确有此类机器再加 `node-v22.19.0-win-arm64.zip` 并在 manifest 里补一条。
-> **必须用 `.zip` / `.tar.gz`，不要用 `.msi` / `.pkg`** —— 安装器会写注册表、改 PATH、要管理员权限，与 [§4.1](fastui-vue-codegen-pipeline.md#41-v1-路线分发-portable-node--模板本机安装依赖) 的前提冲突。
+> **必须用 `.zip` / `.tar.gz`，不要用 `.msi` / `.pkg`** —— 安装器会写注册表、改 PATH、要管理员权限，与 [§4.1](fastui-vue-codegen-pipeline.md#41-v1-路线系统-node-够用就复用不够才分发-portable-node) 的前提冲突。
 
 三个包解压后外层都有一级同名目录（如 `node-v22.19.0-win-x64/`），安装脚本按 manifest 的 `stripComponents: 1` 剥掉，最终落成 `<envDir>/node/node.exe`（Win）/ `<envDir>/node/bin/node`（Mac）。
 
@@ -136,7 +142,7 @@ curl -sI https://octo.hdesign.huawei.com/design/fastui-env/node/node-v22.19.0-da
 
 | 字段 | 含义 |
 |---|---|
-| `npmRegistry` | 只用于 [§4.1](fastui-vue-codegen-pipeline.md#41-v1-路线分发-portable-node--模板本机安装依赖) ③ 装 yarn。**不传给 `yarn install`** |
+| `npmRegistry` | 只用于 [§4.1](fastui-vue-codegen-pipeline.md#41-v1-路线系统-node-够用就复用不够才分发-portable-node) ③ 装 yarn。**不传给 `yarn install`** |
 | `file` | **相对 manifest 所在目录**解析 |
 | `sha256` | 从 `SHASUMS256.txt` 抄，或按 §4.4.3 自算 |
 | `stripComponents` | 解压时剥掉的外层目录级数，node 官方包固定为 `1` |

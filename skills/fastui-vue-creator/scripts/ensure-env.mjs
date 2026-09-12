@@ -10,7 +10,7 @@
 import { execFileSync } from "node:child_process"
 import path from "node:path"
 import { setLogSink, ok, fail, warn, parseArgs } from "./lib/result.mjs"
-import { SKILL_DIR, TEMPLATE_DIR, VENDOR_DIR, envDir, envPaths, readJson, exists } from "./lib/paths.mjs"
+import { SKILL_DIR, TEMPLATE_DIR, VENDOR_DIR, envDir, envPaths, readJson, exists, resolveRuntime, majorOf } from "./lib/paths.mjs"
 import { sha256File, sameHash } from "./lib/hash.mjs"
 
 const args = parseArgs()
@@ -56,9 +56,9 @@ if (!exists(templatePkg) || !exists(templateLock)) {
 }
 
 // ── 2. 共享池存在 ────────────────────────────────────────────────
-if (!exists(P.nodeBin)) {
-  fail("ENV_MISSING", `共享池未安装,找不到 ${P.nodeBin}`, { hint: installHint })
-}
+// **node 不在这条判据里**(§4.1):共享池里可以没有 portable node —— 系统 node 大版本
+// 够用时安装脚本会直接复用它,那种机器上 <envDir>/node/ 下只有 yarn。node 能不能用
+// 由下面第 4 步判(那里比的是"当前会用哪个 node"),在这里判会把正常环境判成 ENV_MISSING。
 if (!exists(P.depsModules)) {
   fail("ENV_MISSING", `共享依赖池未安装,找不到 ${P.depsModules}`, { hint: installHint })
 }
@@ -83,17 +83,32 @@ if (!sameHash(wantHash, gotHash)) {
   })
 }
 
-// ── 4. node 版本 ────────────────────────────────────────────────
+// ── 4. node 版本:**只比大版本**(§4.1)────────────────────────────
+//
+// 判据从"精确相等"放宽到"major 相同":依赖树里唯一的原生模块是 fsevents
+// (optional + N-API,ABI 跨大版本稳定,加载失败 chokidar 自己回落到轮询),
+// 小版本差异对这棵树没有影响。而精确相等会让一批本来跑得好好的机器被判成
+// ENV_NODE_MISMATCH,然后去重装一遍 50MB 的 node —— 拦住的不是问题,是它们自己。
+//
+// 大版本仍然拦:node 大版本会带来 OpenSSL / webpack 兼容性上的真实断裂。
+const rt = resolveRuntime(P)
 let nodeVersion = ""
 try {
-  nodeVersion = execFileSync(P.nodeBin, ["-v"], { encoding: "utf8" }).trim()
+  nodeVersion = execFileSync(rt.node, ["-v"], { encoding: "utf8" }).trim()
 } catch (e) {
-  fail("ENV_NODE_BROKEN", `共享池里的 node 无法执行:${e.message}`, { hint: installHint })
+  fail("ENV_NODE_BROKEN", `node 无法执行(${rt.node}):${e.message}`, { hint: installHint })
 }
-if (lock.nodeVersion && nodeVersion !== lock.nodeVersion) {
-  fail("ENV_NODE_MISMATCH", `共享池 node 是 ${nodeVersion},清单记录的是 ${lock.nodeVersion}`, {
+const gotMajor = majorOf(nodeVersion)
+const wantMajor = majorOf(lock.nodeVersion)
+if (wantMajor !== null && gotMajor !== wantMajor) {
+  fail("ENV_NODE_MISMATCH", `当前 node 是 ${nodeVersion}(${rt.source === "pool" ? "共享池" : "系统"}),装依赖时用的是 ${lock.nodeVersion}`, {
     hint: upgradeHint,
   })
+}
+// 小版本对不上不阻塞,但要留一行 —— env.lock.json 记的是"装的时候到底是哪个 node",
+// 排查"同一台机器行为变了"时,这一行就是线索(§5.2.3)。
+if (lock.nodeVersion && nodeVersion !== lock.nodeVersion) {
+  warn(`node 实际 ${nodeVersion},清单记录 ${lock.nodeVersion}(大版本一致,不阻塞)`)
 }
 
 // ── 5. keyPackages 抽查(诊断,不阻塞,§5.2.3)──────────────────────
@@ -107,6 +122,8 @@ ok({
   ENV_DIR: P.root,
   ENV_VERSION: lock.envVersion ?? "unknown",
   NODE_VERSION: nodeVersion,
+  NODE_BIN: rt.node,
+  NODE_SOURCE: rt.source,
   DEPS_DIR: P.depsModules,
   LOCKFILE_HASH: gotHash,
 })

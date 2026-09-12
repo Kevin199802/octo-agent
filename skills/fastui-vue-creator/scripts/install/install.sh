@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # fastui-vue-creator 环境安装(macOS) —— SPEC-DES-001 §4.1 / §4.4
 #
-# 本脚本只负责一件事:把 portable node 弄到共享池里。
+# 本脚本只负责一件事:**弄到一个能用的 node**。
+# **手上有能跑的 node 就用它,不管大版本**(§4.1);一个都没有才下载 portable node ——
+# 内网很多机器装 opencode 时已经有 node,这批人首装因此完全不碰 manifest / node 包那条链路。
 # 拿到 node 之后立刻 exec setup-env.mjs —— 装 yarn、装依赖、写清单那些跨平台逻辑
 # 只在 .mjs 里写一份,PowerShell 和 bash 各写一遍必然漂移。
 #
 # 用法:
 #   bash install.sh [--manifest=<url|path>] [--env-dir=<路径>] [--from-local=<目录>]
-#                   [--registry=<npm 源>] [--upgrade] [--skip-node]
+#                   [--registry=<npm 源>] [--upgrade] [--skip-node] [--force-portable-node]
+#   (--skip-node 现在基本是历史开关:手上有能跑的 node 时本来就不会下载)
 #                   [--proxy=<地址>]   # 默认强制直连,只有确实必须经代理才传
 #   bash install.sh --check            # 只探测网络,不下载、不安装(见文件末尾 check_mode)
 # `-E` 不能省:ERR trap **默认不被 shell 函数继承**,而 --check 的全部逻辑都在 check_mode / 
@@ -18,7 +21,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-MANIFEST=""; ENV_DIR=""; FROM_LOCAL=""; REGISTRY=""; UPGRADE=""; SKIP_NODE=""; STRICT_CERT=""; PROXY=""; CHECK=""; BAD_ARG=""
+MANIFEST=""; ENV_DIR=""; FROM_LOCAL=""; REGISTRY=""; UPGRADE=""; SKIP_NODE=""; STRICT_CERT=""; PROXY=""; CHECK=""; FORCE_PORTABLE=""; BAD_ARG=""
 # 参数非法**先记下来、不当场退出** —— ENV_DIR 要从参数里读,而日志落在 ENV_DIR 下,
 # 当场退出的话这条失败路径反而是唯一不落盘的那条。
 for a in "$@"; do
@@ -29,6 +32,7 @@ for a in "$@"; do
     --registry=*)   REGISTRY="${a#*=}" ;;
     --upgrade)      UPGRADE=1 ;;
     --skip-node)    SKIP_NODE=1 ;;
+    --force-portable-node) FORCE_PORTABLE=1 ;;   # 逃生开关:系统 node 可疑时强制走下载
     --strict-cert)  STRICT_CERT=1 ;;
     --check)        CHECK=1 ;;
     --proxy=*)      PROXY="${a#*=}" ;;
@@ -129,16 +133,52 @@ CURL_ARGS=(--noproxy '*')
 [ -n "$PROXY" ] && CURL_ARGS=(--proxy "$PROXY" --noproxy '')
 [ -z "$STRICT_CERT" ] && CURL_ARGS+=(-k)
 
+ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && ARCH="x64"
+PLATFORM_KEY="darwin-$ARCH"
+
+# ── 系统 node:先认出来,它决定后面几乎所有分支(§4.1)────────────────
+SYS_NODE="$(command -v node || true)"
+SYS_NODE_VER=""; SYS_NODE_MAJOR=""
+if [ -n "$SYS_NODE" ]; then
+  SYS_NODE_VER="$("$SYS_NODE" -v 2>/dev/null || true)"
+  case "$SYS_NODE_VER" in
+    v[0-9]*) SYS_NODE_MAJOR="${SYS_NODE_VER#v}"; SYS_NODE_MAJOR="${SYS_NODE_MAJOR%%.*}" ;;
+    *) SYS_NODE=""; SYS_NODE_VER="" ;;   # `node -v` 都跑不出版本号的,当没有
+  esac
+fi
+
 PY="$(command -v python3 || true)"
-[ -z "$PY" ] && fail NO_PYTHON "找不到 python3,无法解析 manifest.json" "" "安装 Xcode Command Line Tools: xcode-select --install"
+# **python3 不再是硬门槛**:它只用来解析 manifest.json,而复用系统 node 的机器根本不拉
+# manifest。放在这里一票否决,会让"有 node、没装 Xcode CLT"的 mac 在第一步就被拦下 ——
+# 那台机器其实什么都不缺。真正要用到的两处(--check、下载 node)各自调 require_py。
+require_py() {
+  [ -n "$PY" ] || fail NO_PYTHON "找不到 python3,无法解析 manifest.json" "" "安装 Xcode Command Line Tools: xcode-select --install;或在一台已有 node 的机器上跑(复用系统 node 那条路不需要 python3)"
+}
+
+# 读 skill 自带的 `references/env.manifest.json`(随 skill 走,不走网络)。
+# **有系统 node 就用它解析**,没有才用 python3 —— 这个文件是纯本地的,不该把
+# "机器上有没有 python3"变成读它的前提。
+skill_manifest_field() {   # <字段名>;数组打成空格分隔
+  local f="$1" j="$SKILL_DIR/references/env.manifest.json"
+  [ -f "$j" ] || return 0
+  if [ -n "$SYS_NODE" ]; then
+    "$SYS_NODE" -e 'const fs=require("fs");let v="";try{v=JSON.parse(fs.readFileSync(process.argv[2],"utf8"))[process.argv[1]]??""}catch{};console.log(Array.isArray(v)?v.join(" "):String(v))' "$f" "$j" 2>/dev/null || true
+  elif [ -n "$PY" ]; then
+    "$PY" - "$f" "$j" <<'PYJSON' 2>/dev/null || true
+import json, sys
+try:
+    v = json.load(open(sys.argv[2])).get(sys.argv[1], "")
+except Exception:
+    v = ""
+print(" ".join(str(x) for x in v) if isinstance(v, list) else v)
+PYJSON
+  fi
+}
 
 # manifest 默认从 skill 的 env.manifest.json 里读(§4.4.6:URL 直接写死在那里)
 if [ -z "$MANIFEST" ] && [ -z "$FROM_LOCAL" ]; then
-  MANIFEST="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('manifestUrl',''))" "$SKILL_DIR/references/env.manifest.json")"
+  MANIFEST="$(skill_manifest_field manifestUrl)"
 fi
-
-ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && ARCH="x64"
-PLATFORM_KEY="darwin-$ARCH"
 
 TMP=""
 cleanup() { [ -n "${TMP:-}" ] && [ -d "${TMP:-}" ] && rm -rf "$TMP"; }
@@ -250,6 +290,7 @@ probe_asset() {  # 平台键 url
 
 check_mode() {
   local mjson bad total key file v seen
+  require_py
   echo "CHECK_MODE: probe-only"
   echo "PLATFORM_HERE: $PLATFORM_KEY"
   if [ -n "$PROXY" ]; then echo "PROXY_MODE: via $(redact "$PROXY")"; else echo "PROXY_MODE: direct(--noproxy '*')"; fi
@@ -305,23 +346,58 @@ EOF
 
 [ -n "$CHECK" ] && check_mode
 
-# ── 取 manifest ────────────────────────────────────────────────
-# **无论要不要下载 node,这一段都要跑**(v14,§4.4.8 第二批坑 4)。
-# v13 把它整块放在 else 分支里,于是走 --skip-node 时 REGISTRY 一直是空、不传给
-# setup-env,同一台机器上 install.sh 与 install.sh --skip-node 会用两个不同的 npm 源 ——
-# npm 源的取值挂在了"要不要下载 node"这个毫不相干的条件上。
+# ── 决定用哪个 node(§4.1)──────────────────────────────────────
+#
+# 三级,没有第四种情况:
+#   ① --force-portable-node  逃生开关:怀疑手上这个 node 有问题时强制走下载
+#   ② 手上有能跑的 node       复用(池子优先于系统)——**不看大版本**
+#   ③ 一个都没有              下载 portable node(唯一需要网络的路径)
+#
+# **为什么不设版本门禁**(v16 定案,§4.1):设过一版白名单(`systemNodeMajors`),
+# 判据是"没验过的大版本不算满足要求" —— 但那个名单本身是猜的,而它的代价很实:
+# 一台什么都不缺的机器(node 24 装 yarn、装 deps 全都没问题)会因为一个猜出来的数字
+# 被推去走 manifest / node 包那条已知 403 过的链路,然后死在那儿。**不能因为环境卡别人。**
+# 真不兼容的形态是 webpack / OpenSSL 那类编译期报错,由 verify 的 NODE_SUSPECT 提示认出来
+# (§5.5),而不是靠事前猜版本号。依赖树一致性本来也不靠 node 版本,靠 lockfileHash。
+#
+# ② 的判据是「`node -v` 跑得出来」,不是「文件在不在」。v15 之前写的是
+# "不带 --upgrade 时即使 node 已在也会重下重解",理由是 ENV_MISSING 时环境状态存疑 ——
+# 但那是拿一次 50MB 下载去替代一次 `node -v`,而后者是直接判据:能跑就是好的,
+# 跑不起来(拿错平台包 / 解压截断)照样落到 ③ 去重下。
+POOL_NODE_OK=""
+if [ -x "$NODE_BIN" ] && "$NODE_BIN" -v >/dev/null 2>&1; then POOL_NODE_OK=1; fi
 
-# 注意这个判据是有意的:**不带 --upgrade 时,即使 node 已在也会重下重解**。
-# 因为不带 --upgrade 的调用来自 ensure-env 报 ENV_MISSING,那时环境状态本就存疑,
-# 按"修复性重装"处理;--upgrade 才是"环境好着,只是依赖树要升"。
-NEED_NODE=1
-if [ -n "$SKIP_NODE" ] || { [ -x "$NODE_BIN" ] && [ -n "$UPGRADE" ]; }; then
-  NEED_NODE=""
-  echo "[skip] 复用已有 node: $NODE_BIN" >&2
+NEED_NODE=""; NODE_SRC=""; EFFECTIVE_NODE=""
+if [ -n "$FORCE_PORTABLE" ]; then
+  NEED_NODE=1; NODE_SRC="download(--force-portable-node)"
+elif [ -n "$POOL_NODE_OK" ]; then
+  NODE_SRC="pool"; EFFECTIVE_NODE="$NODE_BIN"
+elif [ -n "$SYS_NODE" ]; then
+  NODE_SRC="system"; EFFECTIVE_NODE="$SYS_NODE"
+elif [ -n "$SKIP_NODE" ]; then
+  # --skip-node 明说别碰 node,可是手上一个都没有 —— 这是调用方的矛盾,直接说清楚
+  fail NODE_MISSING "--skip-node 要求机器上已有可用的 node,但池子里和系统里都没有" "" "去掉 --skip-node 重跑,让脚本自己下载 portable node"
+else
+  NEED_NODE=1; NODE_SRC="download(机器上没有 node)"
 fi
+echo "[node] 来源: $NODE_SRC${EFFECTIVE_NODE:+ -> $EFFECTIVE_NODE}${SYS_NODE_VER:+;系统 node $SYS_NODE_VER}" >&2
+
+# ── 取 manifest ────────────────────────────────────────────────
+# **只在要下载 node 时才拉**(v16 改)。
+#
+# v14 特意做成"无论要不要下载都拉一次"(§4.4.8 第二批坑 4),是因为当时 npm 源**只有**
+# manifest 这一个来源,不拉就等于同一台机器上带不带 --skip-node 会用两个不同的源。
+# 现在 registry 有了本地来源(setup-env 从 template 的 .npmrc 回落取,与 yarn install
+# 读的是同一份),这条依赖就不该再存在 —— 而正是去掉它,才让「已有 node 的机器」
+# 整条首装链路一次网络请求都不发,彻底绕开曾经 504 / 403 过的那条链路。
+if [ -n "$NEED_NODE" ]; then require_py; fi
 
 MJSON=""; BASE=""
-if [ -n "$FROM_LOCAL" ]; then
+if [ -z "$NEED_NODE" ]; then
+  if [ -n "$MANIFEST" ] || [ -n "$FROM_LOCAL" ]; then
+    echo "[skip] 不需要下载 node,不读 manifest;registry 由 setup-env 从 template/.npmrc 取" >&2
+  fi
+elif [ -n "$FROM_LOCAL" ]; then
   MJSON="$FROM_LOCAL/manifest.json"
   [ -f "$MJSON" ] || fail NO_MANIFEST "离线目录里没有 manifest.json: $MJSON"
   BASE="$FROM_LOCAL"
@@ -333,17 +409,14 @@ elif [ -n "$MANIFEST" ]; then
   case "$MANIFEST" in *\?*) SEP="&" ;; *) SEP="?" ;; esac
   if ! http_get "$MANIFEST${SEP}t=$(date +%s)" "$MJSON" 60; then
     dump_body "$MJSON" "manifest 错误响应"
-    if [ -n "$NEED_NODE" ]; then
-      fail DOWNLOAD_FAILED "拉不到 manifest: $MANIFEST(HTTP $HTTP_CODE / curl exit $CURL_EXIT)" \
-        "$(body_preview "$MJSON")" \
-        "已强制直连(不经代理),响应体已记进 LOG。先跑 bash \"$SCRIPT_DIR/install.sh\" --check 看每个平台的包各是什么状态;若这台机器确实必须经代理才能到内网,传 --proxy=<地址>"
-    fi
-    # 只是为了拿 registry 的话不阻塞:node 已经在了,registry 缺省也能继续
-    echo "[warn] 拉不到 manifest,registry 回落到本机 npm 配置" >&2
-    MJSON=""
+    # 走到这里一定是"要下载 node"(上面 -z NEED_NODE 已经提前分流),所以直接失败,
+    # 不再有 v15 那条"只为拿 registry,拉不到就回落"的软路径 —— 那条路现在根本不经过这里。
+    fail DOWNLOAD_FAILED "拉不到 manifest: $MANIFEST(HTTP $HTTP_CODE / curl exit $CURL_EXIT)" \
+      "$(body_preview "$MJSON")" \
+      "已强制直连(不经代理),响应体已记进 LOG。先跑 bash \"$SCRIPT_DIR/install.sh\" --check 看每个平台的包各是什么状态;若这台机器确实必须经代理才能到内网,传 --proxy=<地址>。另:这台机器若已有 node,大版本命中白名单时本来不需要下载 —— 看上面那行 [node] 来源"
   fi
-elif [ -n "$NEED_NODE" ]; then
-  fail NO_MANIFEST "没有 manifest 地址" "" "传 --manifest=<url> 或 --from-local=<目录>"
+else
+  fail NO_MANIFEST "要下载 node,但没有 manifest 地址" "" "传 --manifest=<url> 或 --from-local=<目录>"
 fi
 
 # manifest 是不是 JSON,在这里就判掉 —— 否则下面两处 `$PY -c json.load` 会带着 python
@@ -351,16 +424,13 @@ fi
 # 拿到 200 却不是 JSON,现实里就是代理/网关/SSO 的错误页,这个信息要直接说出来。
 if [ -n "$MJSON" ] && ! "$PY" -c "import json,sys;json.load(open(sys.argv[1]))" "$MJSON" 2>/dev/null; then
   dump_body "$MJSON" "manifest 正文"
-  if [ -n "$NEED_NODE" ]; then
-    fail MANIFEST_NOT_JSON "manifest 拿到了但不是合法 JSON(多半是代理/网关/SSO 的错误页)" \
-      "$(body_preview "$MJSON")" \
-      "响应体已记进 LOG。跑 bash \"$SCRIPT_DIR/install.sh\" --check 看每个平台各是什么状态"
-  fi
-  echo "[warn] manifest 不是 JSON,registry 回落到本机 npm 配置" >&2
-  MJSON=""
+  fail MANIFEST_NOT_JSON "manifest 拿到了但不是合法 JSON(多半是代理/网关/SSO 的错误页)" \
+    "$(body_preview "$MJSON")" \
+    "响应体已记进 LOG。跑 bash \"$SCRIPT_DIR/install.sh\" --check 看每个平台各是什么状态"
 fi
 
-# registry 从 manifest 取;命令行 --registry 优先
+# registry 从 manifest 取;命令行 --registry 优先。
+# 两个都没有时不作数 —— setup-env 会回落到 template 的 .npmrc(§4.1 ③)。
 if [ -z "$REGISTRY" ] && [ -n "$MJSON" ]; then
   REGISTRY="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('npmRegistry',''))" "$MJSON")"
 fi
@@ -410,14 +480,16 @@ EOF
     || fail EXTRACT_FAILED "解压失败: $PKG"
   [ -x "$NODE_BIN" ] || fail EXTRACT_FAILED "解压后找不到 $NODE_BIN(stripComponents 可能不对)"
   echo "[node] $("$NODE_BIN" -v) → $NODE_DIR" >&2
+  EFFECTIVE_NODE="$NODE_BIN"
 fi
+[ -n "$EFFECTIVE_NODE" ] || fail NODE_MISSING "没能确定用哪个 node(内部状态异常)" "NODE_SRC=$NODE_SRC" "把 LOG 里这次运行的整段发出来"
 
 # ── 交给 setup-env.mjs ────────────────────────────────────────
 ARGS=(--env-dir="$ENV_DIR")
 [ -n "$REGISTRY" ] && ARGS+=(--registry="$REGISTRY")
 [ -n "$UPGRADE" ] && ARGS+=(--upgrade)
 [ -n "$PROXY" ] && ARGS+=(--proxy="$PROXY")   # 不透传的话,逃生开关只对下载 node 那一步有效
-echo "[handoff] setup-env.mjs $(redact "${ARGS[*]}") —— 之后的日志由它自己往同一个文件写" >&2
+echo "[handoff] $EFFECTIVE_NODE setup-env.mjs $(redact "${ARGS[*]}") —— 之后的日志由它自己往同一个文件写" >&2
 
 # exec 会替换掉当前进程,EXIT trap 不会跑 —— 临时目录要在这里自己清掉,
 # 否则每次装完都在 /var/folders 下留一份几十 MB 的 node 包。
@@ -426,4 +498,6 @@ trap - EXIT
 # tee 的 fd 也要还原,否则 setup-env 的输出会被这边 tee 一遍、它自己再写一遍,日志里全是双份。
 # 3/4 用完就关,别随 exec 泄漏给 node 进程
 [ -n "$TEE_ON" ] && exec 1>&3 2>&4 3>&- 4>&-
-exec "$NODE_BIN" "$SKILL_DIR/scripts/setup-env.mjs" "${ARGS[@]}"
+# 用 $EFFECTIVE_NODE 而不是写死 $NODE_BIN:复用系统 node 时池子里根本没有 node,
+# setup-env 也就顺势跑在系统 node 上(它自己用 process.execPath 认出这一点)。
+exec "$EFFECTIVE_NODE" "$SKILL_DIR/scripts/setup-env.mjs" "${ARGS[@]}"
