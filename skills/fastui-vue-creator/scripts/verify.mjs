@@ -16,7 +16,7 @@ import { setLogSink, ok, fail, usage, warn, log, block, parseArgs } from "./lib/
 import { envDir, envPaths, readManifest, readJson, sessionPaths } from "./lib/paths.mjs"
 import { findFreePort, isServing } from "./lib/port.mjs"
 import { parseRounds, extractErrors } from "./lib/compile.mjs"
-import { lintMissingImports } from "./lib/lint.mjs"
+import { lintMissingImports, lintMissingVueApis } from "./lib/lint.mjs"
 
 const args = parseArgs()
 // 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查。
@@ -338,11 +338,41 @@ while (Date.now() - t0 < timeoutMs) {
       await sleep(500)
       continue
     }
-    // 编译通过不等于页面能渲染:漏 import 的组件 webpack 编不出错,
-    // 但浏览器里会 `Failed to resolve component` 然后整页白屏。这是 verify 唯一
-    // 能在"返回 OK"之前替模型兜住的一类运行时错误,不查白不查。
+    // 编译通过不等于页面能渲染:漏 import webpack 编不出错,但浏览器里整页白屏。
+    // 这是 verify 唯一能在"返回 OK"之前替模型兜住的一类运行时错误,不查白不查。
+    //
+    // **两类分两档,理由见 lib/lint.mjs 的文件头** —— 简言之不是按后果轻重
+    // (两类都是 100% 白屏),而是按「判据在不在本文件内闭合」:组件可能被脚手架
+    // 全局注册(lint 看不见那个文件)→ WARN;vue API 不存在全局注册 → FAIL。
     for (const r of lintMissingImports(writeDir)) {
       warn(`${path.relative(projectDir, r.file)} 用了 ${r.missing.join(" / ")} 但没有 import —— 页面会白屏,必须补上`)
+    }
+
+    const apiMisses = lintMissingVueApis(writeDir)
+    if (apiMisses.length) {
+      // 走 FAIL 而不是 warn():`ref` 漏 import 是 `ReferenceError` → setup 抛错 → 整页白屏,
+      // 且 100% 可判定。WARN 在 SKILL.md 里的既定语义是"不阻塞、不用管",
+      // 用它承载一个必然白屏的错误等于不查。
+      //
+      // **故意不输出 PREVIEW_URL** —— 有它模型就可能直接跳到第 ⑤ 步宣布完成。
+      // dev server 不受影响(仍在跑、.devserver.json 已写),下一轮 verify 复用它,秒级返回。
+      //
+      // 块内一律 ASCII 标签(`MISSING` / `ADD` 而不是"缺" / "补")——
+      // 内网 Windows 终端代码页是 GBK,中文在截图/复制出来的片段里可能是乱码,
+      // 而这个块的全部用途就是**被人原样贴到外网来定位**(§5.1.1、§8.4)。
+      // 路径里的中文躲不掉(产物名可以是中文),但 API 名和那行 import 必须始终可读。
+      const detail = apiMisses
+        .map((r) => `${path.relative(projectDir, r.file)}\n  MISSING: ${r.missing.join(", ")}\n  ADD: import { ${r.missing.join(", ")} } from 'vue'`)
+        .join("\n")
+      block("MISSING_IMPORTS", detail)
+      fail(
+        "MISSING_VUE_IMPORT",
+        `${apiMisses.length} 个文件用了 vue 的 API 但没 import —— 运行时 ReferenceError,页面会整页白屏`,
+        {
+          hint: "按上面 MISSING_IMPORTS 块给的 import 行补进对应文件的 <script setup> 顶部,然后重跑 verify。这是你自己改的代码问题,不要转述给用户",
+          extra: { PORT: port, PID: pid, PROJECT_DIR: projectDir, COMPILE: "OK" },
+        },
+      )
     }
     ok({
       PREVIEW_URL: `http://127.0.0.1:${port}`,
