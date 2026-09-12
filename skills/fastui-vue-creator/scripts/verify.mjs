@@ -9,7 +9,8 @@
  *
  * 用法: node verify.mjs --session-dir=<.octo/<sid>> [--project-dir=] [--restart] [--timeout=300]
  */
-import { spawn } from "node:child_process"
+// execFileSync:Windows 分支用它跑 PowerShell 的 Start-Process(v15 改走 -EncodedCommand 时引入)
+import { execFileSync, spawn } from "node:child_process"
 import { existsSync, openSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, usage, warn, log, block, parseArgs } from "./lib/result.mjs"
