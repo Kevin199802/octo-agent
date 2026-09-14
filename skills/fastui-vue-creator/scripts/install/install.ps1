@@ -375,6 +375,7 @@ try {
       if (-not (@(200, 206) -contains [int]$g.code)) { $bad++ }
     }
     Emit "CHECKED_PLATFORMS: $total"
+
     if ($total -eq 0) { Fail "NO_PLATFORM_PKG" "manifest 的 node.platforms 是空的" $null "在 manifest.json 里补平台条目" }
     if ($bad -gt 0) {
       Fail "ASSET_UNREACHABLE" "$bad/$total 个平台的 node 包拉不到(见上面 ASSET_* 行)" $null "文件在不在、nginx 给没给这个扩展名配 MIME、WAF 有没有按 UA/扩展名拦 —— 这三项要内网投放侧确认(§4.4.4)"
@@ -445,14 +446,14 @@ try {
     #
     # v14 特意做成"无论要不要装都读一次"(§4.4.8 第二批坑 4),是因为当时 npm 源**只有**
     # manifest 这一个来源,不读就等于同一台机器上带不带 -SkipNode 会用两个不同的源。
-    # 现在 registry 有了本地来源(setup-env 从 template 的 .npmrc 回落取,与 yarn install
-    # 读的是同一份),这条依赖就不该再存在 —— 而正是去掉它,才让「已有 node 的机器」
+    # 现在装 yarn 的源在 setup-env 里是个写死的常量(YARN_REGISTRY),不依赖网络 ——
+    # 这条依赖就不该再存在, 而正是去掉它,才让「已有 node 的机器」
     # 引导脚本这一段一次网络请求都不发,彻底绕开曾经 504 / 403 过的那条链路
     # (装 yarn 与 1GB 依赖仍走内网 npm 源,那是 setup-env 的事,不在这条链路上)。
     $m = $null
     $base = ""
     if (-not $needNode) {
-      if ($Manifest -or $FromLocal) { Say "[skip] 不需要下载 node,不读 manifest;registry 由 setup-env 从 template/.npmrc 取" }
+      if ($Manifest -or $FromLocal) { Say "[skip] 不需要下载 node,不读 manifest;装 yarn 的 registry 由 setup-env 用内置常量" }
     } elseif ($FromLocal) {
       $mjson = Join-Path $FromLocal "manifest.json"
       if (-not (Test-Path $mjson)) { Fail "NO_MANIFEST" "离线目录里没有 manifest.json: $mjson" $null $null }
@@ -494,7 +495,8 @@ try {
     }
 
     # registry 从 manifest 取;命令行 -Registry 优先。
-    # 两个都没有时不作数 —— setup-env 会回落到 template 的 .npmrc(§4.1 ③)。
+    # 两个都没有时不作数 —— setup-env 里有个写死的 YARN_REGISTRY 兜底(§4.1 ③)。
+    # **不能用 template\.npmrc**:那是项目依赖源,装 yarn 会报错(2026-09-14 复核)。
     if (-not $Registry -and $m) { $Registry = $m.npmRegistry }
 
     # ── 下载 + 校验 + 解压 node ──────────────────────────────────

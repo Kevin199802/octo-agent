@@ -147,7 +147,7 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 | `NODE_MISSING` | 手上一个能用的 node 都没有（v16 起**不再等于"共享池里没有"** —— 复用系统 node 是正常状态） | 引导脚本那步没跑完 | 重跑 install 脚本 | 上一段 `=====`（install 的） |
 | `NPM_NOT_FOUND` | 找到了 node，但找不到它自带的 npm | node 是精简发行版 / 被裁剪过（企业镜像里见过） | 用不带 `--skip-node` 的 install 让它下 portable node | `[node] 来源: system -> <路径>;系统 node vX.Y.Z` 那行 |
 | `SKILL_NOT_ASSEMBLED` | `template/` 缺 `package.json` 或 `yarn.lock` | **skill 没在内网组装**，不是用户能解决的 | 走 skill 上架流程 | 无 |
-| `YARN_INSTALL_FAILED` | 装 yarn 或装依赖失败 | **首选怀疑代理**（历史上就是它）。另一种形态是 `npm 报成功,但 <池子>/node/bin/yarn 不存在` —— 那是机器上的 `~/.npmrc` 里有 `prefix=` 抢走了落点 | 把 `--- npm stderr ---` 整段发出来；后一种情形发 `npm config list` | 子进程原文尾部 20 行 |
+| `YARN_INSTALL_FAILED` | 装 yarn 或装依赖失败 | **先分清挂在哪一步**：`--- npm stderr ---` 段是**装 yarn**，`--- yarn stderr ---` 段是**装 1GB 依赖**。① 装 yarn 挂 → 看 `[yarn] 装到 …,registry=<X>` 那行，`X` **必须是通用 npm 镜像**（项目依赖源上没有 `yarn` 这个包，[§4.1](specs/design/fastui-vue-codegen-pipeline.md#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)）；② 装依赖挂 → **首选怀疑代理**（历史上就是它）；③ `npm 报成功,但 <池子>/node/bin/yarn 不存在` → `~/.npmrc` 里有 `prefix=` 抢走了落点 | 把对应那段子进程原文发出来；③ 发 `npm config list` | `RESULT` 行的原因 + `[yarn] 装到 …` 那行 |
 | `YARN_NOT_FOUND` | yarn 装上了却找不到 JS 入口（Windows 上响亮失败） | npm 全局落点与预期不符 | 把 `<池子>/node` 的目录树发出来 | `POOL_YARN_JS:`（doctor 那行） |
 | `LOCKFILE_DRIFT` | 装完 `deps/yarn.lock` 与 template 的不一致 | **template 的 package.json 与 yarn.lock 本身不匹配** | 在维护机上重新生成 lockfile | `EXPECTED_LOCK` / `ACTUAL_LOCK` |
 

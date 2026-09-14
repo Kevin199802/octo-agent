@@ -11,15 +11,14 @@
 import { execFileSync, spawn } from "node:child_process"
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
-import { setLogSink, ok, fail, warn, log, logChild, lastLine, tailBuffer, parseArgs } from "./lib/result.mjs"
-import { TEMPLATE_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs, resolveNpmJs, resolveRuntime } from "./lib/paths.mjs"
+import { setLogSink, ok, fail, log, logChild, lastLine, tailBuffer, parseArgs } from "./lib/result.mjs"
+import { TEMPLATE_DIR, envDir, envPaths, readJson, exists, resolveYarnJs, resolveNpmJs, resolveRuntime } from "./lib/paths.mjs"
 import { sha256File, sameHash } from "./lib/hash.mjs"
 
 const args = parseArgs()
 // 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查。
 // 这个脚本可能在还没有任何会话时跑(首装),所以落共享池(§5.1.1)。
 setLogSink(path.join(envDir(args["env-dir"]), "octo-fastui.log"))
-const manifest = readManifest()
 const P = envPaths(envDir(args["env-dir"]))
 const isUpgrade = Boolean(args.upgrade)
 
@@ -227,32 +226,20 @@ const runYarn = async (argv, cwd) => {
 }
 
 /**
- * registry 的回落源:**template 自带的 `.npmrc`**(§4.1 ③)。
+ * 装 yarn 用的 npm 源 —— **通用 npm 镜像,写死在这里**。
  *
- * 装 yarn 这一步必须显式给 registry —— 此刻还没有任何项目级配置可依赖(cwd 不在 deps/ 下)。
- * 命令行 `--registry` 优先(安装脚本从 manifest 取到时会传),但系统 node 够用时安装脚本
- * **根本不去拉 manifest**(那正是这条改动的收益:绕开曾经 504 / 403 的那条链路),
- * 于是需要一个本地的、与依赖树同版本的源 —— template 的 `.npmrc` 就是它,
- * 后面 `yarn install` 读的也是从它复制过去的那一份,两步用同一个源。
+ * ⚠️ **不能用 `template/.npmrc` 里那个**(v16 起草时就是这么写的,2026-09-14 复核发现是错的)。
+ * 那两个 registry 是两件东西,§4.1「③④ 的 registry 必须分开处理」说的就是它们:
+ *   - 这个常量                       → 通用 npm 镜像,**yarn 这个包只在这里有**
+ *   - `template/.npmrc` 的 registry → 项目依赖源(外加 @lake / @turboui 各 scope 独立源),
+ *                                     只服务这棵依赖树,**装 yarn 会直接报错**
+ * 拿后者去装 yarn,复用系统 node 的机器(v16 的主路径)首装必挂在 `npm i -g yarn` 这一步。
  *
- * 只取顶层 `registry=`,不碰 `@scope:registry=`:scope 源是给 yarn install 那步用的,
- * 而这里装的是 yarn 本身。
+ * 为什么是常量而不是配置项:它是内网的一个固定地址,改它无论如何都要发一版新 skill 包 ——
+ * 放进 JSON 只是多一层读取和一条"文件坏了"的失败路径,换不到任何东西。
+ * 真要临时换源,`--registry` 与 `OCTO_NPM_REGISTRY` 两个逃生口就够了。
  */
-function registryFromTemplateNpmrc() {
-  try {
-    const lines = readFileSync(path.join(TEMPLATE_DIR, ".npmrc"), "utf8").split(/\r?\n/)
-    let found = ""
-    for (const raw of lines) {
-      const line = raw.trim()
-      if (!line || line.startsWith("#") || line.startsWith(";")) continue
-      const m = /^registry\s*=\s*(\S+)$/.exec(line)
-      if (m) found = m[1] // 后面的覆盖前面的,与 npm 自己的行为一致
-    }
-    return found
-  } catch {
-    return ""
-  }
-}
+const YARN_REGISTRY = "http://mirrors.tools.huawei.com/npm/"
 
 // ── ③ 装 yarn ────────────────────────────────────────────────────
 //
@@ -262,16 +249,9 @@ function registryFromTemplateNpmrc() {
 // 权限、软链都正常)。Agent 内执行 sudo 会静默挂住等密码、没有交互通道 ——
 // 要躲的是这个,而 portable node 只是躲开它的**一种**办法,不是唯一一种(§4.1)。
 if (!exists(P.yarnBin)) {
-  const fromTemplate = registryFromTemplateNpmrc()
-  const registry = String(args.registry || process.env.OCTO_NPM_REGISTRY || fromTemplate || "")
-  // **两个源不一致要留痕**(v16 复核):`--registry` 是安装脚本从 manifest 取来的,而它
-  // **只在要下载 node 时才会拿到** —— 于是同一个内网里,"这台机器碰巧有没有 node"决定了
-  // 装 yarn 用哪个源。两个值一致时这无所谓,不一致时就是一次静默漂移,而下一步
-  // `yarn install` 读的始终是 template 那份(§4.1「③④ 的 registry 必须分开处理」)。
-  // 不阻塞、不自动选一个 —— 只在日志里说清楚,否则出事时没人会往这个方向想(v14 坑 4 的同款形态)。
-  if (args.registry && fromTemplate && String(args.registry) !== fromTemplate) {
-    warn(`装 yarn 用的 registry(${args.registry},来自 manifest)与 template/.npmrc 里的(${fromTemplate})不一致 —— 下一步 yarn install 读的是后者`)
-  }
+  // 回落链只有三档,而且第三档恒有值:`--registry`(安装脚本从远端 manifest 取到时会传,
+  // 也是人工逃生口)→ `OCTO_NPM_REGISTRY` → 上面那个常量。**不存在"没有源"这种状态。**
+  const registry = String(args.registry || process.env.OCTO_NPM_REGISTRY || YARN_REGISTRY)
   // npm 也不能直接 spawn `npm.cmd`(Node 18+ 禁执行 .cmd/.bat,报 EINVAL),
   // 而系统 node 的 npm 布局与 portable 包的又不同 —— 顺着 node 二进制去找它自己的 npm。
   const npmJs = resolveNpmJs(RT.node)
@@ -281,12 +261,12 @@ if (!exists(P.yarnBin)) {
     })
   }
   const argv = [npmJs, "install", "-g", "yarn", `--prefix=${P.node}`]
-  if (registry) argv.push(`--registry=${registry}`)   // ← 只有装 yarn 这一步传 registry
-  log(`[yarn] 装到 ${P.node}${registry ? `,registry=${registry}` : ",registry 用本机 npm 配置"}`)
+  argv.push(`--registry=${registry}`)   // ← 只有装 yarn 这一步传 registry;registry 恒非空(三档兜底)
+  log(`[yarn] 装到 ${P.node},registry=${registry}`)
   try {
     await run(RT.node, argv, undefined, "npm")
   } catch (e) {
-    fail("YARN_INSTALL_FAILED", `安装 yarn 失败: ${e.message}`, { hint: registry ? undefined : "试试 --registry=<内网 npm 源>" })
+    fail("YARN_INSTALL_FAILED", `安装 yarn 失败: ${e.message}`)
   }
   if (!exists(P.yarnBin) && !resolveYarnJs(P)) {
     // npm 退出码 0 但东西不在该在的地方 —— 多半是机器上的 `~/.npmrc` 里写死了 `prefix=`。
