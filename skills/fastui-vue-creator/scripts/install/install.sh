@@ -336,6 +336,26 @@ $(platforms_of "$mjson")
 EOF
 
   echo "CHECKED_PLATFORMS: $total"
+
+  # ── 两份 npmRegistry 必须一致(SPEC-DES-002 §4.4)────────────────
+  #
+  # 这个字段现在有两份:nginx 上这份(裸机走下载时读)、skill 自带那份(复用已有 node 时读)。
+  # **漂移的后果是不对称的**,所以要主动比:
+  #   skill 那份错   → 复用 node 的机器(多数)首装挂 —— 2026-09-14 修的就是它
+  #   nginx 那份错   → 只有裸机(少数)挂,其余全绿 = "只有个别新机器装不上",最难查的形态
+  # --check 本来就是投放侧自检工具,在这里失败是对的,不挡任何人装东西。
+  # **按尾斜杠归一化再比**:实测 npm 两种写法请求的是同一个 URL,不归一化就成了假告警。
+  local lreg rreg
+  lreg="$(skill_manifest_field npmRegistry)"
+  rreg="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('npmRegistry',''))" "$mjson" 2>/dev/null || true)"
+  echo "NPM_REGISTRY_SKILL: ${lreg:-(未配置)}"
+  echo "NPM_REGISTRY_REMOTE: ${rreg:-(未配置)}"
+  if [ -n "$lreg" ] && [ -n "$rreg" ] && [ "${lreg%/}" != "${rreg%/}" ]; then
+    fail NPM_REGISTRY_DRIFT "两份 manifest 的 npmRegistry 不一致(装 yarn 会因机器有没有 node 而用两个源)" \
+      "skill=$lreg remote=$rreg" \
+      "把两边改成同一个值:nginx 上的 manifest.json,以及 skill 的 references/env.manifest.json(改完要发一版新 skill 包)。尾部斜杠有无不影响,已排除"
+  fi
+
   [ "$total" = "0" ] && fail NO_PLATFORM_PKG "manifest 的 node.platforms 是空的" "" "在 manifest.json 里补平台条目"
   if [ "$bad" != "0" ]; then
     fail ASSET_UNREACHABLE "$bad/$total 个平台的 node 包拉不到(见上面 ASSET_* 行)" "" \

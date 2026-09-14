@@ -375,6 +375,21 @@ try {
       if (-not (@(200, 206) -contains [int]$g.code)) { $bad++ }
     }
     Emit "CHECKED_PLATFORMS: $total"
+
+    # ── 两份 npmRegistry 必须一致(SPEC-DES-002 §4.4)────────────
+    #
+    # 这个字段现在有两份:nginx 上这份(裸机走下载时读)、skill 自带那份(复用已有 node 时读)。
+    # **漂移的后果不对称**:skill 那份错 → 多数机器挂;nginx 那份错 → 只有裸机挂、其余全绿,
+    # 是最难查的形态。-Check 是投放侧自检工具,在这里失败是对的,不挡任何人装东西。
+    # **按尾斜杠归一化再比**:实测 npm 两种写法请求的是同一个 URL,不归一化就成了假告警。
+    $lreg = ""; if ($em -and $em.npmRegistry) { $lreg = "$($em.npmRegistry)" }
+    $rreg = ""; if ($m -and $m.npmRegistry) { $rreg = "$($m.npmRegistry)" }
+    Emit "NPM_REGISTRY_SKILL: $(if ($lreg) { $lreg } else { '(未配置)' })"
+    Emit "NPM_REGISTRY_REMOTE: $(if ($rreg) { $rreg } else { '(未配置)' })"
+    if ($lreg -and $rreg -and ($lreg.TrimEnd('/') -ne $rreg.TrimEnd('/'))) {
+      Fail "NPM_REGISTRY_DRIFT" "两份 manifest 的 npmRegistry 不一致(装 yarn 会因机器有没有 node 而用两个源)" "skill=$lreg remote=$rreg" "把两边改成同一个值:nginx 上的 manifest.json,以及 skill 的 references\env.manifest.json(改完要发一版新 skill 包)。尾部斜杠有无不影响,已排除"
+    }
+
     if ($total -eq 0) { Fail "NO_PLATFORM_PKG" "manifest 的 node.platforms 是空的" $null "在 manifest.json 里补平台条目" }
     if ($bad -gt 0) {
       Fail "ASSET_UNREACHABLE" "$bad/$total 个平台的 node 包拉不到(见上面 ASSET_* 行)" $null "文件在不在、nginx 给没给这个扩展名配 MIME、WAF 有没有按 UA/扩展名拦 —— 这三项要内网投放侧确认(§4.4.4)"

@@ -102,7 +102,7 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 | 前缀 | 出自 | 含义 |
 |---|---|---|
 | `[skip]` | install / setup-env | 这一步跳过了（复用已有 node / yarn 已存在 / **不需要下载 node 因此没读 manifest**） |
-| `[node] 来源: …` | install | **v16 起最该先看的一行**：这次用的是哪个 node（`pool` = 共享池里的 portable node、`system` = 机器上原有的、`download(…)` = 要下载，括号里是原因）。看到 `system` 时整个安装不发一次网络请求，**没有 `[http]` 行是正常的** |
+| `[node] 来源: …` | install | **v16 起最该先看的一行**：这次用的是哪个 node（`pool` = 共享池里的 portable node、`system` = 机器上原有的、`download(…)` = 要下载，括号里是原因）。看到 `system` 时**引导脚本这一段**不发网络请求，**没有 `[http]` 行是正常的**（但 `setup-env` 的装 yarn / 装依赖照常联网，见 [§4.6](#46-装完了但日志里既没有下载也没有-http-行--是不是没装)） |
 | `[download]` `[node]` | install | 开始下载 / node 解压完成 |
 | `[node]` `[yarn]` | setup-env | 用的是池子还是系统 node / yarn 装到哪、用的哪个 registry |
 | `[http]` `[curl]` | install | 一次 HTTP 请求的结果 / curl 自己的报错 |
@@ -125,13 +125,14 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 |---|---|---|---|---|
 | `NO_PYTHON` | macOS 上没有 python3（只用来解析 manifest，与 node 无关）。**v16 起只在真要下载 node 或跑 `--check` 时才报** —— 机器上有任何一个能跑的 node 时这条根本不会出现 | 干净的 macOS，且这台机器一个能跑的 node 都没有 | `xcode-select --install`；或先确认 `[node] 来源` 那行为什么判成了要下载 | 无 |
 | `NO_MANIFEST` | 没有 manifest 地址，或离线目录里没有 `manifest.json` | 参数传错 / 离线包不完整 | 看 `HINT` 给的两个开关 | 完整命令行（`=====` 那行） |
-| `SKILL_MANIFEST_BROKEN` | 读不了 skill 自带的 `references/env.manifest.json`（**仅 ps1**） | skill 包没组装好 / 文件被编辑坏 | 重新上架 skill | `DETAIL` 里的异常原文 |
+| `SKILL_MANIFEST_BROKEN` | 读不了 skill 自带的 `references/env.manifest.json` | skill 包没组装好 / 文件被编辑坏 | 重新上架 skill；要临时绕开可传 `--registry=<内网 npm 源>` | `DETAIL` 里的异常原文 |
 | `MANIFEST_UNREACHABLE` | manifest 请求失败（`--check` 模式下的码） | **代理 / 网络 / 证书**，见 §3.3 | 跑一次 `--check` 全量 | `[http]` 行的两个码 + `[body]` |
 | `DOWNLOAD_FAILED` | 拉 manifest 或 node 包失败（安装模式下的码） | 同上 | 同上 | 同上；若是 node 包，还要 `ASSET_*` 行 |
 | `MANIFEST_NOT_JSON` | HTTP 200 了，但返回的不是 JSON | **十有八九是代理 / 网关 / SSO 的登录页** | 把 `[body]` 那段发出来 | `[body]` 原文（这就是答案本身） |
 | `MANIFEST_PARSE_FAILED` | JSON 合法，但取不到本平台的包信息（**仅 sh**） | manifest 里缺 `node.platforms.<平台>` | 核对 manifest | manifest 全文 |
 | `NO_PLATFORM_PKG` | `node.platforms` 里没有这台机器的平台键 | 投放时漏了 `darwin-arm64` / `darwin-x64` | 补 manifest 条目 | `PLATFORM_HERE:` 那行 |
 | `ASSET_UNREACHABLE` | `--check` 判定：有平台的包拉不到 | 见 §3.2 的四种组合 | 把整段 `--check` 输出发出来 | 全部 `ASSET_*` 行 + `[body]` |
+| `NPM_REGISTRY_DRIFT` | `--check` 判定：**两份 manifest 的 `npmRegistry` 不一致**（nginx 上那份给裸机走下载用，skill 自带那份给复用已有 node 用） | 投放时只改了一边 | 两边改成同一个值，skill 那份改完要发新版 skill 包（[SPEC-DES-002 §4.4.5](specs/design/fastui-env-hosting.md)）。**尾斜杠有无不影响，已排除** | `NPM_REGISTRY_SKILL` / `NPM_REGISTRY_REMOTE` 两行 |
 | `NO_LOCAL_PKG` | 离线目录里没有对应的包文件 | 离线包不完整 | 核对目录 | 无 |
 | `SHA256_MISMATCH` | 包下下来了但校验不过 | **下载被截断，或被代理改写过** | 重下；确认 `Content-Length` | `DETAIL` 里的 expected/actual/size |
 | `EXTRACT_FAILED` | 解压失败，或解压后找不到 `node` | 包损坏 / `stripComponents` 配错 / Win 缺 `tar.exe` | 先看是不是 SHA 就已经不对 | `DETAIL` 的 tar 退出码 |
@@ -231,6 +232,7 @@ HINT: 这条编译错误不是你写的代码的问题,别改 .vue 重试。当�
 | `MANIFEST_HTTP` / `_BYTES` / `_MS` | manifest 这一跳的结果 |
 | `ASSET_<平台>` | **每个平台一行**，见下 |
 | `CHECKED_PLATFORMS` | 一共验了几个平台 |
+| `NPM_REGISTRY_SKILL` / `_REMOTE` | 装 yarn 用的源，**两份必须一致**（比对时按尾斜杠归一化）。不一致直接 `NPM_REGISTRY_DRIFT` |
 
 ### 3.2 `ASSET_*` 行的判读
 

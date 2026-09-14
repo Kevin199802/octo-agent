@@ -1557,8 +1557,18 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
 - **V0-f ZIP 中文文件名**：产物名与页面名都用中文，断言 UTF-8 flag 已置、CRC 校验通过、包内无 `node_modules`、链接被跳过（v12 实测通过）
 - **V0-g 编译判定不 flaky**（v8 新增）：连续快速改两次文件，断言 `verify` 采信的是**最后一次**编译结果而非中间态；再断言"复用已跑的 dev server"时不会读到上一轮的成功记录（§5.5.1）
 - **V0-h 升级链路能被触发**（v8 新增）：改动 `<skillDir>/template/yarn.lock` 后重跑 `ensure-env`，断言返回 `ENV_OUTDATED` —— 这条直接验的是 §5.2.1 那个跨边界比对，比错了整条升级链是死的
-- **V0-i 复用系统 node 的首装**（v16 新增，2026-09-11 本地 macOS 实测通过）：造一个最小 template（公网 npm 的两个小包 + `.npmrc` 指公网源）当假脚手架，`bash install.sh --env-dir=<临时目录>`，逐条断言：
-  1. `[node] 来源: system`，**一次网络请求都没发**（日志里没有任何 `[http]` 行、没读 manifest）
+- **V0-i 复用系统 node 的首装**（v16 新增，2026-09-11 本地 macOS 实测通过；**fixture 于 2026-09-14 改过，见下面的 ⚠️**）：造一个最小 template 当假脚手架，`bash install.sh --env-dir=<临时目录>`，逐条断言：
+
+  > ⚠️ **`template/.npmrc` 必须指一个"明确没有 `yarn` 包"的源**（本地起个一律 404 的服务最省事），
+  > **不能指公网 npm**。原来的 fixture 让它指公网源，于是 `template/.npmrc` 与"装 yarn 该用的源"
+  > 指向同一个地方，**回落到哪一个都跑得通** —— v16 八项全绿、内网首装却必挂，根因就是这个 fixture
+  > 把那条 bug 盖住了（[§4.1](#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)「③④ 的 registry 必须分开处理」）。**两个源必须长得不一样，这条断言才有判别力。**
+
+  1. `[node] 来源: system`，**引导脚本那一段一次网络请求都没发**（日志里没有 `[http]` 行、没读 manifest）。
+     ⚠️ 限定的是 `install.sh` 这一段 —— 后面 `setup-env` 的 ③④ 当然要连 registry，别读成"整个安装不联网"
+  1. **装 yarn 用的是通用 npm 镜像，不是 `template/.npmrc` 的值** —— 断言**实际 HTTP 请求打在哪个源**
+     （两个假 registry 各起一个，看请求落在哪边），不只断言 `[yarn] 装到 …,registry=X` 那行的文本。
+     这条就是 2026-09-14 那个 bug 的拦网，[§4.1](#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node) 那节是它的依据
   2. `npm i -g yarn --prefix=<envDir>/node` 全程无 sudo，落点是 `<envDir>/node/bin/yarn -> ../lib/node_modules/yarn/bin/yarn.js`
   3. `ensure-env` → `RESULT: OK`，`NODE_SOURCE: system`
   4. 把 `env.lock.json` 的 `nodeVersion` 改成**同大版本、不同小版本** → 仍然 `OK`，多一条 `WARN:`

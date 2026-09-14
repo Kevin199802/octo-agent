@@ -19,7 +19,17 @@ const args = parseArgs()
 // 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查。
 // 这个脚本可能在还没有任何会话时跑(首装),所以落共享池(§5.1.1)。
 setLogSink(path.join(envDir(args["env-dir"]), "octo-fastui.log"))
-const manifest = readManifest()
+// **不能让它裸抛**(§5.1.2):读不了就是一条 SyntaxError / ENOENT 堆栈,一行 `RESULT:` 都没有,
+// 而"发日志就能定位"正是这套脚本的判据。v16 之后这个文件还多了个 `npmRegistry` ——
+// 它是复用已有 node 那条主路径上装 yarn 的源,不再只承载 skillVersion / manifestUrl。
+let manifest
+try {
+  manifest = readManifest()
+} catch (e) {
+  fail("SKILL_MANIFEST_BROKEN", `读不了 skill 自带的 references/env.manifest.json:${e.message}`, {
+    hint: "skill 包没组装好或文件被编辑坏了,重新上架一版。要临时绕开,传 --registry=<内网 npm 源>",
+  })
+}
 const P = envPaths(envDir(args["env-dir"]))
 const isUpgrade = Boolean(args.upgrade)
 
@@ -242,8 +252,22 @@ const runYarn = async (argv, cwd) => {
  * 拿后者去装 yarn,复用系统 node 的机器(v16 的主路径)首装必挂在 `npm i -g yarn` 这一步。
  */
 function registryFromSkillManifest() {
+  return String(manifest.npmRegistry ?? "")
+}
+
+/**
+ * 第四档(什么都没配到)时,本机 npm 配置生效的那个值 —— **只为把它打进日志**。
+ *
+ * 这一档的源来自机器上的 `~/.npmrc`,是整条回落链里唯一我们完全不控的输入,
+ * 却恰恰是最需要看清的一档:它万一指着公网 `registry.npmjs.org`,表现是超时 /
+ * ECONNREFUSED,而排查手册会把人引向"首选怀疑代理" —— 又一次"错误信息指向错误方向"。
+ * 打一行本地进程调用换来的可观测性(不走网络),让手册那条"看 registry=<X>"恒定有 X 可看。
+ *
+ * 拿不到就返回空串,继续走 —— 这只是诊断,不能因为诊断失败挡住安装。
+ */
+function registryFromLocalNpmConfig(npmJs) {
   try {
-    return String(manifest.npmRegistry ?? "")
+    return execFileSync(RT.node, [npmJs, "config", "get", "registry"], { encoding: "utf8", env: childEnv() }).trim()
   } catch {
     return ""
   }
@@ -258,8 +282,11 @@ function registryFromSkillManifest() {
 // 要躲的是这个,而 portable node 只是躲开它的**一种**办法,不是唯一一种(§4.1)。
 if (!exists(P.yarnBin)) {
   // 回落链:命令行(远端 manifest)→ 环境变量 → skill 自带的 manifest → 本机 npm 配置。
-  // **最后这档不是"随便试试"**:内网机器的 ~/.npmrc 多半已经指向同一个镜像,
-  // 而这一步真正要防的是"拿错源"(见 registryFromSkillManifest 的注释),不是"没有源"。
+  //
+  // **第四档为什么不响亮失败**:`references/env.manifest.json` 的 `npmRegistry` 是随 skill 包
+  // 提交的,所以走到第四档等价于"skill 包是旧版本或坏了"。此时 `OCTO_NPM_REGISTRY` 这个逃生口
+  // 还在,而硬失败会让一台其实装得上的机器直接停摆 —— 正是 v16 想避免的那类代价。
+  // 代价换成**可观测**:下面把本机 npm 生效的那个值也打进日志(§5.1.1),不留"没有源可看"的死角。
   const registry = String(args.registry || process.env.OCTO_NPM_REGISTRY || registryFromSkillManifest() || "")
   // npm 也不能直接 spawn `npm.cmd`(Node 18+ 禁执行 .cmd/.bat,报 EINVAL),
   // 而系统 node 的 npm 布局与 portable 包的又不同 —— 顺着 node 二进制去找它自己的 npm。
@@ -271,7 +298,13 @@ if (!exists(P.yarnBin)) {
   }
   const argv = [npmJs, "install", "-g", "yarn", `--prefix=${P.node}`]
   if (registry) argv.push(`--registry=${registry}`)   // ← 只有装 yarn 这一步传 registry
-  log(`[yarn] 装到 ${P.node}${registry ? `,registry=${registry}` : ",registry 用本机 npm 配置"}`)
+  // 这一行是排查手册 §2.2 的判读依据,**必须恒有一个源可看**:配到了就打配到的,
+  // 没配到就把本机 npm 生效的那个查出来打(见 registryFromLocalNpmConfig)。
+  const effectiveReg = registry || registryFromLocalNpmConfig(npmJs)
+  log(
+    `[yarn] 装到 ${P.node},registry=${effectiveReg || "(取不到)"}` +
+      (registry ? "" : "(本机 npm 配置 —— skill 自带 manifest 里没有 npmRegistry,多半是旧版 skill 包)"),
+  )
   try {
     await run(RT.node, argv, undefined, "npm")
   } catch (e) {

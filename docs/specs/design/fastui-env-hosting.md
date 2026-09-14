@@ -116,7 +116,7 @@ curl -sI https://octo.hdesign.huawei.com/design/fastui-env/node/node-v22.19.0-da
 ```json
 {
   "manifestVersion": 1,
-  "npmRegistry": "http://mirrors.tools.huawei.com/npm",
+  "npmRegistry": "http://mirrors.tools.huawei.com/npm/",
   "node": {
     "version": "v22.19.0",
     "platforms": {
@@ -285,8 +285,8 @@ v14 的 doctor 自己用 Node 的 `fetch` 探 manifest，于是有了 2026-09-08
 1. 在 `/design` 下建目录 `fastui-env/node/`（无需改 nginx，见 §4.4.4）
 2. 从内网 node 镜像下载 §4.4.2 的 2~3 个包，放进 `fastui-env/node/`
 3. 抄/算 sha256（§4.4.3）
-4. 按 §4.4.5 写 `manifest.json`，放进 `fastui-env/`
-5. 按 §4.4.4 的自检命令确认 manifest 和资源都能拉到
+4. 按 §4.4.5 写 `manifest.json`，放进 `fastui-env/` —— ⚠️ 其中 `npmRegistry` **skill 自带那份也有一份，两边必须一致**（见 §4.4.5 字段表）
+5. 按 §4.4.4 的自检命令确认 manifest 和资源都能拉到；再跑一次 `install.sh --check` / `install.ps1 -Check`，看 `NPM_REGISTRY_SKILL` 与 `NPM_REGISTRY_REMOTE` 两行是否一致（不一致会直接 `RESULT: FAIL | NPM_REGISTRY_DRIFT`）
 6. 在内网跑 `assemble.mjs --template=<脚手架模板> --vendor=<三份组件 skill>`
 7. 把 assemble 产出的 skill 包按技能库的上架流程上架
 8. 在一台**干净的**设计师机器上调一次 skill，全程观察是否零人工介入（[§9.2](fastui-vue-codegen-pipeline.md#92-内网验证) 阶段 1）
@@ -296,7 +296,7 @@ v14 的 doctor 自己用 Node 的 `fetch` 探 manifest，于是有了 2026-09-08
 1. 更新脚手架模板的 `package.json` → 在内网维护机上 `yarn install` → 得到新 `yarn.lock`
 2. 产出新的 `env.lock.json`（新 `envVersion` + 新 `lockfileHash`），写 env CHANGELOG
 3. 跑 `assemble.mjs`（带上新 template）→ 上架新版 skill 包
-4. **服务器上什么都不用改**（node 没变、template 随 skill 包走）
+4. **服务器上什么都不用改**（node 没变、template 随 skill 包走）—— ⚠️ **除非这次动了 `npmRegistry`**：那个字段两份都要改（nginx 上的 `manifest.json` + skill 的 `references/env.manifest.json`），改完跑一次 `--check` 确认 `NPM_REGISTRY_*` 两行一致
 5. 设计师端下次调 skill 时 `ensure-env` 检出 `lockfileHash` 不匹配 → agent 自动跑 `install --upgrade` → 共享池增量 `yarn install` → 校验 hash → 继续
 
 **只有 node 版本要换时**，才动 nginx：换包、更新 sha256 与 `version`、改 manifest —— 这是数月一次的事。
