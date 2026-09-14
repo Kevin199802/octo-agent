@@ -102,7 +102,7 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 | 前缀 | 出自 | 含义 |
 |---|---|---|
 | `[skip]` | install / setup-env | 这一步跳过了（复用已有 node / yarn 已存在 / **不需要下载 node 因此没读 manifest**） |
-| `[node] 来源: …` | install | **v16 起最该先看的一行**：这次用的是哪个 node（`pool` = 共享池里的 portable node、`system` = 机器上原有的、`download(…)` = 要下载，括号里是原因）。看到 `system` 时**引导脚本这一段**不发网络请求，**没有 `[http]` 行是正常的**（但 `setup-env` 的装 yarn / 装依赖照常联网，见 [§4.6](#46-装完了但日志里既没有下载也没有-http-行--是不是没装)） |
+| `[node] 来源: …` | install | **v16 起最该先看的一行**：这次用的是哪个 node（`pool` = 共享池里的 portable node、`system` = 机器上原有的、`download(…)` = 要下载，括号里是原因）。看到 `system` 时整个安装不发一次网络请求，**没有 `[http]` 行是正常的** |
 | `[download]` `[node]` | install | 开始下载 / node 解压完成 |
 | `[node]` `[yarn]` | setup-env | 用的是池子还是系统 node / yarn 装到哪、用的哪个 registry |
 | `[http]` `[curl]` | install | 一次 HTTP 请求的结果 / curl 自己的报错 |
@@ -125,7 +125,7 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 |---|---|---|---|---|
 | `NO_PYTHON` | macOS 上没有 python3（只用来解析 manifest，与 node 无关）。**v16 起只在真要下载 node 或跑 `--check` 时才报** —— 机器上有任何一个能跑的 node 时这条根本不会出现 | 干净的 macOS，且这台机器一个能跑的 node 都没有 | `xcode-select --install`；或先确认 `[node] 来源` 那行为什么判成了要下载 | 无 |
 | `NO_MANIFEST` | 没有 manifest 地址，或离线目录里没有 `manifest.json` | 参数传错 / 离线包不完整 | 看 `HINT` 给的两个开关 | 完整命令行（`=====` 那行） |
-| `SKILL_MANIFEST_BROKEN` | 读不了 skill 自带的 `references/env.manifest.json`。**只在真要用它的那一步才报**（装 yarn 且前两档都没给 registry）—— `--upgrade`、已传 `--registry` 这些不读它的路径不会被挡 | skill 包没组装好 / 文件被编辑坏 | 重新上架 skill。本次要绕开：传 `--registry=<内网 npm 源>` 或设 `OCTO_NPM_REGISTRY`（**这两个绕法真的有效**，它们排在这一档之前） | `DETAIL` 里的异常原文 |
+| `SKILL_MANIFEST_BROKEN` | 读不了 skill 自带的 `references/env.manifest.json`（**仅 ps1**） | skill 包没组装好 / 文件被编辑坏 | 重新上架 skill | `DETAIL` 里的异常原文 |
 | `MANIFEST_UNREACHABLE` | manifest 请求失败（`--check` 模式下的码） | **代理 / 网络 / 证书**，见 §3.3 | 跑一次 `--check` 全量 | `[http]` 行的两个码 + `[body]` |
 | `DOWNLOAD_FAILED` | 拉 manifest 或 node 包失败（安装模式下的码） | 同上 | 同上 | 同上；若是 node 包，还要 `ASSET_*` 行 |
 | `MANIFEST_NOT_JSON` | HTTP 200 了，但返回的不是 JSON | **十有八九是代理 / 网关 / SSO 的登录页** | 把 `[body]` 那段发出来 | `[body]` 原文（这就是答案本身） |
@@ -147,7 +147,7 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 | `NODE_MISSING` | 手上一个能用的 node 都没有（v16 起**不再等于"共享池里没有"** —— 复用系统 node 是正常状态） | 引导脚本那步没跑完 | 重跑 install 脚本 | 上一段 `=====`（install 的） |
 | `NPM_NOT_FOUND` | 找到了 node，但找不到它自带的 npm | node 是精简发行版 / 被裁剪过（企业镜像里见过） | 用不带 `--skip-node` 的 install 让它下 portable node | `[node] 来源: system -> <路径>;系统 node vX.Y.Z` 那行 |
 | `SKILL_NOT_ASSEMBLED` | `template/` 缺 `package.json` 或 `yarn.lock` | **skill 没在内网组装**，不是用户能解决的 | 走 skill 上架流程 | 无 |
-| `YARN_INSTALL_FAILED` | 装 yarn 或装依赖失败 | **先分清挂在哪一步**：`--- npm stderr ---` 段是**装 yarn**（③），`--- yarn stderr ---` 段是**装 1GB 依赖**（④）。① 装 yarn 挂 → 看 `[yarn] 装到 …,registry=<X>` 那行的 `X`：**必须是通用 npm 镜像**，是项目依赖源就是拿错了源（那里没有 `yarn` 这个包，[§4.1](specs/design/fastui-vue-codegen-pipeline.md#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)）；② 装依赖挂 → **首选怀疑代理**（历史上就是它）；③ `npm 报成功,但 <池子>/node/bin/yarn 不存在` → 机器上的 `~/.npmrc` 里有 `prefix=` 抢走了落点 | 把对应那段子进程原文发出来；③ 发 `npm config list` | `RESULT` 行里的原因（现已带真实错误行）+ `[yarn] 装到 …` 那行 |
+| `YARN_INSTALL_FAILED` | 装 yarn 或装依赖失败 | **先分清挂在哪一步**：`--- npm stderr ---` 段是**装 yarn**，`--- yarn stderr ---` 段是**装 1GB 依赖**。① 装 yarn 挂 → 看 `[yarn] 装到 …,registry=<X>` 那行，`X` **必须是通用 npm 镜像**（项目依赖源上没有 `yarn` 这个包，[§4.1](specs/design/fastui-vue-codegen-pipeline.md#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)）；② 装依赖挂 → **首选怀疑代理**（历史上就是它）；③ `npm 报成功,但 <池子>/node/bin/yarn 不存在` → `~/.npmrc` 里有 `prefix=` 抢走了落点 | 把对应那段子进程原文发出来；③ 发 `npm config list` | `RESULT` 行的原因 + `[yarn] 装到 …` 那行 |
 | `YARN_NOT_FOUND` | yarn 装上了却找不到 JS 入口（Windows 上响亮失败） | npm 全局落点与预期不符 | 把 `<池子>/node` 的目录树发出来 | `POOL_YARN_JS:`（doctor 那行） |
 | `LOCKFILE_DRIFT` | 装完 `deps/yarn.lock` 与 template 的不一致 | **template 的 package.json 与 yarn.lock 本身不匹配** | 在维护机上重新生成 lockfile | `EXPECTED_LOCK` / `ACTUAL_LOCK` |
 

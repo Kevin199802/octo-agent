@@ -121,10 +121,6 @@ if (!sawProxy) put("PROXY", "(无)")
 
 // ── 网络:不在这里做 ─────────────────────────────────────────────
 put("MANIFEST_URL", readManifest().manifestUrl ?? "(未配置)")
-// 装 yarn 用的源。**必须在这里打**:`[yarn] 装到 …,registry=X` 那行只在首装、且 yarn 还不存在时
-// 打一次,之后就是 `[skip] yarn 已存在` —— 一台已经装过(哪怕装歪了)的机器上,排查手册那条
-// "看 registry=X"无从看起。doctor 是常驻诊断面,静态读、不发请求,顺手打出来。
-put("NPM_REGISTRY_SKILL", readManifest().npmRegistry ?? "(未配置 —— 旧版 skill 包,装 yarn 会回落到本机 npm 配置)")
 const checkCmd =
   process.platform === "win32"
     ? `powershell -ExecutionPolicy Bypass -File "${path.join(SKILL_DIR, "scripts", "install", "install.ps1")}" -Check`

@@ -12,15 +12,13 @@ import { execFileSync, spawn } from "node:child_process"
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, log, logChild, lastLine, tailBuffer, parseArgs } from "./lib/result.mjs"
-import { TEMPLATE_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs, resolveNpmJs, resolveRuntime } from "./lib/paths.mjs"
+import { TEMPLATE_DIR, envDir, envPaths, readJson, exists, resolveYarnJs, resolveNpmJs, resolveRuntime } from "./lib/paths.mjs"
 import { sha256File, sameHash } from "./lib/hash.mjs"
 
 const args = parseArgs()
 // 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查。
 // 这个脚本可能在还没有任何会话时跑(首装),所以落共享池(§5.1.1)。
 setLogSink(path.join(envDir(args["env-dir"]), "octo-fastui.log"))
-// 注:`references/env.manifest.json` **不在这里读**。它只有一个消费点(装 yarn 的 registry 回落),
-// 所以惰性读、在那个使用点失败 —— 见 `registryFromSkillManifest()`。
 const P = envPaths(envDir(args["env-dir"]))
 const isUpgrade = Boolean(args.upgrade)
 
@@ -228,63 +226,20 @@ const runYarn = async (argv, cwd) => {
 }
 
 /**
- * registry 的回落源:**skill 自带的 `references/env.manifest.json` 的 `npmRegistry`**。
+ * 装 yarn 用的 npm 源 —— **通用 npm 镜像,写死在这里**。
  *
- * 装 yarn 这一步必须显式给 registry —— 此刻还没有任何项目级配置可依赖(cwd 不在 deps/ 下)。
- * 命令行 `--registry` 优先(安装脚本从远端 manifest 取到时会传),但手上有能跑的 node 时
- * 安装脚本**根本不去拉 manifest**(那正是 v16 的收益:绕开曾经 504 / 403 的那条链路),
- * 于是需要一个**不走网络的本地来源** —— skill 自带的那份 manifest 就是它,随 skill 包走。
- *
- * ⚠️ **绝对不能回落到 `template/.npmrc`**(v16 起草时就是这么写的,2026-09-14 复核发现是错的)。
- * 那两个 registry 是**两件东西**,§4.1「③④ 的 registry 必须分开处理」说的就是它们:
- *   - `npmRegistry`(manifest)     → 通用 npm 镜像,**yarn 这个包只在这里有**
+ * ⚠️ **不能用 `template/.npmrc` 里那个**(v16 起草时就是这么写的,2026-09-14 复核发现是错的)。
+ * 那两个 registry 是两件东西,§4.1「③④ 的 registry 必须分开处理」说的就是它们:
+ *   - 这个常量                       → 通用 npm 镜像,**yarn 这个包只在这里有**
  *   - `template/.npmrc` 的 registry → 项目依赖源(外加 @lake / @turboui 各 scope 独立源),
  *                                     只服务这棵依赖树,**装 yarn 会直接报错**
  * 拿后者去装 yarn,复用系统 node 的机器(v16 的主路径)首装必挂在 `npm i -g yarn` 这一步。
- */
-function registryFromSkillManifest() {
-  // **惰性读 + 在使用点失败**,不在模块顶层读(2026-09-14 复核:顶层读过一版,是错的)。
-  //
-  // 这个文件全脚本只有这一个消费点,而这个函数排在 `args.registry` / `OCTO_NPM_REGISTRY`
-  // **短路之后**、又整个在 `if (!exists(P.yarnBin))` 里面。顶层读的话:
-  //   - `--upgrade`(yarn 已存在,增量升依赖的常态)根本不读它,却会被挡死 —— 最要命的一条,
-  //     一台环境完好、只想升依赖的机器会因为一个它这趟不会打开的文件停摆
-  //   - 已传 `--registry` 的也不读它,同样被挡
-  //   - 而且那版的 HINT 写着"传 --registry 绕开",顶层 fail 直接 exit,那句是**死路**
-  // 与 `install.ps1` 对同一个文件的策略对齐(那边注释写着:读不了不当场失败,
-  // 只有"要用它里面某个值"的那一步才失败,否则什么都不缺的机器会被一个用不到的文件拦下)。
-  //
-  // 走到这里 = 前两档都没给值,所以下面 HINT 里那两个绕法**这次真的能用**。
-  let m
-  try {
-    m = readManifest()
-  } catch (e) {
-    fail("SKILL_MANIFEST_BROKEN", `读不了 skill 自带的 references/env.manifest.json:${e.message}`, {
-      hint: "skill 包没组装好或文件被编辑坏了,重新上架一版。本次要绕开:传 --registry=<内网 npm 源>,或设环境变量 OCTO_NPM_REGISTRY",
-    })
-  }
-  // 文件能读但没这个字段 → 返回空串,交给第四档(本机 npm 配置)。**不失败**:
-  // 那是旧版 skill 包的正常形态,拦下来等于因为一个可降级的缺失停掉一台装得上的机器。
-  return String(m.npmRegistry ?? "")
-}
-
-/**
- * 第四档(什么都没配到)时,本机 npm 配置生效的那个值 —— **只为把它打进日志**。
  *
- * 这一档的源来自机器上的 `~/.npmrc`,是整条回落链里唯一我们完全不控的输入,
- * 却恰恰是最需要看清的一档:它万一指着公网 `registry.npmjs.org`,表现是超时 /
- * ECONNREFUSED,而排查手册会把人引向"首选怀疑代理" —— 又一次"错误信息指向错误方向"。
- * 打一行本地进程调用换来的可观测性(不走网络),让手册那条"看 registry=<X>"恒定有 X 可看。
- *
- * 拿不到就返回空串,继续走 —— 这只是诊断,不能因为诊断失败挡住安装。
+ * 为什么是常量而不是配置项:它是内网的一个固定地址,改它无论如何都要发一版新 skill 包 ——
+ * 放进 JSON 只是多一层读取和一条"文件坏了"的失败路径,换不到任何东西。
+ * 真要临时换源,`--registry` 与 `OCTO_NPM_REGISTRY` 两个逃生口就够了。
  */
-function registryFromLocalNpmConfig(npmJs) {
-  try {
-    return execFileSync(RT.node, [npmJs, "config", "get", "registry"], { encoding: "utf8", env: childEnv() }).trim()
-  } catch {
-    return ""
-  }
-}
+const YARN_REGISTRY = "http://mirrors.tools.huawei.com/npm/"
 
 // ── ③ 装 yarn ────────────────────────────────────────────────────
 //
@@ -294,13 +249,9 @@ function registryFromLocalNpmConfig(npmJs) {
 // 权限、软链都正常)。Agent 内执行 sudo 会静默挂住等密码、没有交互通道 ——
 // 要躲的是这个,而 portable node 只是躲开它的**一种**办法,不是唯一一种(§4.1)。
 if (!exists(P.yarnBin)) {
-  // 回落链:命令行(远端 manifest)→ 环境变量 → skill 自带的 manifest → 本机 npm 配置。
-  //
-  // **第四档为什么不响亮失败**:`references/env.manifest.json` 的 `npmRegistry` 是随 skill 包
-  // 提交的,所以走到第四档等价于"skill 包是旧版本或坏了"。此时 `OCTO_NPM_REGISTRY` 这个逃生口
-  // 还在,而硬失败会让一台其实装得上的机器直接停摆 —— 正是 v16 想避免的那类代价。
-  // 代价换成**可观测**:下面把本机 npm 生效的那个值也打进日志(§5.1.1),不留"没有源可看"的死角。
-  const registry = String(args.registry || process.env.OCTO_NPM_REGISTRY || registryFromSkillManifest() || "")
+  // 回落链只有三档,而且第三档恒有值:`--registry`(安装脚本从远端 manifest 取到时会传,
+  // 也是人工逃生口)→ `OCTO_NPM_REGISTRY` → 上面那个常量。**不存在"没有源"这种状态。**
+  const registry = String(args.registry || process.env.OCTO_NPM_REGISTRY || YARN_REGISTRY)
   // npm 也不能直接 spawn `npm.cmd`(Node 18+ 禁执行 .cmd/.bat,报 EINVAL),
   // 而系统 node 的 npm 布局与 portable 包的又不同 —— 顺着 node 二进制去找它自己的 npm。
   const npmJs = resolveNpmJs(RT.node)
@@ -311,13 +262,7 @@ if (!exists(P.yarnBin)) {
   }
   const argv = [npmJs, "install", "-g", "yarn", `--prefix=${P.node}`]
   if (registry) argv.push(`--registry=${registry}`)   // ← 只有装 yarn 这一步传 registry
-  // 这一行是排查手册 §2.2 的判读依据,**必须恒有一个源可看**:配到了就打配到的,
-  // 没配到就把本机 npm 生效的那个查出来打(见 registryFromLocalNpmConfig)。
-  const effectiveReg = registry || registryFromLocalNpmConfig(npmJs)
-  log(
-    `[yarn] 装到 ${P.node},registry=${effectiveReg || "(取不到)"}` +
-      (registry ? "" : "(本机 npm 配置 —— skill 自带 manifest 里没有 npmRegistry,多半是旧版 skill 包)"),
-  )
+  log(`[yarn] 装到 ${P.node},registry=${registry}`)
   try {
     await run(RT.node, argv, undefined, "npm")
   } catch (e) {
