@@ -261,12 +261,12 @@ if (!exists(P.yarnBin)) {
     })
   }
   const argv = [npmJs, "install", "-g", "yarn", `--prefix=${P.node}`]
-  if (registry) argv.push(`--registry=${registry}`)   // ← 只有装 yarn 这一步传 registry
+  argv.push(`--registry=${registry}`)   // ← 只有装 yarn 这一步传 registry;registry 恒非空(三档兜底)
   log(`[yarn] 装到 ${P.node},registry=${registry}`)
   try {
     await run(RT.node, argv, undefined, "npm")
   } catch (e) {
-    fail("YARN_INSTALL_FAILED", `安装 yarn 失败: ${e.message}`, { hint: registry ? undefined : "试试 --registry=<内网 npm 源>" })
+    fail("YARN_INSTALL_FAILED", `安装 yarn 失败: ${e.message}`)
   }
   if (!exists(P.yarnBin) && !resolveYarnJs(P)) {
     // npm 退出码 0 但东西不在该在的地方 —— 多半是机器上的 `~/.npmrc` 里写死了 `prefix=`。

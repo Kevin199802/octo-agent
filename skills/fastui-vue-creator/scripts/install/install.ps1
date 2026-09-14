@@ -453,7 +453,7 @@ try {
     $m = $null
     $base = ""
     if (-not $needNode) {
-      if ($Manifest -or $FromLocal) { Say "[skip] 不需要下载 node,不读 manifest;registry 由 setup-env 从 skill 自带的 env.manifest.json 取" }
+      if ($Manifest -or $FromLocal) { Say "[skip] 不需要下载 node,不读 manifest;装 yarn 的 registry 由 setup-env 用内置常量" }
     } elseif ($FromLocal) {
       $mjson = Join-Path $FromLocal "manifest.json"
       if (-not (Test-Path $mjson)) { Fail "NO_MANIFEST" "离线目录里没有 manifest.json: $mjson" $null $null }

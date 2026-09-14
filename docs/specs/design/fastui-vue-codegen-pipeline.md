@@ -694,7 +694,7 @@ v6 及以前写的是"用 yarn 在模板里装依赖 → 移入共享池"。**�
 >
 > | | 是什么 | 有没有 `yarn` 这个包 |
 > |---|---|---|
-> | `npmRegistry`（manifest / skill 自带那份） | 通用 npm 镜像（`mirrors.tools.huawei.com/npm`） | **有** |
+> | `YARN_REGISTRY`（`setup-env.mjs` 里的常量） | 通用 npm 镜像（`mirrors.tools.huawei.com/npm/`） | **有** |
 > | `template/.npmrc` 的顶层 `registry=` | 项目依赖源，只服务这棵依赖树 | **没有 —— 拿它装 yarn 直接报错** |
 >
 > v16 起草时把③的源写成了从 `template/.npmrc` 回落取，理由是"不读 manifest 就得有个本地来源"。
