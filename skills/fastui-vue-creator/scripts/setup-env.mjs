@@ -11,7 +11,7 @@
 import { execFileSync, spawn } from "node:child_process"
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
-import { setLogSink, ok, fail, warn, log, logChild, lastLine, tailBuffer, parseArgs } from "./lib/result.mjs"
+import { setLogSink, ok, fail, log, logChild, lastLine, tailBuffer, parseArgs } from "./lib/result.mjs"
 import { TEMPLATE_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs, resolveNpmJs, resolveRuntime } from "./lib/paths.mjs"
 import { sha256File, sameHash } from "./lib/hash.mjs"
 
@@ -227,28 +227,23 @@ const runYarn = async (argv, cwd) => {
 }
 
 /**
- * registry 的回落源:**template 自带的 `.npmrc`**(§4.1 ③)。
+ * registry 的回落源:**skill 自带的 `references/env.manifest.json` 的 `npmRegistry`**。
  *
  * 装 yarn 这一步必须显式给 registry —— 此刻还没有任何项目级配置可依赖(cwd 不在 deps/ 下)。
- * 命令行 `--registry` 优先(安装脚本从 manifest 取到时会传),但系统 node 够用时安装脚本
- * **根本不去拉 manifest**(那正是这条改动的收益:绕开曾经 504 / 403 的那条链路),
- * 于是需要一个本地的、与依赖树同版本的源 —— template 的 `.npmrc` 就是它,
- * 后面 `yarn install` 读的也是从它复制过去的那一份,两步用同一个源。
+ * 命令行 `--registry` 优先(安装脚本从远端 manifest 取到时会传),但手上有能跑的 node 时
+ * 安装脚本**根本不去拉 manifest**(那正是 v16 的收益:绕开曾经 504 / 403 的那条链路),
+ * 于是需要一个**不走网络的本地来源** —— skill 自带的那份 manifest 就是它,随 skill 包走。
  *
- * 只取顶层 `registry=`,不碰 `@scope:registry=`:scope 源是给 yarn install 那步用的,
- * 而这里装的是 yarn 本身。
+ * ⚠️ **绝对不能回落到 `template/.npmrc`**(v16 起草时就是这么写的,2026-09-14 复核发现是错的)。
+ * 那两个 registry 是**两件东西**,§4.1「③④ 的 registry 必须分开处理」说的就是它们:
+ *   - `npmRegistry`(manifest)     → 通用 npm 镜像,**yarn 这个包只在这里有**
+ *   - `template/.npmrc` 的 registry → 项目依赖源(外加 @lake / @turboui 各 scope 独立源),
+ *                                     只服务这棵依赖树,**装 yarn 会直接报错**
+ * 拿后者去装 yarn,复用系统 node 的机器(v16 的主路径)首装必挂在 `npm i -g yarn` 这一步。
  */
-function registryFromTemplateNpmrc() {
+function registryFromSkillManifest() {
   try {
-    const lines = readFileSync(path.join(TEMPLATE_DIR, ".npmrc"), "utf8").split(/\r?\n/)
-    let found = ""
-    for (const raw of lines) {
-      const line = raw.trim()
-      if (!line || line.startsWith("#") || line.startsWith(";")) continue
-      const m = /^registry\s*=\s*(\S+)$/.exec(line)
-      if (m) found = m[1] // 后面的覆盖前面的,与 npm 自己的行为一致
-    }
-    return found
+    return String(manifest.npmRegistry ?? "")
   } catch {
     return ""
   }
@@ -262,16 +257,10 @@ function registryFromTemplateNpmrc() {
 // 权限、软链都正常)。Agent 内执行 sudo 会静默挂住等密码、没有交互通道 ——
 // 要躲的是这个,而 portable node 只是躲开它的**一种**办法,不是唯一一种(§4.1)。
 if (!exists(P.yarnBin)) {
-  const fromTemplate = registryFromTemplateNpmrc()
-  const registry = String(args.registry || process.env.OCTO_NPM_REGISTRY || fromTemplate || "")
-  // **两个源不一致要留痕**(v16 复核):`--registry` 是安装脚本从 manifest 取来的,而它
-  // **只在要下载 node 时才会拿到** —— 于是同一个内网里,"这台机器碰巧有没有 node"决定了
-  // 装 yarn 用哪个源。两个值一致时这无所谓,不一致时就是一次静默漂移,而下一步
-  // `yarn install` 读的始终是 template 那份(§4.1「③④ 的 registry 必须分开处理」)。
-  // 不阻塞、不自动选一个 —— 只在日志里说清楚,否则出事时没人会往这个方向想(v14 坑 4 的同款形态)。
-  if (args.registry && fromTemplate && String(args.registry) !== fromTemplate) {
-    warn(`装 yarn 用的 registry(${args.registry},来自 manifest)与 template/.npmrc 里的(${fromTemplate})不一致 —— 下一步 yarn install 读的是后者`)
-  }
+  // 回落链:命令行(远端 manifest)→ 环境变量 → skill 自带的 manifest → 本机 npm 配置。
+  // **最后这档不是"随便试试"**:内网机器的 ~/.npmrc 多半已经指向同一个镜像,
+  // 而这一步真正要防的是"拿错源"(见 registryFromSkillManifest 的注释),不是"没有源"。
+  const registry = String(args.registry || process.env.OCTO_NPM_REGISTRY || registryFromSkillManifest() || "")
   // npm 也不能直接 spawn `npm.cmd`(Node 18+ 禁执行 .cmd/.bat,报 EINVAL),
   // 而系统 node 的 npm 布局与 portable 包的又不同 —— 顺着 node 二进制去找它自己的 npm。
   const npmJs = resolveNpmJs(RT.node)

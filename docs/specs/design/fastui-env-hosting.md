@@ -143,7 +143,7 @@ curl -sI https://octo.hdesign.huawei.com/design/fastui-env/node/node-v22.19.0-da
 
 | 字段 | 含义 |
 |---|---|
-| `npmRegistry` | 只用于 [§4.1](fastui-vue-codegen-pipeline.md#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node) ③ 装 yarn。**不传给 `yarn install`** |
+| `npmRegistry` | 只用于 [§4.1](fastui-vue-codegen-pipeline.md#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node) ③ 装 yarn。**不传给 `yarn install`**。⚠️ **这个字段现在有两份，要保持一致**：这里这份（nginx 上，走下载那条路时读）和 skill 自带的 [`references/env.manifest.json`](../../../skills/fastui-vue-creator/references/env.manifest.json)（复用已有 node 时读，不走网络）。改了这里就同步改 skill 那份，下个 skill 版本带出去 |
 | `file` | **相对 manifest 所在目录**解析 |
 | `sha256` | 从 `SHASUMS256.txt` 抄，或按 §4.4.3 自算 |
 | `stripComponents` | 解压时剥掉的外层目录级数，node 官方包固定为 `1` |
