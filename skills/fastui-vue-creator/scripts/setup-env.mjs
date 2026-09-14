@@ -19,17 +19,8 @@ const args = parseArgs()
 // 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查。
 // 这个脚本可能在还没有任何会话时跑(首装),所以落共享池(§5.1.1)。
 setLogSink(path.join(envDir(args["env-dir"]), "octo-fastui.log"))
-// **不能让它裸抛**(§5.1.2):读不了就是一条 SyntaxError / ENOENT 堆栈,一行 `RESULT:` 都没有,
-// 而"发日志就能定位"正是这套脚本的判据。v16 之后这个文件还多了个 `npmRegistry` ——
-// 它是复用已有 node 那条主路径上装 yarn 的源,不再只承载 skillVersion / manifestUrl。
-let manifest
-try {
-  manifest = readManifest()
-} catch (e) {
-  fail("SKILL_MANIFEST_BROKEN", `读不了 skill 自带的 references/env.manifest.json:${e.message}`, {
-    hint: "skill 包没组装好或文件被编辑坏了,重新上架一版。要临时绕开,传 --registry=<内网 npm 源>",
-  })
-}
+// 注:`references/env.manifest.json` **不在这里读**。它只有一个消费点(装 yarn 的 registry 回落),
+// 所以惰性读、在那个使用点失败 —— 见 `registryFromSkillManifest()`。
 const P = envPaths(envDir(args["env-dir"]))
 const isUpgrade = Boolean(args.upgrade)
 
@@ -252,7 +243,29 @@ const runYarn = async (argv, cwd) => {
  * 拿后者去装 yarn,复用系统 node 的机器(v16 的主路径)首装必挂在 `npm i -g yarn` 这一步。
  */
 function registryFromSkillManifest() {
-  return String(manifest.npmRegistry ?? "")
+  // **惰性读 + 在使用点失败**,不在模块顶层读(2026-09-14 复核:顶层读过一版,是错的)。
+  //
+  // 这个文件全脚本只有这一个消费点,而这个函数排在 `args.registry` / `OCTO_NPM_REGISTRY`
+  // **短路之后**、又整个在 `if (!exists(P.yarnBin))` 里面。顶层读的话:
+  //   - `--upgrade`(yarn 已存在,增量升依赖的常态)根本不读它,却会被挡死 —— 最要命的一条,
+  //     一台环境完好、只想升依赖的机器会因为一个它这趟不会打开的文件停摆
+  //   - 已传 `--registry` 的也不读它,同样被挡
+  //   - 而且那版的 HINT 写着"传 --registry 绕开",顶层 fail 直接 exit,那句是**死路**
+  // 与 `install.ps1` 对同一个文件的策略对齐(那边注释写着:读不了不当场失败,
+  // 只有"要用它里面某个值"的那一步才失败,否则什么都不缺的机器会被一个用不到的文件拦下)。
+  //
+  // 走到这里 = 前两档都没给值,所以下面 HINT 里那两个绕法**这次真的能用**。
+  let m
+  try {
+    m = readManifest()
+  } catch (e) {
+    fail("SKILL_MANIFEST_BROKEN", `读不了 skill 自带的 references/env.manifest.json:${e.message}`, {
+      hint: "skill 包没组装好或文件被编辑坏了,重新上架一版。本次要绕开:传 --registry=<内网 npm 源>,或设环境变量 OCTO_NPM_REGISTRY",
+    })
+  }
+  // 文件能读但没这个字段 → 返回空串,交给第四档(本机 npm 配置)。**不失败**:
+  // 那是旧版 skill 包的正常形态,拦下来等于因为一个可降级的缺失停掉一台装得上的机器。
+  return String(m.npmRegistry ?? "")
 }
 
 /**

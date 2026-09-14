@@ -125,7 +125,7 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 |---|---|---|---|---|
 | `NO_PYTHON` | macOS 上没有 python3（只用来解析 manifest，与 node 无关）。**v16 起只在真要下载 node 或跑 `--check` 时才报** —— 机器上有任何一个能跑的 node 时这条根本不会出现 | 干净的 macOS，且这台机器一个能跑的 node 都没有 | `xcode-select --install`；或先确认 `[node] 来源` 那行为什么判成了要下载 | 无 |
 | `NO_MANIFEST` | 没有 manifest 地址，或离线目录里没有 `manifest.json` | 参数传错 / 离线包不完整 | 看 `HINT` 给的两个开关 | 完整命令行（`=====` 那行） |
-| `SKILL_MANIFEST_BROKEN` | 读不了 skill 自带的 `references/env.manifest.json` | skill 包没组装好 / 文件被编辑坏 | 重新上架 skill；要临时绕开可传 `--registry=<内网 npm 源>` | `DETAIL` 里的异常原文 |
+| `SKILL_MANIFEST_BROKEN` | 读不了 skill 自带的 `references/env.manifest.json`。**只在真要用它的那一步才报**（装 yarn 且前两档都没给 registry）—— `--upgrade`、已传 `--registry` 这些不读它的路径不会被挡 | skill 包没组装好 / 文件被编辑坏 | 重新上架 skill。本次要绕开：传 `--registry=<内网 npm 源>` 或设 `OCTO_NPM_REGISTRY`（**这两个绕法真的有效**，它们排在这一档之前） | `DETAIL` 里的异常原文 |
 | `MANIFEST_UNREACHABLE` | manifest 请求失败（`--check` 模式下的码） | **代理 / 网络 / 证书**，见 §3.3 | 跑一次 `--check` 全量 | `[http]` 行的两个码 + `[body]` |
 | `DOWNLOAD_FAILED` | 拉 manifest 或 node 包失败（安装模式下的码） | 同上 | 同上 | 同上；若是 node 包，还要 `ASSET_*` 行 |
 | `MANIFEST_NOT_JSON` | HTTP 200 了，但返回的不是 JSON | **十有八九是代理 / 网关 / SSO 的登录页** | 把 `[body]` 那段发出来 | `[body]` 原文（这就是答案本身） |

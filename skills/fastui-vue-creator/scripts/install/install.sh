@@ -350,6 +350,12 @@ EOF
   rreg="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('npmRegistry',''))" "$mjson" 2>/dev/null || true)"
   echo "NPM_REGISTRY_SKILL: ${lreg:-(未配置)}"
   echo "NPM_REGISTRY_REMOTE: ${rreg:-(未配置)}"
+  # **"skill 那份缺字段"比不一致更危险,但只出 WARN**:缺字段时每台复用 node 的机器
+  # 都会落到第四档(本机 npm 配置)—— 那是整条链里唯一我们不控的输入,而且静默。
+  # 不做 FAIL 的理由:--check 同时是**网络自检工具**,内网排查网络时不该被一个
+  # 本地字段挡住拿不到 ASSET_* 那几行。
+  [ -z "$lreg" ] && echo "WARN: skill 自带的 env.manifest.json 里没有 npmRegistry —— 复用已有 node 的机器装 yarn 会回落到本机 npm 配置(不受控)。多半是旧版 skill 包,发一版新的"
+  [ -z "$rreg" ] && echo "WARN: nginx 上的 manifest.json 里没有 npmRegistry —— 裸机走下载那条路装 yarn 会回落到本机 npm 配置(不受控)。按 SPEC-DES-002 §4.4.5 补上"
   if [ -n "$lreg" ] && [ -n "$rreg" ] && [ "${lreg%/}" != "${rreg%/}" ]; then
     fail NPM_REGISTRY_DRIFT "两份 manifest 的 npmRegistry 不一致(装 yarn 会因机器有没有 node 而用两个源)" \
       "skill=$lreg remote=$rreg" \

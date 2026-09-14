@@ -386,6 +386,11 @@ try {
     $rreg = ""; if ($m -and $m.npmRegistry) { $rreg = "$($m.npmRegistry)" }
     Emit "NPM_REGISTRY_SKILL: $(if ($lreg) { $lreg } else { '(未配置)' })"
     Emit "NPM_REGISTRY_REMOTE: $(if ($rreg) { $rreg } else { '(未配置)' })"
+    # **"skill 那份缺字段"比不一致更危险,但只出 WARN**:缺字段时每台复用 node 的机器
+    # 都会落到第四档(本机 npm 配置)—— 整条链里唯一我们不控的输入,而且静默。
+    # 不做 FAIL:-Check 同时是**网络自检工具**,不该被一个本地字段挡住拿不到 ASSET_* 那几行。
+    if (-not $lreg) { Emit "WARN: skill 自带的 env.manifest.json 里没有 npmRegistry —— 复用已有 node 的机器装 yarn 会回落到本机 npm 配置(不受控)。多半是旧版 skill 包,发一版新的" }
+    if (-not $rreg) { Emit "WARN: nginx 上的 manifest.json 里没有 npmRegistry —— 裸机走下载那条路装 yarn 会回落到本机 npm 配置(不受控)。按 SPEC-DES-002 §4.4.5 补上" }
     if ($lreg -and $rreg -and ($lreg.TrimEnd('/') -ne $rreg.TrimEnd('/'))) {
       Fail "NPM_REGISTRY_DRIFT" "两份 manifest 的 npmRegistry 不一致(装 yarn 会因机器有没有 node 而用两个源)" "skill=$lreg remote=$rreg" "把两边改成同一个值:nginx 上的 manifest.json,以及 skill 的 references\env.manifest.json(改完要发一版新 skill 包)。尾部斜杠有无不影响,已排除"
     }
