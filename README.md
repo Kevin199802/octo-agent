@@ -8,6 +8,7 @@
 
 - [架构](docs/architecture.md) · [Specs 登记表](docs/specs/README.md) · [ADR](docs/adr/) · [Learning 笔记](docs/learning/)
 - [内网集成手册](docs/intranet-handoff.md) · [PR 协作协议](docs/collab-pr-protocol.md) · [工作规则](CLAUDE.md) · [ROADMAP](ROADMAP.md)
+- [外网跑构建产物：模型配置指南](docs/external-network-model-setup.md) · [内网终端代理配置](docs/intranet-proxy-setup.md)
 
 ## 参考旧实现
 
