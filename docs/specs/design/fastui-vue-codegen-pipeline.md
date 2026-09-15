@@ -1,6 +1,6 @@
 # SPEC-DES-001 — fastui/lake 组件代码生成：预览与交付管道
 
-> 状态：草案（v17，漏 import 门禁补 vue API 一档；§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003） · 优先级 P1 · 规模 [L] · 领域 infra/design
+> 状态：草案（v18，修订记录改为可读结构、决策回填正文；§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003） · 优先级 P1 · 规模 [L] · 领域 infra/design
 >
 > 上游已实现：✗ —— 本 spec 全部为 Design 侧新增；参考实现是 ICT 的 `ict-component-creator` skill（外部，React + 自制 mini bundler），**其管道分层可借鉴、具体实现不可照搬**（理由见 §1.3）
 >
@@ -10,38 +10,185 @@
 
 > ## 修订记录
 >
-> **2026-09-12：v17(漏 import 门禁补上 vue API 一档,并定下两档严重性的依据)**——模型在一个 `.vue` 里调 `ref()` 却没 import(它在**父组件**里 import 过),webpack 照编,运行时 `ReferenceError`、整页白屏,而 `verify` 返回 `RESULT: OK`。原来的 `lib/lint.mjs` 只查**组件标签**,不查**从 `'vue'` 导入的 API**,这一类完全没覆盖。本版:① `lint.mjs` 加一条闭集合白名单检查(纯正则、无新依赖、实测 16ms),排除注释 / 字符串 / 成员调用 / 编译宏 / 局部同名声明;② **定成 `FAIL` 而组件那档维持 `WARN`,依据不是后果轻重(两类都是 100% 白屏),而是「判据在不在本文件内闭合」** —— 组件有一条 lint 看不见的合法豁免路径(脚手架 `app.component()` 全局注册,那个文件在 `WRITE_DIR` 之外),vue API 没有。**门禁能不能 FAIL,看的是会不会冤枉一个正确的写法,不是漏了后果多严重**(§7.3.1);③ 配套收口 SKILL.md 里 `WARN` 的两处矛盾语义、以及 §0.1 那条"脚本报错原样转述给用户"(不限定的话模型会把 `MISSING_VUE_IMPORT` 当环境问题转述后停下 —— 那才是真正的"报错挂掉");④ 新增 `scripts/lib/lint.test.mjs`,18 条用例重心全在**"不该报"**那一侧(误报会让模型陷进"补 import → 撞名 → 编译错误"的死锁),本地全过(§9.1 V0-j);⑤ 顺带修 `verify.mjs` 漏 import `execFileSync`(v15 引入,**Windows 兜底启动路径必炸**,且被 `try/catch` 吞成 `SPAWN_FAILED: … execFileSync is not defined` 这种指向 PowerShell 的假线索 —— 与本版要防的是同一类 bug)。**2026-09-12 review 后重做了判定内核**:第一版「两边都用剥过噪声的文本」的实现被 10 个反例全数打穿(import 清单带注释、字符串/注释里落单的反引号或 `/*` 跨行吞掉声明、Options API 方法简写、多声明符、默认值之后的形参、箭头形参),其中前两类会**真死锁**(补 import → `SyntaxError` 撞名 → 编译门禁挡住 → 删掉又回到 MISSING)。改成**两边用不同文本**:判「被绑定」查未剥的原文,判「被调用」查剥过的,两边都朝漏报方向偏;反例全部固化进 `lint.test.mjs`。**规则本身也补了第二个必要条件**:光「判据闭合」不够,还要「实现对判据保真」—— 这次的误报没有一个来自豁免路径,全部来自正则精度;顺带纠正了组件档留在 `WARN` 的理由(不是「可能被全局注册」——SKILL.md 已断言没有全局注册,那条和它打架——而是 `usedComponents` 的精度不够)。门禁覆盖面同时扩到 `views/` 下的 `.ts` / `.js`(模型爱把逻辑抽进 `useXxx.ts`,那里漏 `ref` 一样白屏)。**覆盖面**:只查 `'vue'` 的白名单,不是通用 `no-undef` —— import 路径错由 webpack 兜,而 element-plus 的命令式 API(`ElMessage` 等)**是已知缺口、本版刻意未做**(判据同样闭合,但会牵动错误码语义,且后果轻一档:点击时失效而非整页白屏)。前提「脚手架没有 auto-import 插件」**已确认**(内网无此依赖;且实测报的就是 `ReferenceError`,有自动导入根本不会抛)。**门禁本身内网未验。**
+> 本节是历史。决策的权威版本在正文对应章节，二者冲突以正文为准——修订记录不得被当作依据反向引用。
 >
-> **2026-09-11：v16(首装不再必须下载 node —— 推翻一条被当成架构约束的假设)**——本版只改一件事:**"用哪个 node"从四处各自写死,收敛成一个判断 —— 手上有能跑的就用它**。① **§4.1 那条「`npm i -g yarn` 不需要 sudo 是必须用 portable node 而非系统 node 的核心原因之一」不成立**:要躲的 sudo 是真的(agent 内执行 sudo 会静默挂住等密码,没有交互通道),但决定要不要 sudo 的是 **global prefix 落在哪** —— 实测 `npm install -g yarn --prefix=<自定义目录>` 用系统 node 同样不需要 sudo,装到 `<prefix>/bin/yarn -> ../lib/node_modules/yarn/bin/yarn.js`,`yarn -v` 正常。把一个能用一个参数绕开的问题写成架构约束,代价是每台机器首装都得先过一遍 50MB 下载,而那条链路已经 504 过(代理)、403 过(WAF) —— [§0.0](#00-当前进度与待办改动后随手更新这一节) 的阻塞项就是它。② **`ENV_NODE_MISMATCH` 从精确相等放宽到大版本相同**(§5.2 第 4 条),小版本不同只出 `WARN:`。依据是事实而不是"差不多应该行":整棵依赖树里绑 node ABI 的原生模块只有 **fsevents** 一个(optional + N-API,ABI 跨大版本稳定,加载失败 chokidar 自己回落到轮询),依赖树一致性本来就由 `lockfileHash` 保证,node 版本从来不是它的代理指标;顺带更正 §4.2 原文"全仓 `*.node` 为 0"。③ **安装脚本优先复用手上的 node**(池子 → 系统,**不设版本门禁**:起草时设过一版大版本白名单 `systemNodeMajors`,定案去掉 —— 那个名单是猜的,而代价是让一台什么都不缺的机器去走已知 403 过的下载链路;真不兼容改由 `verify` 的 `NODE_SUSPECT` 在编译期精确指认,见 §4.1「为什么最后没设版本门禁」),yarn 一律 `--prefix=<envDir>/node` 装进共享池 —— 于是 yarn 的落点与"node 是哪来的"解耦。④ **不下载 node 时连 manifest 都不读**,装 yarn 的 registry 改用 `setup-env.mjs` 里写死的 `YARN_REGISTRY`(通用 npm 镜像;起草稿写的是回落到 `template/.npmrc`,2026-09-14 复核改正 —— 那是项目依赖源,装 yarn 会报错,照起草稿实现会让 v16 的主路径首装必挂,见 §4.1「③④ 的 registry 必须分开处理」)。v14 曾特意"无论要不要下载都拉一次 manifest"(§4.4.8 第二批坑 4),那是因为当时 registry 只有 manifest 一个来源;有了本地来源之后这条依赖不该再存在 —— **正是去掉它,已有 node 的机器整条首装链路才一次网络请求都不发**。⑤ 顺带两处:`python3` 从 macOS 的硬门槛降为"只有要解析 manifest 时才需要"(读 skill 自带的 `env.manifest.json` 有 node 就用 node);"池子里的 node 能不能用"的判据从「文件在不在 + 带不带 `--upgrade`」改成**跑一次 `node -v`** —— 原来那条是拿一次 50MB 下载替代一次版本查询。⑥ **没有放松的两件事**:`lockfileHash` 跨边界比对一个字没动;portable node 的内网托管照旧要做([SPEC-DES-002](fastui-env-hosting.md) 已注明),它从"每台机器首装必经"降级为"部分机器首装必需",投放要求不变。⑦ 本地 macOS **八项**实测通过(2026-09-11,§9.1 V0-i);2026-09-14 复核后 V0-i 改了 fixture 并新增第 9 条(断言装 yarn 实际打到哪个源),**那一条已单独实测,整套八项未在新 fixture 下重跑**。**内网全部未验**。
+> **2026-09-15：v18(修订记录改为可读结构 + 把只活在修订记录里的决策回填正文)**——本版**不改任何设计结论**,只改"决策写在哪"。起因是 2026-09-14 的一个线上 bug:装 yarn 用错了 registry 源(用成项目依赖源,上面没有 `yarn` 这个包),内网主路径首装必挂。根因不只是选错文件 —— 那个决策当时写在 §0.0 v16 条目一个 3,460 字符长段的 ④ 号子项里,而它违反的规则在 §4.1,**正文当时提到 `template/.npmrc` 的次数是 0**。违反规则的决策被记在了物理上远离那条规则的地方,读 §4.1 的人看不见它。
 >
-> **2026-09-09：v15(裸机起步 + 中文路径 —— 两条都让 skill 在真实场景直接不可用)**——内网实测暴露的两条阻塞,均已修(PR #23),记入 [§0.0](#00-当前进度与待办改动后随手更新这一节) 的 S 表。① **S10 裸机上 skill 完全跑不起来**:工作流第一步 `ensure-env.mjs` 本身要 node,裸机上只报 `command not found`,而 SKILL.md 全文没讲过"没有 node 怎么办" —— agent 于是让用户自己去外网下 node、或改用纯 HTML 糊一个预览。**根因不在措辞在结构**:硬约束 0.1 把"装环境"和"装不上"混成一句,agent 读成"没有 node 也归用户",它是在遵守我们漏了分支的规则。修法是工作流加 ⓪ 确认 node、新增硬约束 0.2 把两件事分开写死(没 node / 没共享池 / 依赖过期 = 你的活;装的过程中失败 = 人的活),并禁掉"让用户去外网下 node""用纯 HTML 糊预览""拿系统别的 node 凑合装"三种兜底。② **S11 中文路径下起不来 dev server**:PS 5.1 按系统 ANSI 代码页读 argv、Node 按 UTF-8 传,路径含中文必乱码,改走 `-EncodedCommand` 绕开代码页 —— 与 `install.ps1` 的 UTF-8 BOM 那条同源。③ **review 补的三处**:失败文案取 `e.stderr` 而非 `e.message`(后者会把 1300+ 字符的 base64 argv 挤进 `RESULT:` 行,恰好违反 [§5.1.2](#512-硬性安全约束所有脚本--skillmd)「错误信息必须能读」);SKILL.md 里 `<skillDir>` 补上定义(⓪ 这一步恰恰拿不到 `ensure-env` 展开好的路径,而 [§8.6.2](fastui-uxai-integration.md#862-导出代码包按钮-的落点与契约) 记过 v12 猜错 skill 安装路径的前车);`$OutputEncoding` 那行删掉(它管的是 PS 经管道传给外部程序的 stdin 编码,此处空转)。④ 顺带写明 macOS 的 `install.sh` 需要系统 `python3`(仅用于解析 manifest),缺了会 `NO_PYTHON` 响亮失败,按 0.2 属"人的活"。
+> - ① **修订记录加权威声明**:本节是历史,决策的权威版本在正文,冲突以正文为准,不得被反向引用为依据。
+> - ② **17 条修订记录(v2–v17)重排**:从"一整行 1,000–3,500 字符的长段"改成「一行标题 + ①②③ 缩进列表项」,每条末尾补 `→ 详见 §x.y` 指针。**内容一字未删**(difflib 逐字符比对,DELETED 为 0)。
+> - ③ **五条只活在修订记录里的决策回填正文**:TLS 证书校验默认放行 + sha256 补偿依据(§4.1)、`DETAIL:` 行是安装脚本专属(§5.1.1)、`verify.mjs` Windows 兜底的 `-EncodedCommand` / `e.stderr`(§5.1.2)、`SPAWN_FAILED` 补进出参契约(§5.5)、"池子里的 node 能不能用"改判 `node -v`(§4.1)。
+> - ④ **改正一条被 v16 推翻、正文却没更新的旧说法**:§5.1.1 原写"把 stderr 末行拼进 `RESULT:`",实际早已是 `errorTail()` 的判定逻辑(末行恰好是 boilerplate)。这是与 registry 那个 bug **同一形状**的矛盾。
+> - ⑤ **§6.3「谁来 spawn dev server」纠正为生产现状**:v7 提宿主 spawn → v8 以"不为可能的风险预付确定的复杂度"撤回 → **2026-09-06 内网实测证明风险是真的**(`shell.ts:296`,Windows 下 Job Object 连坐),退路被采纳、合入、两平台实测(UXAI PR #801)。这第三次转向从未回填 §6.3,正文一直停在 v8 的"在没有实测证据之前不要提前上这一层" —— 而它早已是线上代码。`verify.mjs` 自管**不是死代码**,是脱离宿主时的兜底,原样保留。
+> - ⑥ 顺带修一处本轮自己引入的错误引用:§5.5 的 `SPAWN_FAILED` 原指"§6.3 启动策略①②③",那个四档列表实际在 [SPEC-DES-003 §8.6.1](fastui-uxai-integration.md#861-dev-server-由宿主起并持有-的完整方案)。
 >
-> **2026-09-09：v14(结构拆分 —— §4.4 / §8.6 移出为独立 spec,设计结论一个字没动)**——本版只动结构。① **§4.4「内网托管」拆出 [SPEC-DES-002](fastui-env-hosting.md)**、**§8.6「UXAI 仓要做的五件事」拆出 [SPEC-DES-003](fastui-uxai-integration.md)**:这两节的读者与变更节奏都与主 spec 不同——前者给内网做资源投放/运维的人照着做,后者给 UXAI 仓 Design 模块的前端,而主 spec 是设计决策。主文件 1946 行降到 1331 行。② **小节号一律沿用**(仍叫 4.4.1 / 8.6.1),主文件保留 `### 4.4` / `### 8.6` 的标题壳 + 指针行 —— spec 内外到处引用 `§4.4.x` / `§8.6.x`,编号消失会让人顺着找过来时以为断号;**文字写法不用改**,但指向主文件**子标题锚点**的深链(如 `#448-首装踩到的坑…`)已随小节迁走,要改指新文件。③ 正文逐字未动(剥掉链接后与拆分前逐行 diff 零差异),交叉引用改成跨文件链接,锚点用 `github-slugger` 全仓实测**零失效**。④ **首装修复批次(PR #21,S1/S3/S4/S6/S7/S9 六项)不单列修订条目**——那批改的是 skill 代码不是 spec 结论,进展记在 [§0.0](#00-当前进度与待办改动后随手更新这一节) 的 S 表;ROADMAP 里标的 v14 即指该批次,本版把 spec 头部版本号对齐上去。
+> **方法论留痕**:第一轮扫描用的是"提取标识符 → 正文 grep → 命中数为 0 即缺口",只能找到**缺失**,找不到**矛盾** —— registry 那个 bug 与 ④⑤ 两条都是矛盾类(正文有大量相关内容、grep 命中一堆,只是结论已被推翻)。第二轮改为针对"推翻/撤回/改回/订正/不再/改成/放宽"这类词逐条核对正文是否同步,⑤ 才被抓出来。**查缺失和查矛盾是两件事,后者才是危险的那件。**
 >
-> **2026-09-07：v13(UXAI 侧 ①②⑤ 收口,按实现订正 [§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill))**——① ⑤ 已实现(UXAI PR #812),② 查明不用改,本版把 [§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill) 从"设计稿"改写成"实况"。三处订正都是 v12 勘查与实际代码对不上:① **[§8.6.2](fastui-uxai-integration.md#862-导出代码包按钮-的落点与契约) 的 `handleDownload` 路线走不通**——`SUBTYPE_CONFIG.url.features.download` 是 `false`,下载按钮压根不渲染;而翻成 `true` 是回归,因为 `subtype: "url"` 是**所有 http(s) 链接 tab 的通用形态**(链接卡片、文件管理开外链都走它),任意外链都会长出一个必然失败的下载按钮。改走同一个扩展点的另一条腿 `components.actionBar.extraButtons`,并给按钮加双重判据(URL 指向 loopback + 会话目录下存在 `.octo-fastui.json`),`action-bar.tsx` 上只追加 2 行(自定义按钮的 ctx 补会话信息)。② **`skillDir` 推导路径 v12 猜错了**——skill 实际装在 `~/.config/octo/skill/<name>/` 而不是 `.octo/skills/`,改为按候选逐个 `existsSync`,第一位留给状态文件的 `skillDir` 字段(`new-session` 以后补写即生效)。③ **[§8.6.5](fastui-uxai-integration.md#865-重启后预览白屏iframe-早于-dev-server-就绪) 的"bump `refreshKey`"未采用**——`refreshKey` 是父组件的 prop,`html-renderer` 手里没有 setter,而且不需要:`src` 从 `undefined` 变成 URL 本身就是一次加载。改为门禁 `src` + `fetch(no-cors)` 探测(单次 5 秒 abort、1 秒轮询、3 分钟上限),**只对 loopback 生效**,其他外链行为一个字没变。④ **[§8.6.3](fastui-uxai-integration.md#863-external-url-tab-的编辑功能-gate-的判据) 查明关闭**:`url` 的能力表早就把编辑类功能全关了,那些读 `contentDocument` 的代码在 external 分支下没有入口 —— 这解释了内网实测"预览没崩"。 ⑤ **PR review 后补入两条**:门禁**超时必须降级放行 `src`**(否则探测机制一旦在真机上不可用,预览就从"白屏可恢复"变成"永远打不开",比不修更糟;PNA 这条风险恰好落在待内网实测的范围里),覆盖层文案相应改中性——门禁范围是任意 loopback URL,不该写 fastui 专属说法;`skillDir` **由 `new-session` 写进状态文件**,不再让宿主猜——`XDG_CONFIG_HOME` 在 Electron 主进程与 server 子进程之间是分裂的(见 [§8.6.2](fastui-uxai-integration.md#862-导出代码包按钮-的落点与契约) 的告警框),宿主没有可靠推导依据,候选链降级为只兼容老会话。
+> → 详见 §4.1、§5.1.1、§5.1.2、§5.5、§6.3
 
-> **2026-09-06：v12(内网首次全流程跑通 + 反转链接位置 + 放宽运行时限制)**——内网一遍跑通(设备列表页,46 条数据、分页、状态标签),但过程暴露三件事,两件是设计问题。① **链接位置从会话根改回工程根(反转 v6 的 ②),§2.5 记录完整权衡**:实测发现产物目录里 `yarn serve` 跑不起来(`'lerna' 不是内部或外部命令`——yarn 只从工程根的 `node_modules/.bin` 找命令)。v6 换来的"设计师随手压缩安全"是**虚的收益**:设计师恰恰是不懂开发环境、不会去磁盘折腾的那类用户,他拿代码走的是导出按钮。而代价是**实的**且落在最不该承担的人身上——设计师拉产线开发对接时对方第一件事就是 `yarn serve`,跑不起来会被判定成"生成的代码有问题",否定的是整个方案的可信度。压缩体积是小事,交付信任不是。② **`export-zip` 从"延后的便利性"提为"第一版的正确性"**(§5.6):链接改回工程根后整目录压缩会跟随链接,干净交付包只能由它产出;已实现并实测(中文产物名/页面名、UTF-8 flag、CRC、跳过链接、包内无 node_modules)。③ **撤回 v11 加的"禁止用系统 node/yarn"**:那是我为控制调试变量加的限制,不是用户需要的——对设计师来说能跑起来最重要,而真正不可替代的是共享池那 1GB 内网组件库,不是运行时本身;脚本改为共享池优先、回退系统。④ **模型两次绕过 skill**(装环境失败就用本地 node、verify 失败就自己前台跑 yarn serve),后者导致没输出 artifact 卡片——SKILL.md 新增排在最前面的硬约束「不要绕过脚本」,并把第 ⑤ 步输出 artifact 标为"不能省,与编译不通过同级"。⑤ **安装脚本:TLS 1.2 显式启用 + 证书校验默认放行**(内网自签名;完整性判据是 sha256,比证书链更强)+ 失败详情从 HINT 拎出来单独成 `DETAIL:` 行。⑥ 新风险记入 §2.5:产物目录里跑 `yarn add`/`upgrade` 会写穿链接污染共享池,写进 HANDOFF.md 并由 `lockfileHash` 兜底。
+> **2026-09-12：v17(漏 import 门禁补上 vue API 一档,并定下两档严重性的依据)**——模型在一个 `.vue` 里调 `ref()` 却没 import(它在**父组件**里 import 过),webpack 照编,运行时 `ReferenceError`、整页白屏,而 `verify` 返回 `RESULT: OK`。原来的 `lib/lint.mjs` 只查**组件标签**,不查**从 `'vue'` 导入的 API**,这一类完全没覆盖。本版:
 >
-> **2026-09-06：v11(收口:生产包瘦身 + 版本字段合一 + 失败可定位)**——内网调试前的最后一轮。① **`ASSEMBLE.md` 从 skill 包移除,组装说明收进 §8.3**:skill 是生产包,凡不是设计师使用场景要用到的东西都不进去;`assemble.mjs` 也确定不做——组装就是复制两个目录,本地路径每次不同,脚本换不来更省的事。`PLACEHOLDER.md` 保留(它是 `ensure-env` 的哨兵,组装后删),内容精简成一句话 + 指向本 spec。② **版本字段从三个合并成一个**:`envVersion` / `templateVersion` / `requiredEnvVersion` 在 v9(template 不进共享池)之后承载的是同一件事,而依赖树本身已被 `lockfileHash` 严格约束——只留 `template/package.json` 里的 `octoTemplateVersion`,`env.lock.json` 的 `envVersion` 取自它,`requiredEnvVersion` 作为死字段删除。**格式用语义化版本 `0.1.0`,不用日期**:日期要手工改、容易忘,忘了比没有更误导。③ **§3.4 补 `HANDOFF.md` 全文**(英文静态,给拿到交付包的开发看,含"OCTO_DEPS/OCTO_PORT 你不需要也不用删"这一条)。④ **verify 超时改为自包含诊断**:输出 `STAGE`(卡在等输出/等稳定/等轮次哪一步)+ `ROUNDS_SEEN` + 分阶段 HINT + `LOG_TAIL` 尾部 40 行——超时是最难排查的一种失败,而日志在内网带不出来(§8.4),定位所需的东西必须全部内联。实测:MARKERS 对不上时直接输出"大概率是 MARKERS 与实际输出对不上,把 LOG_TAIL 里表示编译成功/失败的那几行发给开发"。⑤ **修一个实测出的解析 bug**:错误块会把下一轮的 `Compiled successfully` 混进来——`parseRounds` 在 outcome 定下之后仍继续收行(为了接住"结束标志在前、明细在后"的形态),但必须在下一轮 start 处硬停,并限 40 行预算。⑥ 本地 V0 全部通过,含 detached 存活、复用、连改两次的竞态、编译失败原文回传。
+> - ① `lint.mjs` 加一条闭集合白名单检查(纯正则、无新依赖、实测 16ms),排除注释 / 字符串 / 成员调用 / 编译宏 / 局部同名声明;
+> - ② **定成 `FAIL` 而组件那档维持 `WARN`,依据不是后果轻重(两类都是 100% 白屏),而是「判据在不在本文件内闭合」** —— 组件有一条 lint 看不见的合法豁免路径(脚手架 `app.component()` 全局注册,那个文件在 `WRITE_DIR` 之外),vue API 没有。**门禁能不能 FAIL,看的是会不会冤枉一个正确的写法,不是漏了后果多严重**(§7.3.1);
+> - ③ 配套收口 SKILL.md 里 `WARN` 的两处矛盾语义、以及 §0.1 那条"脚本报错原样转述给用户"(不限定的话模型会把 `MISSING_VUE_IMPORT` 当环境问题转述后停下 —— 那才是真正的"报错挂掉");
+> - ④ 新增 `scripts/lib/lint.test.mjs`,18 条用例重心全在**"不该报"**那一侧(误报会让模型陷进"补 import → 撞名 → 编译错误"的死锁),本地全过(§9.1 V0-j);
+> - ⑤ 顺带修 `verify.mjs` 漏 import `execFileSync`(v15 引入,**Windows 兜底启动路径必炸**,且被 `try/catch` 吞成 `SPAWN_FAILED: … execFileSync is not defined` 这种指向 PowerShell 的假线索 —— 与本版要防的是同一类 bug)。
 >
-> **2026-09-04：v10(第一版脚本写完 + 本地 V0 通过 + 一处实测出的真 bug)**——① **§6.2.1 新增「光靠探测不够,new-session 要原子占位」**:V0-a 实测暴露真 bug——`probe()` bind 完立刻 close 不占位,5 个并发 `new-session` 全部拿到 8081;改成只读"已登记端口表"仍有 2 个撞车(并发时大家读到的表都是空的);最终用 `O_EXCL` 原子创建标记文件根治,并修掉陈旧标记回收判据的窗口(占位与写状态文件之间有几十毫秒,后来者会把前一个刚占的位当陈旧回收)。修完 8 进程并发零重复。② **§5.1.1 新增统一输出契约**:`RESULT:`/`HINT:`/`LOG:`/`ERRORS_BEGIN…END` 的形式、退出码三态(用法错误=2 与业务失败分开)、失败原因写成「英文错误码: 中文说明」(内网 GBK 终端下中文可能乱码,ASCII 错误码仍可截图读)、两个状态文件的位置与内容、`OCTO_FASTUI_ENV_DIR` 覆盖开关。③ **§5.3 / §5.5 补全 IO 契约**与两处实现决定(cli-service 入口从 `package.json` 的 `bin` 解析、编译标志集中在 `lib/compile.mjs` 的 `MARKERS` 待内网校准)。④ **§8.2 目录树修偏移**:v4 遗留的那张图里没有 `template/`(那时设想 template 走内网托管,v7 已作废)。⑤ 预览链路**内网实测通过**:`<artifact type="text/link">` → 卡片 → iframe 渲染,零改动,与 §7.5 的查证结论一致;错误 bridge 的 window 级与 promise 级也实测通过。
+> **2026-09-12 review 后重做了判定内核**:第一版「两边都用剥过噪声的文本」的实现被 10 个反例全数打穿(import 清单带注释、字符串/注释里落单的反引号或 `/*` 跨行吞掉声明、Options API 方法简写、多声明符、默认值之后的形参、箭头形参),其中前两类会**真死锁**(补 import → `SyntaxError` 撞名 → 编译门禁挡住 → 删掉又回到 MISSING)。改成**两边用不同文本**:判「被绑定」查未剥的原文,判「被调用」查剥过的,两边都朝漏报方向偏;反例全部固化进 `lint.test.mjs`。
 >
-> **2026-09-03：v9(做减法 —— 砍掉预付款,先在内网跑通一次)**——到 v8 为止一版都没在内网跑起来,而 spec 还在为尚未观测到的失败模式加机制。本版全部改动只有一个方向:**这件事不做,端到端还能不能跑通?** 能 → 砍或延后。① **新增 §0.1「第一版范围」**:只做四个脚本(`install`+`setup-env` / `ensure-env` / `new-session` / `verify`)+ 一份 SKILL.md;成功判据是"设计师在干净机器上调一次 skill 看到页面渲染出来",**在此之前 spec 不再新增任何机制**。② **砍掉 `register.mjs`**(§3.3 重写):聚合入口 `views/index.vue` 实际只有五行,模型手里有整个工程的文件访问权,改它是最日常的操作;而为省掉这一步 v8 累积出了脚本 + `AUTO-GENERATED` 标记 + assemble 两条校验 + `_` 前缀跳过 + tab 生成逻辑,全是预付款。三种失败(漏改/语法错/误删引用)分别由"设计师一眼看见"/"verify 编译门禁"/"说一句就恢复"兜住,没有一种值得预建机制。③ **`template` 不进共享池**(§3.1):v7 让安装时复制一份进共享池,理由"skill 换掉时正在跑的会话不受影响"**不成立**(会话工程是复制过去的,复制完就独立);而这一份带来的是真问题——v8 评审指出 `lockfileHash` 检不出"只改模板不改依赖"的升级,共享池 template 会悄悄过期,故障极难定位。**去掉这一跳,问题从根上消失**,不需要 `envVersion` 双判据也不需要新增 `templateHash`。共享池只留"装一次就不动"的 node 与 deps。④ **`export-zip` 延后**:单区布局的直接收益就是产物零链接、随手压缩即安全,这个脚本是便利性不是正确性,而它要写 200 行 ZIP 容器 + 中文文件名跨平台单测。⑤ **`assemble` 延后**(内网第一版手工复制两个目录)、**`--probe` 延后**(装完手工跑一次看得见)。⑥ 采纳评审建议:`export-zip` **删掉 `.bin` 放行例外**(`yarn install` 本来就会重新生成 `.bin`,带不带行为一样,而例外分支是排除规则里最易错的逻辑);**[§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill) 补第四件**——模板侧内置的 error bridge 现在是空转的,宿主侧监听等第三层再做,记下来免得那时临时排期。⑦ §3.4 模板改造清单按内网实物更新状态(1/2/3 已完成)。
+> **规则本身也补了第二个必要条件**:光「判据闭合」不够,还要「实现对判据保真」—— 这次的误报没有一个来自豁免路径,全部来自正则精度;顺带纠正了组件档留在 `WARN` 的理由(不是「可能被全局注册」——SKILL.md 已断言没有全局注册,那条和它打架——而是 `usedComponents` 的精度不够)。门禁覆盖面同时扩到 `views/` 下的 `.ts` / `.js`(模型爱把逻辑抽进 `useXxx.ts`,那里漏 `ref` 一样白屏)。
 >
-> **2026-09-03：v8(review 三处必改 + 脚手架结构按实物订正)**——v7 交叉评审发现三处不自洽,全部修掉。① **§5.2 整段重写**:旧校验链是 v4 遗留(探针在链里、没有占位检测、没有 lockfileHash、`env.lock.json` 注释还写"打包机产出"),与 v7 的分发架构全面脱节,照它实现会与 §5.2.2 / §8.3 直接打架;新链六步、主判据换成 lockfileHash、探针默认关并改用 golden example 做探针页。② **§5.2.1 新增「lockfileHash 比的是谁和谁」——这是 v7 引入的功能性缺陷**:v7 把 template 改成随 skill 走、`env.lock.json` 改成本机产出后,原来的「记录值 vs 实际值」比法失效了(skill 升级时两者依然一致,检测不出变化,`install --upgrade` 永远不会被触发);正确比法必须跨 skill 与共享池的边界:`sha256(<skillDir>/template/yarn.lock)` vs `sha256(<envDir>/deps/yarn.lock)`,`env.lock.json` 里那个字段降级为诊断记录。③ **撤回 v7 的「dev server 由宿主 spawn」,回到 skill spawn + 宿主按 pid 收**:那是用确定的复杂度(新跨进程协议 + 必须在 Hono/Effect HttpApi 两套后端里选边站的已知坑)去换一个可能的 Windows 风险,方向反了;且自管模式无论如何都要写(内网调试与外网 V0 都不经过宿主),宿主方案省不掉它。Windows detached 改标为**待内网实测的风险**,退路与两套路由框架的选择写在 §6.3 末备查。④ **§3.2 目录结构按内网实物订正**:`app.vue`/`index.vue`/`main.vue` 在 `src/` 下而非 `views/` 下;**§3.3 重写为三层边界表**(脚手架的壳 / 聚合入口 / 模型的可写目录),并补上「为什么是一页一目录而不是一页一文件」——平铺时模型拆出的子组件会被 register 误扫成页面。⑤ **§3.4 新增「模板定版需要做的改造」7 项清单**,含建议这次一并定版的运行时错误 bridge(否则第三层要做时模板版本会分叉)。⑥ **§7.2 新增 golden example 的形态与位置**:实体在 `views/_example/`(真实可编译、register 与 export-zip 都跳过)、同一份内联进 SKILL.md(模型必然看到)、`--probe` 拿它当探针页(不会随组件库升级失效);内容上纠偏——不枚举组件变体,只钉死 `$/` 别名、lake class 约定、`<script setup>` 骨架、根布局四件模型猜不到的事。⑦ **§5.6 排除清单统一成一张表**,消除"不需要排除规则但仍排除"的自相矛盾,并标出 `packages/portal/node_modules/.bin/` 必须放行的例外。⑧ §5.2.3 字段归属表随之更新(不再有"内网打包机")。⑨ 仓库可见性已确认为 private,[§4.4.6](fastui-env-hosting.md#446-manifest-url-写在哪) 写死内网 URL 的取舍成立。
+> **覆盖面**:只查 `'vue'` 的白名单,不是通用 `no-undef` —— import 路径错由 webpack 兜,而 element-plus 的命令式 API(`ElMessage` 等)**是已知缺口、本版刻意未做**(判据同样闭合,但会牵动错误码语义,且后果轻一档:点击时失效而非整页白屏)。前提「脚手架没有 auto-import 插件」**已确认**(内网无此依赖;且实测报的就是 `ReferenceError`,有自动导入根本不会抛)。**门禁本身内网未验。**
 >
-> **2026-09-03：v7(分发链路定型 + 内网托管操作手册 + 三处实现级订正)**——脚本实现前的最后一轮收口。① **[§4.4](fastui-env-hosting.md#44-内网托管要准备什么怎么放离线操作手册) 新增「内网托管操作手册」**:精确到下载哪个 node 文件名、sha256 从 `SHASUMS256.txt` 抄、投放目录与访问地址、`manifest.json` 完整示例、首次搭建与每次升级各自的操作顺序。② **`template/` 跟 skill 包走技能库,不单独托管**([§4.4.1](fastui-env-hosting.md#441-三样资产走三条链路--先分清不然会重复托管) 修正 v5 的"新 template 放内网托管"):`template/` 与 `scripts/` 强耦合必须同版本,而技能库有现成的上架/版本机制;`template` 与 `deps` 的耦合由 `lockfileHash` + 本机 `yarn install` 自愈。**nginx 上第一版只剩 node 包 + manifest.json**。③ **§4.1 ④ 改为在 `deps/` 里跑 `yarn install`**,不再"模板里装完再移"——后者会让增量升级退化成每次全量重装 1GB;同时写死 registry 分离(装 yarn 传 `--registry`、装依赖绝不传,否则覆盖掉各 scope 源)。④ **§6.3 末:dev server 改由宿主 spawn 并持有**,`verify` 保留自管模式作为脱离宿主的调试路径——避开 Windows `detached` 语义与 Job Object 的坑,且生命周期归属不再"一个进程两个爹"([§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill)③ 同步改写)。⑤ **§5.5.1 编译判定防竞态**(开始时刻晚于文件 mtime + 完整的开始/结束对 + 800ms 稳定窗口),⑥ **§5.6 ZIP 必须置 UTF-8 flag**(否则中文文件名在 Windows 解压乱码),⑦ **§8.3 assemble 增加校验**:template 必须预置带 `AUTO-GENERATED` 标记的 `views/index.vue`——把"首次 register 面对无标记文件"挡在组装期,避免每个交付包里留一个 `index.vue.pre-octo` 垃圾文件。⑧ **`ensure-env` 只判断不下载**,升级动作收进 `install --upgrade`;设计师全程不接触安装命令,由 agent 依 `HINT:` 自动执行。⑨ **托管落点确定**:内网现有 `/design` 静态目录,投放到 `https://octo.hdesign.huawei.com/design/fastui-env/`,无需改 nginx;manifest 的缓存问题改由客户端侧解决(`no-cache` 头 + 时间戳破缓存)。⑩ **manifest URL 直接写死在 `references/env.manifest.json`**,放弃 `env.source.json` 注入方案(现有代码仓已多处出现内网地址,不值得为此引入一个外网看不到的文件层次)——[§4.4.6](fastui-env-hosting.md#446-manifest-url-写在哪) 记了这次取舍的来由与回退方式。⑪ **skill 落点确认为 `.octo/skills/<skillName>/`**(自定义技能与平台技能一致),脚本一律用 `import.meta.url` 推导 `../template/`,前期自定义验证与后期平台上架不需改代码;§3.1 补充了「skill 的 template → 共享池 template → 会话」这一跳的意义。⑫ [§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill) 明确三件 UXAI 侧改动**必须增量式兼容**,任何一项若必须改动既有代码路径,先停下对齐。
+> → 详见 §7.3.1
+>
+> **2026-09-11：v16(首装不再必须下载 node —— 推翻一条被当成架构约束的假设)**——本版只改一件事:**"用哪个 node"从四处各自写死,收敛成一个判断 —— 手上有能跑的就用它**。
+>
+> - ① **§4.1 那条「`npm i -g yarn` 不需要 sudo 是必须用 portable node 而非系统 node 的核心原因之一」不成立**:要躲的 sudo 是真的(agent 内执行 sudo 会静默挂住等密码,没有交互通道),但决定要不要 sudo 的是 **global prefix 落在哪** —— 实测 `npm install -g yarn --prefix=<自定义目录>` 用系统 node 同样不需要 sudo,装到 `<prefix>/bin/yarn -> ../lib/node_modules/yarn/bin/yarn.js`,`yarn -v` 正常。把一个能用一个参数绕开的问题写成架构约束,代价是每台机器首装都得先过一遍 50MB 下载,而那条链路已经 504 过(代理)、403 过(WAF) —— [§0.0](#00-当前进度与待办改动后随手更新这一节) 的阻塞项就是它。
+> - ② **`ENV_NODE_MISMATCH` 从精确相等放宽到大版本相同**(§5.2 第 4 条),小版本不同只出 `WARN:`。依据是事实而不是"差不多应该行":整棵依赖树里绑 node ABI 的原生模块只有 **fsevents** 一个(optional + N-API,ABI 跨大版本稳定,加载失败 chokidar 自己回落到轮询),依赖树一致性本来就由 `lockfileHash` 保证,node 版本从来不是它的代理指标;顺带更正 §4.2 原文"全仓 `*.node` 为 0"。
+> - ③ **安装脚本优先复用手上的 node**(池子 → 系统,**不设版本门禁**:起草时设过一版大版本白名单 `systemNodeMajors`,定案去掉 —— 那个名单是猜的,而代价是让一台什么都不缺的机器去走已知 403 过的下载链路;真不兼容改由 `verify` 的 `NODE_SUSPECT` 在编译期精确指认,见 §4.1「为什么最后没设版本门禁」),yarn 一律 `--prefix=<envDir>/node` 装进共享池 —— 于是 yarn 的落点与"node 是哪来的"解耦。
+> - ④ **不下载 node 时连 manifest 都不读**,装 yarn 的 registry 改用 `setup-env.mjs` 里写死的 `YARN_REGISTRY`(通用 npm 镜像;起草稿写的是回落到 `template/.npmrc`,2026-09-14 复核改正 —— 那是项目依赖源,装 yarn 会报错,照起草稿实现会让 v16 的主路径首装必挂,见 §4.1「③④ 的 registry 必须分开处理」)。v14 曾特意"无论要不要下载都拉一次 manifest"(§4.4.8 第二批坑 4),那是因为当时 registry 只有 manifest 一个来源;有了本地来源之后这条依赖不该再存在 —— **正是去掉它,已有 node 的机器整条首装链路才一次网络请求都不发**。
+> - ⑤ 顺带两处:`python3` 从 macOS 的硬门槛降为"只有要解析 manifest 时才需要"(读 skill 自带的 `env.manifest.json` 有 node 就用 node);"池子里的 node 能不能用"的判据从「文件在不在 + 带不带 `--upgrade`」改成**跑一次 `node -v`** —— 原来那条是拿一次 50MB 下载替代一次版本查询。
+> - ⑥ **没有放松的两件事**:`lockfileHash` 跨边界比对一个字没动;portable node 的内网托管照旧要做([SPEC-DES-002](fastui-env-hosting.md) 已注明),它从"每台机器首装必经"降级为"部分机器首装必需",投放要求不变。
+> - ⑦ 本地 macOS **八项**实测通过(2026-09-11,§9.1 V0-i);2026-09-14 复核后 V0-i 改了 fixture 并新增第 9 条(断言装 yarn 实际打到哪个源),**那一条已单独实测,整套八项未在新 fixture 下重跑**。**内网全部未验**。
+>
+> → 详见 §4.1、§5.2、§5.5
+>
+> **2026-09-09：v15(裸机起步 + 中文路径 —— 两条都让 skill 在真实场景直接不可用)**——内网实测暴露的两条阻塞,均已修(PR #23),记入 [§0.0](#00-当前进度与待办改动后随手更新这一节) 的 S 表。
+>
+> - ① **S10 裸机上 skill 完全跑不起来**:工作流第一步 `ensure-env.mjs` 本身要 node,裸机上只报 `command not found`,而 SKILL.md 全文没讲过"没有 node 怎么办" —— agent 于是让用户自己去外网下 node、或改用纯 HTML 糊一个预览。**根因不在措辞在结构**:硬约束 0.1 把"装环境"和"装不上"混成一句,agent 读成"没有 node 也归用户",它是在遵守我们漏了分支的规则。修法是工作流加 ⓪ 确认 node、新增硬约束 0.2 把两件事分开写死(没 node / 没共享池 / 依赖过期 = 你的活;装的过程中失败 = 人的活),并禁掉"让用户去外网下 node""用纯 HTML 糊预览""拿系统别的 node 凑合装"三种兜底。
+> - ② **S11 中文路径下起不来 dev server**:PS 5.1 按系统 ANSI 代码页读 argv、Node 按 UTF-8 传,路径含中文必乱码,改走 `-EncodedCommand` 绕开代码页 —— 与 `install.ps1` 的 UTF-8 BOM 那条同源。
+> - ③ **review 补的三处**:失败文案取 `e.stderr` 而非 `e.message`(后者会把 1300+ 字符的 base64 argv 挤进 `RESULT:` 行,恰好违反 [§5.1.2](#512-硬性安全约束所有脚本--skillmd)「错误信息必须能读」);SKILL.md 里 `<skillDir>` 补上定义(⓪ 这一步恰恰拿不到 `ensure-env` 展开好的路径,而 [§8.6.2](fastui-uxai-integration.md#862-导出代码包按钮-的落点与契约) 记过 v12 猜错 skill 安装路径的前车);`$OutputEncoding` 那行删掉(它管的是 PS 经管道传给外部程序的 stdin 编码,此处空转)。
+> - ④ 顺带写明 macOS 的 `install.sh` 需要系统 `python3`(仅用于解析 manifest),缺了会 `NO_PYTHON` 响亮失败,按 0.2 属"人的活"。
+>
+> → 详见 §5.1.2(S11 编码问题);S10 的 SKILL.md 硬约束 0.2 属 SKILL.md 自身内容,不在本 spec 正文范围
+>
+> **2026-09-09：v14(结构拆分 —— §4.4 / §8.6 移出为独立 spec,设计结论一个字没动)**——本版只动结构。
+>
+> - ① **§4.4「内网托管」拆出 [SPEC-DES-002](fastui-env-hosting.md)**、**§8.6「UXAI 仓要做的五件事」拆出 [SPEC-DES-003](fastui-uxai-integration.md)**:这两节的读者与变更节奏都与主 spec 不同——前者给内网做资源投放/运维的人照着做,后者给 UXAI 仓 Design 模块的前端,而主 spec 是设计决策。主文件 1946 行降到 1331 行。
+> - ② **小节号一律沿用**(仍叫 4.4.1 / 8.6.1),主文件保留 `### 4.4` / `### 8.6` 的标题壳 + 指针行 —— spec 内外到处引用 `§4.4.x` / `§8.6.x`,编号消失会让人顺着找过来时以为断号;**文字写法不用改**,但指向主文件**子标题锚点**的深链(如 `#448-首装踩到的坑…`)已随小节迁走,要改指新文件。
+> - ③ 正文逐字未动(剥掉链接后与拆分前逐行 diff 零差异),交叉引用改成跨文件链接,锚点用 `github-slugger` 全仓实测**零失效**。
+> - ④ **首装修复批次(PR #21,S1/S3/S4/S6/S7/S9 六项)不单列修订条目**——那批改的是 skill 代码不是 spec 结论,进展记在 [§0.0](#00-当前进度与待办改动后随手更新这一节) 的 S 表;ROADMAP 里标的 v14 即指该批次,本版把 spec 头部版本号对齐上去。
+>
+> → 详见 §4.4、§8.6(纯结构调整,无独立决策段落)
+>
+> **2026-09-07：v13(UXAI 侧 ①②⑤ 收口,按实现订正 [§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill))**——① ⑤ 已实现(UXAI PR #812),② 查明不用改,本版把 [§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill) 从"设计稿"改写成"实况"。三处订正都是 v12 勘查与实际代码对不上:
+>
+> - ① **[§8.6.2](fastui-uxai-integration.md#862-导出代码包按钮-的落点与契约) 的 `handleDownload` 路线走不通**——`SUBTYPE_CONFIG.url.features.download` 是 `false`,下载按钮压根不渲染;而翻成 `true` 是回归,因为 `subtype: "url"` 是**所有 http(s) 链接 tab 的通用形态**(链接卡片、文件管理开外链都走它),任意外链都会长出一个必然失败的下载按钮。改走同一个扩展点的另一条腿 `components.actionBar.extraButtons`,并给按钮加双重判据(URL 指向 loopback + 会话目录下存在 `.octo-fastui.json`),`action-bar.tsx` 上只追加 2 行(自定义按钮的 ctx 补会话信息)。
+> - ② **`skillDir` 推导路径 v12 猜错了**——skill 实际装在 `~/.config/octo/skill/<name>/` 而不是 `.octo/skills/`,改为按候选逐个 `existsSync`,第一位留给状态文件的 `skillDir` 字段(`new-session` 以后补写即生效)。
+> - ③ **[§8.6.5](fastui-uxai-integration.md#865-重启后预览白屏iframe-早于-dev-server-就绪) 的"bump `refreshKey`"未采用**——`refreshKey` 是父组件的 prop,`html-renderer` 手里没有 setter,而且不需要:`src` 从 `undefined` 变成 URL 本身就是一次加载。改为门禁 `src` + `fetch(no-cors)` 探测(单次 5 秒 abort、1 秒轮询、3 分钟上限),**只对 loopback 生效**,其他外链行为一个字没变。
+> - ④ **[§8.6.3](fastui-uxai-integration.md#863-external-url-tab-的编辑功能-gate-的判据) 查明关闭**:`url` 的能力表早就把编辑类功能全关了,那些读 `contentDocument` 的代码在 external 分支下没有入口 —— 这解释了内网实测"预览没崩"。
+> - ⑤ **PR review 后补入两条**:门禁**超时必须降级放行 `src`**(否则探测机制一旦在真机上不可用,预览就从"白屏可恢复"变成"永远打不开",比不修更糟;PNA 这条风险恰好落在待内网实测的范围里),覆盖层文案相应改中性——门禁范围是任意 loopback URL,不该写 fastui 专属说法;`skillDir` **由 `new-session` 写进状态文件**,不再让宿主猜——`XDG_CONFIG_HOME` 在 Electron 主进程与 server 子进程之间是分裂的(见 [§8.6.2](fastui-uxai-integration.md#862-导出代码包按钮-的落点与契约) 的告警框),宿主没有可靠推导依据,候选链降级为只兼容老会话。
+>
+> → 详见 fastui-uxai-integration.md §8.6.2、§8.6.3、§8.6.5
+>
+> **2026-09-06：v12(内网首次全流程跑通 + 反转链接位置 + 放宽运行时限制)**——内网一遍跑通(设备列表页,46 条数据、分页、状态标签),但过程暴露三件事,两件是设计问题。
+>
+> - ① **链接位置从会话根改回工程根(反转 v6 的 ②),§2.5 记录完整权衡**:实测发现产物目录里 `yarn serve` 跑不起来(`'lerna' 不是内部或外部命令`——yarn 只从工程根的 `node_modules/.bin` 找命令)。v6 换来的"设计师随手压缩安全"是**虚的收益**:设计师恰恰是不懂开发环境、不会去磁盘折腾的那类用户,他拿代码走的是导出按钮。而代价是**实的**且落在最不该承担的人身上——设计师拉产线开发对接时对方第一件事就是 `yarn serve`,跑不起来会被判定成"生成的代码有问题",否定的是整个方案的可信度。压缩体积是小事,交付信任不是。
+> - ② **`export-zip` 从"延后的便利性"提为"第一版的正确性"**(§5.6):链接改回工程根后整目录压缩会跟随链接,干净交付包只能由它产出;已实现并实测(中文产物名/页面名、UTF-8 flag、CRC、跳过链接、包内无 node_modules)。
+> - ③ **撤回 v11 加的"禁止用系统 node/yarn"**:那是我为控制调试变量加的限制,不是用户需要的——对设计师来说能跑起来最重要,而真正不可替代的是共享池那 1GB 内网组件库,不是运行时本身;脚本改为共享池优先、回退系统。
+> - ④ **模型两次绕过 skill**(装环境失败就用本地 node、verify 失败就自己前台跑 yarn serve),后者导致没输出 artifact 卡片——SKILL.md 新增排在最前面的硬约束「不要绕过脚本」,并把第 ⑤ 步输出 artifact 标为"不能省,与编译不通过同级"。
+> - ⑤ **安装脚本:TLS 1.2 显式启用 + 证书校验默认放行**(内网自签名;完整性判据是 sha256,比证书链更强)+ 失败详情从 HINT 拎出来单独成 `DETAIL:` 行。
+> - ⑥ 新风险记入 §2.5:产物目录里跑 `yarn add`/`upgrade` 会写穿链接污染共享池,写进 HANDOFF.md 并由 `lockfileHash` 兜底。
+>
+> → 详见 §2.5、§5.6、§4.1(TLS/证书)、§5.1.1(DETAIL: 行)
+>
+> **2026-09-06：v11(收口:生产包瘦身 + 版本字段合一 + 失败可定位)**——内网调试前的最后一轮。
+>
+> - ① **`ASSEMBLE.md` 从 skill 包移除,组装说明收进 §8.3**:skill 是生产包,凡不是设计师使用场景要用到的东西都不进去;`assemble.mjs` 也确定不做——组装就是复制两个目录,本地路径每次不同,脚本换不来更省的事。`PLACEHOLDER.md` 保留(它是 `ensure-env` 的哨兵,组装后删),内容精简成一句话 + 指向本 spec。
+> - ② **版本字段从三个合并成一个**:`envVersion` / `templateVersion` / `requiredEnvVersion` 在 v9(template 不进共享池)之后承载的是同一件事,而依赖树本身已被 `lockfileHash` 严格约束——只留 `template/package.json` 里的 `octoTemplateVersion`,`env.lock.json` 的 `envVersion` 取自它,`requiredEnvVersion` 作为死字段删除。**格式用语义化版本 `0.1.0`,不用日期**:日期要手工改、容易忘,忘了比没有更误导。
+> - ③ **§3.4 补 `HANDOFF.md` 全文**(英文静态,给拿到交付包的开发看,含"OCTO_DEPS/OCTO_PORT 你不需要也不用删"这一条)。
+> - ④ **verify 超时改为自包含诊断**:输出 `STAGE`(卡在等输出/等稳定/等轮次哪一步)+ `ROUNDS_SEEN` + 分阶段 HINT + `LOG_TAIL` 尾部 40 行——超时是最难排查的一种失败,而日志在内网带不出来(§8.4),定位所需的东西必须全部内联。实测:MARKERS 对不上时直接输出"大概率是 MARKERS 与实际输出对不上,把 LOG_TAIL 里表示编译成功/失败的那几行发给开发"。
+> - ⑤ **修一个实测出的解析 bug**:错误块会把下一轮的 `Compiled successfully` 混进来——`parseRounds` 在 outcome 定下之后仍继续收行(为了接住"结束标志在前、明细在后"的形态),但必须在下一轮 start 处硬停,并限 40 行预算。
+> - ⑥ 本地 V0 全部通过,含 detached 存活、复用、连改两次的竞态、编译失败原文回传。
+>
+> → 详见 §8.3、§5.2.3、§5.2.4、§3.4、§5.5(STAGE/ROUNDS_SEEN);⑤ 的实现约束已就地写在 `lib/compile.mjs` 的 `TAIL_BUDGET` 常量旁,不重复进 spec
+>
+> **2026-09-04：v10(第一版脚本写完 + 本地 V0 通过 + 一处实测出的真 bug)**——
+>
+> - ① **§6.2.1 新增「光靠探测不够,new-session 要原子占位」**:V0-a 实测暴露真 bug——`probe()` bind 完立刻 close 不占位,5 个并发 `new-session` 全部拿到 8081;改成只读"已登记端口表"仍有 2 个撞车(并发时大家读到的表都是空的);最终用 `O_EXCL` 原子创建标记文件根治,并修掉陈旧标记回收判据的窗口(占位与写状态文件之间有几十毫秒,后来者会把前一个刚占的位当陈旧回收)。修完 8 进程并发零重复。
+> - ② **§5.1.1 新增统一输出契约**:`RESULT:`/`HINT:`/`LOG:`/`ERRORS_BEGIN…END` 的形式、退出码三态(用法错误=2 与业务失败分开)、失败原因写成「英文错误码: 中文说明」(内网 GBK 终端下中文可能乱码,ASCII 错误码仍可截图读)、两个状态文件的位置与内容、`OCTO_FASTUI_ENV_DIR` 覆盖开关。
+> - ③ **§5.3 / §5.5 补全 IO 契约**与两处实现决定(cli-service 入口从 `package.json` 的 `bin` 解析、编译标志集中在 `lib/compile.mjs` 的 `MARKERS` 待内网校准)。
+> - ④ **§8.2 目录树修偏移**:v4 遗留的那张图里没有 `template/`(那时设想 template 走内网托管,v7 已作废)。
+> - ⑤ 预览链路**内网实测通过**:`<artifact type="text/link">` → 卡片 → iframe 渲染,零改动,与 §7.5 的查证结论一致;错误 bridge 的 window 级与 promise 级也实测通过。
+>
+> → 详见 §6.2.1、§5.1.1、§5.3、§5.5、§8.2、§7.5
+>
+> **2026-09-03：v9(做减法 —— 砍掉预付款,先在内网跑通一次)**——到 v8 为止一版都没在内网跑起来,而 spec 还在为尚未观测到的失败模式加机制。本版全部改动只有一个方向:**这件事不做,端到端还能不能跑通?** 能 → 砍或延后。
+>
+> - ① **新增 §0.1「第一版范围」**:只做四个脚本(`install`+`setup-env` / `ensure-env` / `new-session` / `verify`)+ 一份 SKILL.md;成功判据是"设计师在干净机器上调一次 skill 看到页面渲染出来",**在此之前 spec 不再新增任何机制**。
+> - ② **砍掉 `register.mjs`**(§3.3 重写):聚合入口 `views/index.vue` 实际只有五行,模型手里有整个工程的文件访问权,改它是最日常的操作;而为省掉这一步 v8 累积出了脚本 + `AUTO-GENERATED` 标记 + assemble 两条校验 + `_` 前缀跳过 + tab 生成逻辑,全是预付款。三种失败(漏改/语法错/误删引用)分别由"设计师一眼看见"/"verify 编译门禁"/"说一句就恢复"兜住,没有一种值得预建机制。
+> - ③ **`template` 不进共享池**(§3.1):v7 让安装时复制一份进共享池,理由"skill 换掉时正在跑的会话不受影响"**不成立**(会话工程是复制过去的,复制完就独立);而这一份带来的是真问题——v8 评审指出 `lockfileHash` 检不出"只改模板不改依赖"的升级,共享池 template 会悄悄过期,故障极难定位。**去掉这一跳,问题从根上消失**,不需要 `envVersion` 双判据也不需要新增 `templateHash`。共享池只留"装一次就不动"的 node 与 deps。
+> - ④ **`export-zip` 延后**:单区布局的直接收益就是产物零链接、随手压缩即安全,这个脚本是便利性不是正确性,而它要写 200 行 ZIP 容器 + 中文文件名跨平台单测。
+> - ⑤ **`assemble` 延后**(内网第一版手工复制两个目录)、**`--probe` 延后**(装完手工跑一次看得见)。
+> - ⑥ 采纳评审建议:`export-zip` **删掉 `.bin` 放行例外**(`yarn install` 本来就会重新生成 `.bin`,带不带行为一样,而例外分支是排除规则里最易错的逻辑);**[§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill) 补第四件**——模板侧内置的 error bridge 现在是空转的,宿主侧监听等第三层再做,记下来免得那时临时排期。
+> - ⑦ §3.4 模板改造清单按内网实物更新状态(1/2/3 已完成)。
+>
+> → 详见 §0.1、§3.3、§3.1、§5.6
+>
+> **2026-09-03：v8(review 三处必改 + 脚手架结构按实物订正)**——v7 交叉评审发现三处不自洽,全部修掉。
+>
+> - ① **§5.2 整段重写**:旧校验链是 v4 遗留(探针在链里、没有占位检测、没有 lockfileHash、`env.lock.json` 注释还写"打包机产出"),与 v7 的分发架构全面脱节,照它实现会与 §5.2.2 / §8.3 直接打架;新链六步、主判据换成 lockfileHash、探针默认关并改用 golden example 做探针页。
+> - ② **§5.2.1 新增「lockfileHash 比的是谁和谁」——这是 v7 引入的功能性缺陷**:v7 把 template 改成随 skill 走、`env.lock.json` 改成本机产出后,原来的「记录值 vs 实际值」比法失效了(skill 升级时两者依然一致,检测不出变化,`install --upgrade` 永远不会被触发);正确比法必须跨 skill 与共享池的边界:`sha256(<skillDir>/template/yarn.lock)` vs `sha256(<envDir>/deps/yarn.lock)`,`env.lock.json` 里那个字段降级为诊断记录。
+> - ③ **撤回 v7 的「dev server 由宿主 spawn」,回到 skill spawn + 宿主按 pid 收**:那是用确定的复杂度(新跨进程协议 + 必须在 Hono/Effect HttpApi 两套后端里选边站的已知坑)去换一个可能的 Windows 风险,方向反了;且自管模式无论如何都要写(内网调试与外网 V0 都不经过宿主),宿主方案省不掉它。Windows detached 改标为**待内网实测的风险**,退路与两套路由框架的选择写在 §6.3 末备查。
+> - ④ **§3.2 目录结构按内网实物订正**:`app.vue`/`index.vue`/`main.vue` 在 `src/` 下而非 `views/` 下;**§3.3 重写为三层边界表**(脚手架的壳 / 聚合入口 / 模型的可写目录),并补上「为什么是一页一目录而不是一页一文件」——平铺时模型拆出的子组件会被 register 误扫成页面。
+> - ⑤ **§3.4 新增「模板定版需要做的改造」7 项清单**,含建议这次一并定版的运行时错误 bridge(否则第三层要做时模板版本会分叉)。
+> - ⑥ **§7.2 新增 golden example 的形态与位置**:实体在 `views/_example/`(真实可编译、register 与 export-zip 都跳过)、同一份内联进 SKILL.md(模型必然看到)、`--probe` 拿它当探针页(不会随组件库升级失效);内容上纠偏——不枚举组件变体,只钉死 `$/` 别名、lake class 约定、`<script setup>` 骨架、根布局四件模型猜不到的事。
+> - ⑦ **§5.6 排除清单统一成一张表**,消除"不需要排除规则但仍排除"的自相矛盾,并标出 `packages/portal/node_modules/.bin/` 必须放行的例外。
+> - ⑧ §5.2.3 字段归属表随之更新(不再有"内网打包机")。
+> - ⑨ 仓库可见性已确认为 private,[§4.4.6](fastui-env-hosting.md#446-manifest-url-写在哪) 写死内网 URL 的取舍成立。
+>
+> → 详见 §5.2、§5.2.1、§6.3、§3.2、§3.3、§3.4、§7.2、§5.6、§5.2.3、fastui-env-hosting.md §4.4.6
+>
+> **2026-09-03：v7(分发链路定型 + 内网托管操作手册 + 三处实现级订正)**——脚本实现前的最后一轮收口。
+>
+> - ① **[§4.4](fastui-env-hosting.md#44-内网托管要准备什么怎么放离线操作手册) 新增「内网托管操作手册」**:精确到下载哪个 node 文件名、sha256 从 `SHASUMS256.txt` 抄、投放目录与访问地址、`manifest.json` 完整示例、首次搭建与每次升级各自的操作顺序。
+> - ② **`template/` 跟 skill 包走技能库,不单独托管**([§4.4.1](fastui-env-hosting.md#441-三样资产走三条链路--先分清不然会重复托管) 修正 v5 的"新 template 放内网托管"):`template/` 与 `scripts/` 强耦合必须同版本,而技能库有现成的上架/版本机制;`template` 与 `deps` 的耦合由 `lockfileHash` + 本机 `yarn install` 自愈。**nginx 上第一版只剩 node 包 + manifest.json**。
+> - ③ **§4.1 ④ 改为在 `deps/` 里跑 `yarn install`**,不再"模板里装完再移"——后者会让增量升级退化成每次全量重装 1GB;同时写死 registry 分离(装 yarn 传 `--registry`、装依赖绝不传,否则覆盖掉各 scope 源)。
+> - ④ **§6.3 末:dev server 改由宿主 spawn 并持有**,`verify` 保留自管模式作为脱离宿主的调试路径——避开 Windows `detached` 语义与 Job Object 的坑,且生命周期归属不再"一个进程两个爹"([§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill)③ 同步改写)。
+> - ⑤ **§5.5.1 编译判定防竞态**(开始时刻晚于文件 mtime + 完整的开始/结束对 + 800ms 稳定窗口),
+> - ⑥ **§5.6 ZIP 必须置 UTF-8 flag**(否则中文文件名在 Windows 解压乱码),
+> - ⑦ **§8.3 assemble 增加校验**:template 必须预置带 `AUTO-GENERATED` 标记的 `views/index.vue`——把"首次 register 面对无标记文件"挡在组装期,避免每个交付包里留一个 `index.vue.pre-octo` 垃圾文件。
+> - ⑧ **`ensure-env` 只判断不下载**,升级动作收进 `install --upgrade`;设计师全程不接触安装命令,由 agent 依 `HINT:` 自动执行。
+> - ⑨ **托管落点确定**:内网现有 `/design` 静态目录,投放到 `https://octo.hdesign.huawei.com/design/fastui-env/`,无需改 nginx;manifest 的缓存问题改由客户端侧解决(`no-cache` 头 + 时间戳破缓存)。
+> - ⑩ **manifest URL 直接写死在 `references/env.manifest.json`**,放弃 `env.source.json` 注入方案(现有代码仓已多处出现内网地址,不值得为此引入一个外网看不到的文件层次)——[§4.4.6](fastui-env-hosting.md#446-manifest-url-写在哪) 记了这次取舍的来由与回退方式。
+> - ⑪ **skill 落点确认为 `.octo/skills/<skillName>/`**(自定义技能与平台技能一致),脚本一律用 `import.meta.url` 推导 `../template/`,前期自定义验证与后期平台上架不需改代码;§3.1 补充了「skill 的 template → 共享池 template → 会话」这一跳的意义。
+> - ⑫ [§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill) 明确三件 UXAI 侧改动**必须增量式兼容**,任何一项若必须改动既有代码路径,先停下对齐。
+>
+> → 详见 fastui-env-hosting.md §4.4、§4.4.1、§4.4.6;本文件 §4.1、§6.3、§5.5.1、§5.6、§8.3
 >
 > **2026-09-03：v6(改单区,取消工作区/交付区分离 —— 核心机制内网整体实测通过)**——v2~v5 的双区(工作区藏 `.octo/` + 干净副本同步到 outputs)是为了绕开"产物目录里有链接、设计师手工压缩会带出 1GB"。**本次验证证明不需要绕**:把链接建在**会话根**(`.octo/<sid>/node_modules`,即 outputs 的父级)+ **直连 cli-service 启动**(绕过 yarn 的 `.bin` PATH 与 shim 写死层级这两道坎)+ `turboui.config.js` 三处环境变量注入(全部带 `||` 回退),webpack 成功跨两层向上解析(`209/227 modules`),`OCTO_PORT`/`OCTO_DEPS` 均生效。于是**产物目录本身零链接**,压缩安全、文件管理扫盘安全、模型写的就是交付物,**同步步骤取消**。§1.6 由"已否决"改写为"第一次试失败的真正原因是启动路径而非解析能力"——保留是因为那次误判差点否掉整条正确路线。`sync-output` 改为 `export-zip`(按需打包,非同步);新增 **[§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill) UXAI 仓要做的三件事**(导出按钮 / external URL tab 的编辑类功能 gate / dev server 生命周期),明确这三件 skill 做不了、必须在 `pages/make/` 侧做。
 >
-> **2026-09-03：v5(升级机制改增量 + 外网仓占位结构 + Q1 收口)**——① **§5.2.2 修正 v4 说过头的"环境不可变"**:要禁的是**改 lock 的操作**(`yarn upgrade`/`add`),不是 `yarn install`——后者按 lockfile 复现,各机结果一致且有 `lockfileHash` 兜底,这正是 lockfile 的意义。因此升级走**增量**:内网打包机产出新 template(几百 KB) + 新 `env.lock.json` → 内网托管 → 外网仓只改 `requiredEnvVersion` 走 GitHub → 设计师端拉新 template + 共享池 `yarn install` 增量装差异 → 校验 hash。**不需要重下几百 MB**,§4.2 的整包分发降级为首次安装的可选优化。② **§5.2.3 新增字段承载关系表**,明确组件库版本不单独立字段(已被 `envVersion` 涵盖、精确值在 `keyPackages`、由 `lockfileHash` 严格约束)。③ **§8.3 新增外网仓结构**:`template/` 与 `vendor/` 是内网资产、外网仓留 `PLACEHOLDER.md` 占位,内网 `assemble.mjs` 组装;`ensure-env` 必须能检出"占位未填充"并响亮失败。④ **Q1 收口**:不预先约谈 Design,实现时按实际情况处理,原则是**不影响既有业务逻辑**(只加 gate 不改 srcdoc 路径行为)。
+> → 详见 §2、§2.5、§1.6、§5.6、fastui-uxai-integration.md §8.6
 >
-> **2026-09-02：v4(预览链路查实为零改动 + 版本模型定型)**——① **§7.5 重写**:追完 `text/link` 链路发现**不需要新增 renderer**——skill 输出 `<artifact type="text/link">http://127.0.0.1:<port></artifact>`,现有 `insight-turn.tsx:156` → `index.tsx:3771` → `html-renderer.tsx:853 shouldUseExternalUrl()` → `:1405 <iframe src>` 一路直达,代码注释原文即「复用 preview URL 工作流」;`refreshKey` 拼 `?_octo_v=N` 顺带解决重编译刷新。待确认收敛为两点(external 下编辑类功能是否已 gate / dev server 生命周期归谁)。② **§5.2 版本模型定型**:分清期望值/实际值/上游值三个"版本";`lockfileHash` 作权威判据(yarn.lock 唯一决定依赖树),`keyPackages` 降为诊断展示;`scaffoldVersion` 语义含糊改名 `templateVersion`;确立**环境不可变原则**——绝不在设计师机器上 `yarn install`/`upgrade`,升级只重打环境包(否则各机漂移、故障无法复现);`ensure-env` 只判断不修复且方向不对称(低于要求阻塞、高于要求放行)。
+> **2026-09-03：v5(升级机制改增量 + 外网仓占位结构 + Q1 收口)**——
 >
-> **2026-09-02：v3(落点/端口/预览三处按实测与查证订正)**——① **Q3 已验证**:环境变量可穿透 `yarn`→`lerna`→`turbo-ui-cli-service`,模板 `turboui.config.js` 已改为读 `OCTO_PORT`;② **落点不是新约定**:查 `pages/make/index.tsx:2515`,Design 传给 skill 的 `[Artifact Folder]` 就是 `.octo/<sessionId>/outputs`,沿用即可,工作区取平级 `fastui-project/`(§3.2 重写,v2 里写的 `<工作目录>/outputs/` 有误);③ **预览容器机制查清**:renderer 分发是 `result-viewer/index.tsx` 里按 `tab.type` 的硬编码 Switch(`subtype-registry` 只管 html 内部 subtype),新增形态必须改 Design 代码但改动很小;纯预览下 srcdoc 与 `127.0.0.1:<port>` **完全等价**,差异只在同源性(§7.5);④ 版本号明确分 `skillVersion` / `envVersion` 两条,合并会导致每改一次提示词就触发几百 MB 重下(§5.2)。
+> - ① **§5.2.2 修正 v4 说过头的"环境不可变"**:要禁的是**改 lock 的操作**(`yarn upgrade`/`add`),不是 `yarn install`——后者按 lockfile 复现,各机结果一致且有 `lockfileHash` 兜底,这正是 lockfile 的意义。因此升级走**增量**:内网打包机产出新 template(几百 KB) + 新 `env.lock.json` → 内网托管 → 外网仓只改 `requiredEnvVersion` 走 GitHub → 设计师端拉新 template + 共享池 `yarn install` 增量装差异 → 校验 hash。**不需要重下几百 MB**,§4.2 的整包分发降级为首次安装的可选优化。
+> - ② **§5.2.3 新增字段承载关系表**,明确组件库版本不单独立字段(已被 `envVersion` 涵盖、精确值在 `keyPackages`、由 `lockfileHash` 严格约束)。
+> - ③ **§8.3 新增外网仓结构**:`template/` 与 `vendor/` 是内网资产、外网仓留 `PLACEHOLDER.md` 占位,内网 `assemble.mjs` 组装;`ensure-env` 必须能检出"占位未填充"并响亮失败。
+> - ④ **Q1 收口**:不预先约谈 Design,实现时按实际情况处理,原则是**不影响既有业务逻辑**(只加 gate 不改 srcdoc 路径行为)。
+>
+> → 详见 §5.2.2、§5.2.3、§8.3
+>
+> **2026-09-02：v4(预览链路查实为零改动 + 版本模型定型)**——
+>
+> - ① **§7.5 重写**:追完 `text/link` 链路发现**不需要新增 renderer**——skill 输出 `<artifact type="text/link">http://127.0.0.1:<port></artifact>`,现有 `insight-turn.tsx:156` → `index.tsx:3771` → `html-renderer.tsx:853 shouldUseExternalUrl()` → `:1405 <iframe src>` 一路直达,代码注释原文即「复用 preview URL 工作流」;`refreshKey` 拼 `?_octo_v=N` 顺带解决重编译刷新。待确认收敛为两点(external 下编辑类功能是否已 gate / dev server 生命周期归谁)。
+> - ② **§5.2 版本模型定型**:分清期望值/实际值/上游值三个"版本";`lockfileHash` 作权威判据(yarn.lock 唯一决定依赖树),`keyPackages` 降为诊断展示;`scaffoldVersion` 语义含糊改名 `templateVersion`;确立**环境不可变原则**——绝不在设计师机器上 `yarn install`/`upgrade`,升级只重打环境包(否则各机漂移、故障无法复现);`ensure-env` 只判断不修复且方向不对称(低于要求阻塞、高于要求放行)。
+>
+> → 详见 §7.5;②「环境不可变原则」已被 v5 §5.2.2 订正(改成只禁改 lock 的操作),现行结论见该节,不重复列出
+>
+> **2026-09-02：v3(落点/端口/预览三处按实测与查证订正)**——
+>
+> - ① **Q3 已验证**:环境变量可穿透 `yarn`→`lerna`→`turbo-ui-cli-service`,模板 `turboui.config.js` 已改为读 `OCTO_PORT`;
+> - ② **落点不是新约定**:查 `pages/make/index.tsx:2515`,Design 传给 skill 的 `[Artifact Folder]` 就是 `.octo/<sessionId>/outputs`,沿用即可,工作区取平级 `fastui-project/`(§3.2 重写,v2 里写的 `<工作目录>/outputs/` 有误);
+> - ③ **预览容器机制查清**:renderer 分发是 `result-viewer/index.tsx` 里按 `tab.type` 的硬编码 Switch(`subtype-registry` 只管 html 内部 subtype),新增形态必须改 Design 代码但改动很小;纯预览下 srcdoc 与 `127.0.0.1:<port>` **完全等价**,差异只在同源性(§7.5);
+> - ④ 版本号明确分 `skillVersion` / `envVersion` 两条,合并会导致每改一次提示词就触发几百 MB 重下(§5.2)。
+>
+> → 详见 §3.2、§6.2、§7.5、§5.2.4
 >
 > **2026-09-02：v2（工作区与交付区分离，取代 v1 的「outputs 里放带链接的工程 + 导出脚本」）**——v1 把会话工程直接放 `outputs/`，`node_modules` 是目录链接，靠 `export-session` 脚本产出干净 zip。问题：**设计师直接右键压缩会跟随链接把 1GB 依赖打进去**，而"记得先点导出"这件事防不住。v2 改为**双区**：带链接的工作区藏进 `.octo/`（设计师不翻），`outputs/` 里放编译通过后同步过去的**干净副本**（任何层级都无 `node_modules`）——设计师在文件管理里看到的、随手压缩的，天生就是安全的那份。不再依赖任何"记得触发脚本"的行为。
 > 同时**否决 v1 §3.4 留的备选**（把链接建在 `outputs/` 层让会话目录零链接）：内网实测 `node_modules` 上提一级即无法启动，两道坎——① `yarn` 执行 script 时把 `./node_modules/.bin` 拼进 PATH，项目根无 `node_modules` 则找不到 `lerna`；② `.bin` 里 shim 写死 `$basedir/../../../../node_modules/…`，层级一变即指错。与 Node 的逐级向上解析无关，那两步在解析之前就失败了。
+>
+> → 详见 §1.6、§2.5(双区方案已被 v6 的单区架构取代,这里的失败分析在 §1.6 完整保留)
 
 ---
 
@@ -595,6 +742,8 @@ the variables unset the behaviour is identical to the original scaffold.
 - **③ 的 `--prefix` 固定指向 `<envDir>/node`**，与"node 是哪来的"解耦：先用系统 node 装好 yarn，之后哪天真去下了 portable node，解压进同一个目录即可，yarn 不用重装、路径一个字都不用改
 - 已验证：Windows 与 macOS 各走通一遍（node 离线装、yarn 指定 registry 可装、项目内 `yarn` 装依赖无阻碍）；复用系统 node 这条路 2026-09-11 在本地 macOS 走通（见 [§9.1](#91-外网可做本地-mac)）
 - **② 的 `template/` 来源路径不要硬编码**：skill（自定义技能与平台技能一致）落在 `.octo/skills/<skillName>/`，脚本一律用 `import.meta.url` 推导同级的 `../template/`。这样前期以自定义技能验证、后期上架平台技能，脚本不用改一个字
+- **安装脚本的网络请求（拉 manifest、下 node 包）证书校验默认放行**（`install.sh` 的 `-k` / `install.ps1` 的等价开关），传 `--strict-cert` / `-StrictCert` 才严格校验（v12）。理由：内网证书基本是自签名的；完整性不靠证书链保证，靠下载后的 **sha256 比对**（见 [§4.4.3](fastui-env-hosting.md#443-sha256-从哪来)）——那校验的是文件内容本身，比证书链更强。`doctor` 与 `--check` 都会打印 `TLS_VERIFY: ON/OFF` 说明当前跑的是哪一档
+- **判断"池子里的 node 能不能用"时跑一次 `node -v`**，不是看文件在不在、也不看有没有带 `--upgrade` 参数（v16 订正）——旧判据本质是拿一次 50MB 下载去替代一次版本查询，新判据只需要一次进程调用
 
 #### v16 更正 —— 不需要 sudo 不是必须用 portable node 的理由
 
@@ -766,6 +915,8 @@ LOG: <日志绝对路径>
 
 > **失败原因写成「英文错误码: 中文说明」**：内网 Windows 终端代码页是 GBK，中文可能显示成乱码，但错误码是 ASCII —— 截图出来仍然可读。§8.4 要求"单条 `RESULT: FAIL` 要能独立说明问题"，这是它的实现形式。
 
+> **两个安装脚本（`install.sh` / `install.ps1`）另有一行可选的 `DETAIL:`**（v11）：跟在 `RESULT: FAIL` 后面、`HINT:` 前面，放展开的失败细节（比如具体是哪一步、哪个请求失败的）——`HINT:` 管"下一步该做什么"，`DETAIL:` 管"到底发生了什么"，两者语义不同，不要合并成一行。**`ensure-env` / `new-session` / `verify` 等 `.mjs` 脚本没有这一行**，它们的 `fail()` 契约就是 `RESULT:` / `HINT:` / `LOG:` 三行，不要照抄安装脚本的格式。
+
 多行内容（目前只有 `verify` 的编译错误原文）用显式块，不混进 key-value：
 
 ```
@@ -814,7 +965,7 @@ ERRORS_END
 | 契约行（`RESULT:` / `HINT:` / `LOG:` / `WARN:`） | ✅ 已落 | 另加 `block()`（编译错误原文）与 `usage()`；`fail()` **自动补 `LOG:` 行**（sink 已知，不该靠每个调用方记得手写） |
 | 过程行（`log()`：走了哪个分支、`$ <实际命令行>`） | ❌ 只进 stderr | `log()` 也走 `persist()`，带 `hh:mm:ss` —— 好看出是哪一步耗了十分钟 |
 | **子进程 stdout/stderr**（npm / yarn 的原文） | ❌ 完全丢失 | `run()` 改 `spawn` **流式**：两条流都实时转发到 stderr，同时用一个有界尾部缓冲攒最后 64KB 落盘，**成功也写**；退出码与耗时单独一行。三个点都是判据: ① **必须流式**，一次性取意味着 `yarn install` 那几分钟一个字节都不输出，宿主若有「长时间无输出即判挂起」的逻辑会直接 kill 它 —— 那不是体验问题，是装不上；② **不能用 `execFileSync`**，它只返回 stdout，成功时 stderr 直接丢，而 npm / yarn 的话都说在 stderr 上；③ **收到的 Buffer 不解码**，Windows 上那是 GBK 字节，按 UTF-8 解一遍再写回去就是乱码（§5.1.2 那条根因链的一环）。另：子进程的 stdout 也转发到 **stderr**，不能进我们自己的 stdout —— v14 的 `inherit` 写法把 npm 的 stdout 混进了契约流 |
-| 契约行摘要 | — | 子进程失败时把 **stderr 末行**拼进 `RESULT:` 那行（ANSI 色码与控制字符先剔掉），别让契约行只剩个退出码 |
+| 契约行摘要 | — | 子进程失败时把 `errorTail()` 挑出的**那一行**拼进 `RESULT:` 那行（ANSI 色码与控制字符先剔掉），别让契约行只剩个退出码。**不是简单取 stderr 末行**（v16 订正，2026-09-12 复核实测）：npm / yarn 的末行恰好都是没用的那种——npm 固定是"A complete log of this run can be found in…"，yarn 常年是一条 node 内部栈帧，真因往往在上面十几行。判据：先按高信号模式（`xxxError:`、`error code XXX` 之类）从后往前找；没有就跳过已知的 boilerplate 模式取最后一条非噪声行；两者都没有才退回原来的末行——不会比旧版更差 |
 | `install.sh` / `install.ps1` 全程 | ❌ 一个字都不落盘 | 全程 tee 到同一个 `<envDir>/octo-fastui.log`（sh 用 `exec 1> >(tee …)` 分别复制两条流，**交棒给 setup-env 前还原 fd**，否则它的输出会双份；ps1 每行输出经 `Say` / `Emit` 同步写盘） |
 | **失败响应体** | ❌ 没存 | curl **去掉 `-f`**（`-f` 会把错误页正文直接丢掉），改 `-w '%{http_code}'` 自己判状态码；ps1 从 `WebException.Response` 里读出正文。非 2xx 的正文原样进日志（超 64KB 或二进制只记大小） |
 
@@ -844,6 +995,8 @@ ERRORS_END
 **约束 1 必须配一条合法出口，否则会制造死结。** `new-session` 的 `PROJECT_INCOMPLETE` 这条路径脚本自己不会自愈（`exists(projectDir)` 分支故意不删），而 agent 又不许删 —— 半成品留在盘上，下次进来还是同一个错。所以 `new-session.mjs` 提供 `--reset`：**删除动作仍在脚本内、仍过 `assertSafeToRemove`**，HINT 引导 agent 去跑那个开关，而不是自己动手。以后凡是「脚本报错但只能靠删除恢复」的路径，都要照此配开关。
 
 > **不建议全仓把中文注释换成英文。** 注释在 `.mjs` 里，不参与任何跨编码传输；`install.ps1` 已改存 UTF-8 with BOM（[§4.4.8](fastui-env-hosting.md#448-首装踩到的坑内网实测分两批2026-09-07--09-08) 第一批），那条路已经堵上了。真正需要保证 ASCII 的是**错误码**，§5.1.1 的「英文码 + 中文说明」就是这个设计。要缩范围的话，只约束"会被打印到 Windows 控制台的字符串"更划算，成本低得多。
+
+> **同一根因链的另一处：`verify.mjs` 的 Windows 自管兜底启动（§6.3）。** PowerShell 5.1 按系统 ANSI 代码页（内网 GBK）解释命令行参数，而 Node 按 UTF-8 编码 argv 传出去——项目路径含中文时 `Start-Process` 直接报"找不到路径"（2026-09-09 内网实测，工作目录 `D:\10 agent测试\`）。与 `mklink` 那条同源，修法也同构：改走 `-EncodedCommand`（收 UTF-16LE 的 Base64，完全绕开代码页，微软给的标准解法）。配套一处：失败文案要取 `e.stderr` 而不是 `e.message`——`execFileSync` 抛错时 `e.message` 是 `Command failed: <完整 argv>\n<stderr>`，而 argv 里那串 base64 有 1300+ 字符，会把真正的报错挤出 `RESULT:` 行，让错误信息读不出来（v15，PR #23）。这一路径对外体现为 `SPAWN_FAILED`（[§5.5](#55-verifymjs--编译门禁)）。
 
 ### 5.2 `ensure-env.mjs` — 环境就绪校验
 
@@ -1059,7 +1212,12 @@ LOG: <日志绝对路径>
 
       RESULT: FAIL | MISSING_VUE_IMPORT: …   ← 漏 import 静态检查(§7.3.1),编译之前就返回
       RESULT: FAIL | COMPILE_TIMEOUT: …      ← STAGE / ROUNDS_SEEN / HINT / LOG_TAIL
+      RESULT: FAIL | SPAWN_FAILED: …         ← 见下,§6.3 自管兜底路径专属
 ```
+
+**`SPAWN_FAILED` —— 只出现在 §6.3 自管模式的 Windows 兜底路径**
+
+`verify` 在拿不到宿主起好的 dev server（[§8.6.1「skill 侧对应的降级」](fastui-uxai-integration.md#861-dev-server-由宿主起并持有-的完整方案)前三档都落空）时，会自己用 PowerShell 的 `Start-Process` 兜底拉起服务；这一步失败就返回 `RESULT: FAIL | SPAWN_FAILED: …`，`DETAIL:` 行带 PowerShell 报的原始错误摘要（取自 `e.stderr`，见 [§5.1.2](#512-硬性安全约束所有脚本--skillmd) 的编码与错误摘要处理）。**多数情况下这条路径不会被触发**——生产环境走宿主 spawn（[§8.6.1](fastui-uxai-integration.md#861-dev-server-由宿主起并持有-的完整方案)），自管兜底只用于脱离宿主调试（内网调脚本、外网 V0）。
 
 **`NODE_SUSPECT` —— 去掉 node 版本门禁之后的唯一补偿控制（v16，[§4.1](#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)）**
 
@@ -1190,25 +1348,20 @@ function probe(port) {
 - **Agent 退出时统一清理**
 - **软上限：同时最多 3 个 dev server**，超出关最旧的。webpack dev server 每实例吃数百 MB 内存，不设上限会把设计师机器拖垮
 
-#### 谁来 spawn dev server —— skill 起、宿主按 pid 收（v7 二次修正，回到 v6）
+#### 谁来 spawn dev server —— 宿主 spawn 并持有是生产路径
 
-`verify.mjs` 是短命脚本，它退出后 dev server 必须还活着：`detached: true` + `windowsHide: true` + stdio 全部重定向到 `.octo/<sid>/devserver.log` + `unref()`，然后把 `{port, pid, projectDir, logPath, startedAt}` 写进 `.octo/<sid>/.devserver.json`。宿主读这个文件拿 pid 做生命周期管理（[§8.6](fastui-uxai-integration.md#86-uxai-仓要做的五件事design-模块不是-skill)③）—— **宿主只需要知道 pid，不需要持有进程**。
+**生产环境下 dev server 由宿主（Electron 主进程）spawn 并持有**，`verify.mjs` 只做编译判定，不负责进程生命周期。完整机制、文件契约、改动清单见 [SPEC-DES-003 §8.6.1](fastui-uxai-integration.md#861-dev-server-由宿主起并持有-的完整方案)——**已实现并内网实测通过**（Windows + macOS arm64 各一遍，UXAI PR #801）。
 
-> **一次自我修正**：v7 初稿曾改成"由宿主 spawn 并持有"，理由是绕开 Windows `detached` 与 Job Object 的坑。这个权衡是反的，撤回：
-> - 那个 Windows 坑是**可能存在**的（`detached` 在 Windows 走 `CREATE_NEW_PROCESS_GROUP`+`DETACHED_PROCESS`，通常能脱离；只有父进程被放进设了 `KILL_ON_JOB_CLOSE` 的 Job Object 时才会被连坐）
-> - 而宿主方案引入的是**确定存在**的成本：一套新的跨进程协议（本地 HTTP + token + `.octo-host.json` 的位置语义）、以及必须在两套后端框架里选边站的已知坑（`packages/opencode` 同时有 Hono 与 Effect HttpApi，开发/预览渠道只跑后者，照抄 Hono 会写出一个永远 404 的路由，见 [hono-vs-effect-httpapi-routing](../../learning/hono-vs-effect-httpapi-routing.md)）
-> - 而且**自管模式无论如何都要写**（内网调脚本、外网跑 §9.1 的 V0 都不经过宿主），宿主方案并不能省掉这段代码，只是在它之上再加一层
+`verify.mjs` 自己 spawn（`detached: true` + `windowsHide: true` + stdio 重定向到 `.octo/<sid>/devserver.log` + `unref()`，写 `.octo/<sid>/.devserver.json`）**不是死代码，是脱离宿主时的兜底**——内网调脚本、外网跑 §9.1 的 V0 都不经过宿主，这条路径必须存在；它在 Windows 上"活不过本次调用"是**已知的模式差异，不是 bug**（四档启动策略、以及这一条在 Windows 上失效为什么不算 bug，见 [§8.6.1「skill 侧对应的降级」](fastui-uxai-integration.md#861-dev-server-由宿主起并持有-的完整方案)）。
+
+> **这条决策转过两次，第二次是证据推翻了第一次的推理，不是偏好摇摆**：
+> - **v7 初稿**：由宿主 spawn 并持有，理由是绕开 Windows `detached` 与 Job Object 的坑
+> - **v8 撤回**：改回 skill 自管——"用确定的复杂度（新跨进程协议 + 必须在 Hono/Effect HttpApi 两套后端框架里选边站的已知坑）去换一个可能的 Windows 风险，方向反了"。这个推理在**当时**是对的：Windows `detached` 会不会真被 Job Object 连坐，还没有实测证据
+> - **2026-09-06 内网实测**：`verify.mjs` 用 `detached` 起的 dev server，**脚本一退出就没了**——根因是 `packages/opencode/src/tool/shell.ts:296`，Windows 下 shell 工具有意不脱离（`detached: false`），整条 `opencode → PowerShell → verify.mjs → dev server` 在同一个 Job Object 里，shell 工具收尾时整棵树被清掉。v8 想省的那个"可能的风险"被证实为**确定存在**，退路（宿主 spawn）随即被采纳、实现、两平台测过，合入 UXAI PR #801
 >
-> 用确定的复杂度去换一个可能的风险，方向错了。先按自管做，内网实测（§9.2 阶段 2）验证"脚本退出后 dev server 仍存活"。
-
-**Windows detached 是待验风险，不是已解问题**：内网调试恰恰就在 Windows 上，若实测发现 dev server 跟着 `verify.mjs` 一起死，退路是把 spawn 交给宿主（Electron 主进程或 opencode server），届时**必须先定走哪套路由框架**：
-
-| 退路 | 落点 | 注意 |
-|---|---|---|
-| 挂 opencode server | **必须走 Effect HttpApi**（`server/routes/instance/httpapi/groups/*` + `handlers/*`），扩展现有 `insight` 分组 | 普通 Hono 路由在本仓开发/预览渠道是死代码 |
-| Electron 主进程另起本地 server | `packages/app` 侧，不碰上游核心 | token 与端口发现机制要自己做 |
-
-**在没有实测证据之前不要提前上这一层。**
+> v7/v8 的推理过程本身没有错——"不为可能的风险预先引入确定的复杂度"是对的判断原则，只是这次风险后来被证实是真的。保留这段是因为**判断原则**仍值得借鉴，但**结论**已被 2026-09-06 的证据推翻，以 [§8.6.1](fastui-uxai-integration.md#861-dev-server-由宿主起并持有-的完整方案) 记录的生产实现为准。
+>
+> 顺带：当时设想的"退路"是"挂 opencode server（需在 Hono/Effect HttpApi 两套后端框架里选边站）"或"Electron 主进程另起本地 server"，实际实现比两者都简单——Electron 主进程直接 spawn 并用内存 `Map<sessionId,{pid,port}>` 持有，经 `ipcMain.handle` 下发给渲染进程，不新起 HTTP server、不碰 opencode 路由，Hono/Effect 那个坑因此从未在这条路径上出现过（该坑本身仍是真的，只是这里没撞上，见 [hono-vs-effect-httpapi-routing](../../learning/hono-vs-effect-httpapi-routing.md)）。
 
 ### 6.4 host 用 `127.0.0.1`
 
