@@ -1,0 +1,5 @@
+{
+  "name": "@turboui/turbo-ui-cli-service",
+  "version": "0.0.0-fake",
+  "bin": { "turbo-ui-cli-service": "bin/turbo-ui-cli-service.js" }
+}

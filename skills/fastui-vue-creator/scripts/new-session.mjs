@@ -11,7 +11,7 @@ import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, usage, log, parseArgs } from "./lib/result.mjs"
 import { SKILL_DIR, TEMPLATE_DIR, envDir, envPaths, readManifest, sessionPaths, readJson, exists } from "./lib/paths.mjs"
-import { claimPort, findFreePort } from "./lib/port.mjs"
+import { claimPort, findFreePort, probe } from "./lib/port.mjs"
 import { ensureDirLink } from "./lib/link.mjs"
 
 const args = parseArgs()
@@ -163,17 +163,46 @@ try {
   })
 }
 
+/**
+ * 这个端口上跑的是不是**本会话自己的** dev server。
+ *
+ * 原来的判据是 `prev.projectDir === projectDir` —— 那只说明"状态文件是我写的",
+ * 对"谁占着这个端口"一个字都没说。端口被隔壁对话的 dev server 占着时,它同样成立,
+ * 于是本会话会把别人的端口当成自己的报出去(SPEC-DES-004 §2 P3)。
+ *
+ * 真正的判据是宿主写的 `.devserver.json`:端口对得上、pid 还活着。
+ */
+function ownsRunningDevServer(port) {
+  const dev = readJson(S.devserver)
+  if (!dev || Number(dev.port) !== Number(port)) return false
+  try {
+    process.kill(Number(dev.pid), 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 // ③ 分配端口。已有状态文件且那个端口还空着就沿用,免得每次调用都换端口。
+//
+// 登记表落在**共享池**而不是工作目录(SPEC-DES-004 §4.2):端口是全机资源,
+// 表建在 `<用户所选目录>/.octo/` 时,两个挂在不同目录的对话看到的是两张空表,双双拿到 8081。
 const prev = readJson(S.state)
 let port = null
 if (prev?.port) {
-  const { probe } = await import("./lib/port.mjs")
-  if (await probe(prev.port)) port = prev.port
-  else if (prev.projectDir === projectDir) port = prev.port // 被自己的 dev server 占着
+  if (await probe(prev.port)) {
+    // 端口空着 —— 沿用,但**必须重新占位**。这条重入路径原来直接 `port = prev.port` 就完事,
+    // 登记表里那条标记可能早已被回收(或本来就来自旧版的 per-目录表),于是这个端口在表上是空的,
+    // 另一个会话可以合法地把它 claim 走 —— 两边都以为自己拥有它。
+    if (claimPort(P.root, prev.port, S.sessionRoot, { projectDir })) port = prev.port
+  } else if (prev.projectDir === projectDir && ownsRunningDevServer(prev.port)) {
+    port = prev.port // 被**自己的** dev server 占着
+  }
 }
 if (!port) {
-  const octoRoot = path.dirname(S.sessionRoot)
-  port = await findFreePort(Number(manifest.portRangeStart) || 8081, 50, (p) => claimPort(octoRoot, p, S.sessionRoot))
+  port = await findFreePort(Number(manifest.portRangeStart) || 8081, 200, (p) =>
+    claimPort(P.root, p, S.sessionRoot, { projectDir }),
+  )
 }
 if (!port) fail("NO_FREE_PORT", `从 ${manifest.portRangeStart} 起连续 50 个端口都被占用`)
 

@@ -124,11 +124,14 @@ node scripts/new-session.mjs --artifact-dir="<[Artifact Folder] 绝对路径>" -
 
 `--artifact-dir` 用系统给的 **[Artifact Folder]** 原值。`--name` 用一个简短的英文/拼音工程名。
 
-记住返回的三个值,后面都要用:
+记住返回的两个值,后面都要用:
 
 - `WRITE_DIR` —— **你唯一可以新建文件的目录**
 - `ENTRY_FILE` —— 聚合入口,**唯一允许你修改的既有文件**
-- `PORT` —— 预览端口
+
+还会返回一个 `PORT`,**那是给排查用的,不要拿它拼预览链接** —— 从这里到 dev server 真正起好,
+端口可能变(被别的对话抢走、或宿主换了一个)。**预览链接只有一个来源:第 ④ 步 `verify` 输出的
+`PREVIEW_CARD` 那一行。**
 
 ### ③ 写代码 —— 边界见下面「硬约束」
 
@@ -180,11 +183,16 @@ HINT: 这条编译错误**不是你写的代码的问题**,别改 .vue 重试。
 
 ### ⑤ 输出预览 —— 不能省
 
-`verify` 返回 `RESULT: OK` 之后,**必须**输出这一行(端口换成 `verify` 给的 `PREVIEW_URL`):
+`verify` 返回 `RESULT: OK` 之后,**必须**把它输出的 `PREVIEW_CARD:` 后面那一整行**原样复制**到回复里,
+一个字都不要改:
 
 ```
-<artifact type="text/link">http://127.0.0.1:8081</artifact>
+PREVIEW_CARD: <artifact type="text/link" title="user-profile-page">http://127.0.0.1:8083</artifact>
+             └──────────────────── 复制这一整段 ────────────────────┘
 ```
+
+**不要自己拼端口、不要自己起标题、不要用第 ② 步的 `PORT`。** 端口在 ② 之后可能已经变了,
+标题用的是产物文件夹名(设计师靠它认出是哪个页面)—— 两者都已经在 `PREVIEW_CARD` 里定好。
 
 Design 靠这个标签渲染预览面板。**只有这个标签会被识别** —— 用别的形式给链接(纯文本 URL、markdown 链接、
 代码块)都不会出卡片,用户就只能自己开浏览器,等于白做。

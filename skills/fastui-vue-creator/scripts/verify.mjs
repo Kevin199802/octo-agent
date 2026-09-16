@@ -48,6 +48,22 @@ const portalDir = path.join(projectDir, "packages", "portal")
 const writeDir = path.join(portalDir, "src", "views")
 if (!existsSync(portalDir)) fail("NO_PROJECT", `工程目录不存在: ${portalDir}`, { hint: "先跑 new-session.mjs" })
 
+/**
+ * 卡片标题 = 产物文件夹名(模型自己总结的 kebab 名),而不是 `127.0.0.1:8081`。
+ *
+ * 前端对 link 卡片原来一律从 content 派生标题,而预览 URL 没有 path,只能回退到 host ——
+ * 于是一排卡片全叫 `127.0.0.1:808x`,既认不出是哪个页面,串台时也看不出不对
+ * (SPEC-DES-004 §4.5)。
+ *
+ * 清洗一次再拼:`new-session` 校验过 `--name`,但状态文件可能来自旧版本或被手工改过,
+ * 而这串要进 HTML 属性 —— 带引号就会把标签拼坏。
+ */
+function cardTitle() {
+  const raw = String(state?.name || path.basename(projectDir) || "fastui-app")
+  const cleaned = raw.replace(/[^\w.\-\u4e00-\u9fa5]/g, "")
+  return cleaned || "fastui-app"
+}
+
 const P = envPaths(envDir())
 // 起 dev server 用哪个 node:共享池里有就用池子的,没有就用跑着本脚本的这个 ——
 // 系统 node 够用的机器上共享池里根本没有 node(§4.1),写死 P.nodeBin 会 ENOENT。
@@ -389,6 +405,12 @@ while (Date.now() - t0 < timeoutMs) {
       process.exit(1)
     }
     ok({
+      // 整个标签在这里拼好,SKILL.md ⑤ 只要求"原样输出这一行"(SPEC-DES-004 §4.4)。
+      // 端口原来有两个来源 —— new-session 的 PORT 和这里的 PREVIEW_URL,而两者可以不相等
+      // (new-session 分配后到真正 listen 之间,端口可能被别的会话抢走,宿主也可能换一个)。
+      // SKILL.md ② 说"记住 PORT,后面都要用"、⑤ 说"用 verify 给的 PREVIEW_URL",
+      // 模型照着 ② 做就会把卡片指到别人的服务上。把端口和标题一起定死在同一行,模型只做复制。
+      PREVIEW_CARD: `<artifact type="text/link" title="${cardTitle()}">http://127.0.0.1:${port}</artifact>`,
       PREVIEW_URL: `http://127.0.0.1:${port}`,
       PORT: port,
       PID: pid,
