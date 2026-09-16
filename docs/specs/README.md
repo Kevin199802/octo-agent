@@ -50,13 +50,14 @@
 
 ---
 
-## 已编号 · Design / octo_make（SPEC-DES-001 ~ 003）
+## 已编号 · Design / octo_make（SPEC-DES-001 ~ 004）
 
 | 编号 | 标题 | 状态 | 领域 | 文件 |
 |---|---|---|---|---|
 | 001 | fastui/lake 组件代码生成：预览与交付管道 —— 设计师用自然语言生成基于内网 fastui/lake 组件库的 `.vue`，在**真实脚手架**里编译渲染（不做轻量模拟预览，因组件与微组件框架深度耦合），交付开发可直接 `yarn install && yarn serve` 的工程。核心机制：**共享依赖池 + 依赖外置**——依赖每台机器只装一份，链接建在会话根而非工程内，直连 cli-service 启动绕过 yarn/lerna，`turboui.config.js` 三处环境变量注入全部带回退（交付给开发无需改回）；**产物目录零链接**，压缩与文件管理天然安全 | 草案（v18，内网全流程跑通；v16 首装不再必须下载 node（复用系统 node，绕开 504/403 那条链路）；v17 漏 import 门禁补上 vue API 一档并定下 WARN / FAIL 两档的依据；§4.4 / §8.6 已拆出为 002 / 003；UXAI 侧 dev server 宿主化 / 导出代码包按钮 / 预览就绪时序均已实现，后两者待内网实测） | infra/design | [fastui-vue-codegen-pipeline.md](design/fastui-vue-codegen-pipeline.md) |
 | 002 | fastui 环境的内网托管操作手册（从 001 §4.4 拆出）—— **给内网运维 / 资源投放的人照着做**：三样资产各走哪条分发链路、portable node 下载哪几个精确文件名、sha256 从 `SHASUMS256.txt` 抄还是自算、投放到内网 `/design/fastui-env/` 的目录与自检命令、`manifest.json` 完整示例与 URL 写在哪；含首装两批实测坑（代理三层堵不满导致 manifest 504、macOS yarn 路径错等）与「装不上时跑什么」两条命令（`doctor.mjs` 环境快照 + 安装脚本 `--check` 网络探测，§4.4.9） | 随 001 v15；第一版 nginx 上只托管 node 包 + manifest（deps 整包不做） | infra/design | [fastui-env-hosting.md](design/fastui-env-hosting.md) |
 | 003 | fastui 管道要 UXAI 仓做的五件事（从 001 §8.6 拆出）—— **给 UXAI 仓 Design 模块的前端开发**：① 导出代码包按钮、② external URL tab 的编辑功能 gate、③ dev server 由宿主起并持有、④ 运行时错误 bridge 的监听端、⑤ 预览就绪前不要挂 iframe；每件含落点、判据、文件契约与改动清单，五件**均须增量式兼容改造，不得影响 Design 现有功能** | ③ 已合入（UXAI PR #801，内网实测过）；①⑤ 已实现待内网实测（PR #812）；② 查明不用改；④ 等第三层再做 | infra/design | [fastui-uxai-integration.md](design/fastui-uxai-integration.md) |
+| 004 | fastui 预览服务身份与端口治理 —— 修「多对话时预览卡片串台」（前一个对话的卡片点进去显示后一个对话的页面）。根因：端口所有权在**三处各记一份且从不同步** —— `.ports` 占位表的作用域是单个工作目录、`.octo-fastui.json` 的 `port` 永不失效、真实监听却随宿主 `MAX_SERVERS=3` 的 LRU 淘汰被回收；而预览卡片的唯一身份就是端口号。修法四条：预览挂载前由宿主判定归属（`self`/`other`/`none`/`unknown`，从 003 §8.6.5 已有的就绪门禁升级判据，不新增时序）、端口登记表提到「一台机器一张」、宿主起服务前探端口并回写状态文件、卡片端口只留 `verify` 一个来源（`PREVIEW_CARD` 整行照抄）；另含卡片标题改用产物文件夹名。**含外网可跑的自动化复现（假 dev server，不需内网组件库）与内网前后版本对照清单** | 草案（v1，2026-09-14 外网实测复现 P1/P2/P4；待实现） | infra/design | [fastui-preview-identity.md](design/fastui-preview-identity.md) |
 
 ---
 

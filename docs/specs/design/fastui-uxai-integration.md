@@ -31,6 +31,8 @@ skill 管不了常驻进程，也画不了按钮。这五件必须在 UXAI 侧�
 
 ### 8.6.1 dev server 由宿主起并持有（③ 的完整方案）
 
+> ⚠️ **已落地，但端口这一层有后续**（2026-09-14）：`ensure()` 是 `.octo-fastui.json` 里 `port` 的纯消费者 —— 不 probe、不检测冲突、不处理 `EADDRINUSE`；叠加 `MAX_SERVERS = 3` 的 LRU 淘汰会主动释放端口，而被淘汰会话的状态文件仍记着那个已经改姓的端口号，于是出现「前一个对话的预览卡片点进去变成后一个对话的页面」。补法（宿主判定预览归属 + 起服务前探端口并回写状态文件）见 **[SPEC-DES-004](fastui-preview-identity.md) §4.1 / §4.3**；本节其余部分不受影响。
+
 #### 为什么必须是宿主
 
 内网实测（2026-09-06）：`verify.mjs` 用 `detached` 起的 dev server，**脚本一退出就没了**（`Get-Process -Id <pid>` 无返回）。根因在上游代码里 —— `packages/opencode/src/tool/shell.ts:296`：
