@@ -1,6 +1,6 @@
 # SPEC-DES-004 — fastui 预览：卡片不记端口，点击时当场取服务
 
-> 状态：草案（v2，2026-09-17 整体改写，推翻 v1 的「端口治理」方案） · 优先级 P0（正确性缺陷，内网用户实撞） · 规模 [M] · 领域 infra/design
+> 状态：已实现待内网验证（v2，2026-09-17 整体改写，推翻 v1 的「端口治理」方案） · 优先级 P0（正确性缺陷，内网用户实撞） · 规模 [M] · 领域 infra/design
 >
 > 上游已实现：✗ —— 预览卡片（`text/link`）与 dev server 宿主化都是 Design 侧自建
 >
@@ -114,10 +114,15 @@
 
 `verify` 需要 dev server 在跑才能判断编译结果。在 Octo 里，服务一律由宿主起，`verify` **不自己起**：
 
-1. 读 `devservers/<产物名>.json`，pid 活着且端口能应答 → 直接用
-2. 否则写一个请求文件 `devservers/<产物名>.request`，等宿主起好（最多 60 秒）
-3. 宿主对每个打开过的 fastui 会话持续监听两件事：`.octo-fastui.json` 出现或变化（`new-session` 建了新工程）→ 起那个工程；出现新的 `.request` → 起请求的工程
-4. 60 秒还等不到，说明不在 Octo 里（外网 V0、终端里直接跑）→ 自己起，端口用同样的"从 8081 往上探测"规则，并登记 pid 供清理（§3.8）
+1. 读 `devservers/<产物名>.json`，pid 活着 → 直接用（宿主在起服务的**起步阶段**就写这份记录，所以正在起的服务也能被找到，不会重复起）
+2. 否则看宿主在不在（共享池里的心跳文件 `.octo-host.json`，其中的 pid 还活着）：
+   - 在 → 往共享池的**全局请求目录** `.devserver-requests/` 投一个请求，等宿主起好（最多 60 秒）
+   - 不在（外网 V0、终端里直接跑）→ 不等，直接自己起
+3. 自己起时端口同样在 spawn 那一刻探测，并登记 pid 供清理（§3.8）
+
+`new-session` 建完工程后，宿主在的话也投一个请求，让服务在模型写代码期间就起好，等到 `verify` 时只剩一次增量编译。
+
+**请求为什么放在共享池、而不是会话目录**：后台跑着的对话用户未必点开过，宿主没法提前知道要去监听哪个会话目录；共享池一台机器只有一份，宿主轮询这一个目录就够了。宿主处理请求时会校验工程目录确实在会话目录的 `outputs/` 下。
 
 模型写代码、`verify` 判定、用户点卡片，用的都是**同一个工程的同一个服务**，谁都不会去杀别人在用的服务。
 
@@ -137,16 +142,17 @@
 
 | 文件 | 谁写 | 内容 / 用途 |
 |---|---|---|
-| `.octo-fastui.json` | `new-session` | 工程与环境信息；**删除 `port` 字段** |
+| `.octo-fastui.json` | `new-session` | 工程与环境信息；**删除 `port` 字段**，新增 `nodeBin`（跑 `new-session` 的那个 node，宿主按它起服务——共享池里未必有 node） |
 | `devservers/<产物名>.json` | 宿主（或非 Octo 环境下的 `verify`） | `{ port, pid, projectDir, logPath, startedAt, owner }`，进程退出即删除 |
 | `devservers/<产物名>.log` | dev server stdout/stderr | `verify` 靠它判定编译结果；替代原来会话级的 `devserver.log` |
-| `devservers/<产物名>.request` | `verify` | 请求宿主起服务 |
 
 共享池（`envDir`）下：
 
 | 文件 | 内容 |
 |---|---|
 | `.devserver-pids/<pid>.json` | `{ pid, projectDir, startedAt, owner }`，供启动时清理 |
+| `.devserver-requests/<id>.json` | `{ sessionDir, projectDir, name, at }`，`new-session` / `verify` 投递，宿主读取后删除 |
+| `.octo-host.json` | `{ pid, startedAt }`，宿主心跳，脚本据此判断要不要等宿主 |
 
 **废弃**：`.octo/.ports/`、共享池 `.ports/`、会话级 `.devserver.json` 与 `devserver.log`。旧文件不读、不迁、不删，留在磁盘上无害。
 
@@ -163,17 +169,18 @@
 
 | 仓 | 文件 | 改动 |
 |---|---|---|
-| octo-agent | `scripts/new-session.mjs` | 删端口分配；状态文件删 `port`；输出删 `PORT` |
+| octo-agent | `scripts/new-session.mjs` | 删端口分配；状态文件删 `port`、加 `nodeBin`；输出删 `PORT`；宿主在则投预热请求 |
 | | `scripts/lib/port.mjs` | 删 `claimPort`，保留探测函数 |
 | | `scripts/lib/paths.mjs` | 新增按产物名取运行时文件路径的函数 |
-| | `scripts/verify.mjs` | 按产物名找服务；写请求文件等宿主；非 Octo 环境自起并登记 pid；输出 `PREVIEW_CARD` |
+| | `scripts/lib/host.mjs` | 新增：心跳判定、请求投递、pid 登记、结束整棵进程树 |
+| | `scripts/verify.mjs` | 按产物名找服务；宿主在则投请求等宿主，不在则自起并登记 pid；服务中途退出立即失败；输出 `PREVIEW_CARD` |
 | | `scripts/doctor.mjs` | 日志位置说明改成 `devservers/` |
 | | `SKILL.md` | ② 删 `PORT`；⑤ 改为原样输出 `PREVIEW_CARD` |
-| UXAI | `desktop/src/main/fastui-devserver.ts` | 按工程管理服务；`open` / `restart`；spawn 时挑端口；去掉上限；监听请求文件；进程组清理；启动清理 |
+| UXAI | `desktop/src/main/fastui-devserver.ts` | 按工程管理服务；`open` / `restart`；spawn 时挑端口；去掉上限；轮询共享池请求目录并写心跳；进程组清理；启动清理 |
 | | `desktop/src/main/ipc.ts`、`preload/*` | 新增 `fastui-preview-open` / `fastui-preview-restart`；删除无人调用的 `fastui-devserver-ensure` / `-stop`；导出接口加产物名 |
 | | `desktop/src/main/index.ts` | 启动时调用残留进程清理 |
 | | `desktop/src/main/fastui-export.ts` | 有产物名时传 `--project-dir` |
-| | `app/.../make/index.tsx` | 链接卡片识别 `fastui://`；fastui 会话里的老 loopback 卡片转成"产物名未知" |
+| | `app/.../make/index.tsx` | 链接卡片识别 `fastui://`；fastui 会话里的老 loopback 卡片转成"产物名未知"；去掉进会话时预挂服务 |
 | | `app/.../result-viewer/html-renderer.tsx` | fastui 卡片走「IPC 取地址 → 挂 iframe → 等 load」，编译中 / 错误两种覆盖层，「重新编译」按钮；其他本地 URL 仍走原门禁 |
 | | `app/.../insight-turn.tsx` | `fastui://` 卡片标题取产物名 |
 | | `app/.../subtype-handlers/url.tsx`、`history-controller.ts`、`utils/fastui-export.ts` | 识别 `fastui://` |
