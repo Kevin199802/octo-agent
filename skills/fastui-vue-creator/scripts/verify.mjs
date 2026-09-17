@@ -11,11 +11,12 @@
  */
 // execFileSync:Windows 分支用它跑 PowerShell 的 Start-Process(v15 改走 -EncodedCommand 时引入)
 import { execFileSync, spawn } from "node:child_process"
-import { existsSync, openSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, usage, warn, log, block, emit, logPath, parseArgs } from "./lib/result.mjs"
-import { envDir, envPaths, readManifest, readJson, sessionPaths, resolveRuntime } from "./lib/paths.mjs"
+import { devserverPaths, envDir, envPaths, readManifest, readJson, sessionPaths, resolveRuntime } from "./lib/paths.mjs"
 import { findFreePort, isServing } from "./lib/port.mjs"
+import { hostPresent, killTree, postRequest, registerPid } from "./lib/host.mjs"
 import { parseRounds, extractErrors } from "./lib/compile.mjs"
 import { lintMissingImports, lintMissingVueApis } from "./lib/lint.mjs"
 
@@ -47,6 +48,9 @@ const projectDir = args["project-dir"] ? path.resolve(String(args["project-dir"]
 const portalDir = path.join(projectDir, "packages", "portal")
 const writeDir = path.join(portalDir, "src", "views")
 if (!existsSync(portalDir)) fail("NO_PROJECT", `工程目录不存在: ${portalDir}`, { hint: "先跑 new-session.mjs" })
+// 服务记录与日志按产物工程分(SPEC-DES-004 §3.9):同一对话的两个工程要能同时预览
+const name = path.basename(projectDir)
+const D = devserverPaths(S.sessionRoot, name)
 
 const P = envPaths(envDir())
 // 起 dev server 用哪个 node:共享池里有就用池子的,没有就用跑着本脚本的这个 ——
@@ -93,7 +97,7 @@ function latestMtime(dir) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 // Windows 的 Start-Process 不允许 stdout/stderr 重定向到同一个文件,
 // 于是 stderr 落在 <log>.err —— 判定时两份都要看(编译错误可能走 stderr)
-const LOG_FILES = process.platform === "win32" ? [S.devserverLog, S.devserverLog + ".err"] : [S.devserverLog]
+const LOG_FILES = process.platform === "win32" ? [D.log, D.log + ".err"] : [D.log]
 
 function readLogs() {
   return LOG_FILES.map((f) => {
@@ -136,36 +140,34 @@ const pidAlive = (pid) => {
   }
 }
 
-// ── 复用还是重启 ─────────────────────────────────────────────────
-const dev = readJson(S.devserver)
+// ── 找到这个产物工程的 dev server(SPEC-DES-004 §3.7)────────────────
+// 在 Octo 里服务一律由宿主起并持有 —— 本脚本是短命进程,自己起的服务宿主收不到,
+// 关掉 Octo 后就成了占着端口的孤儿。所以这里只负责「找到它」或「请宿主起」,
+// 只有不在 Octo 里(外网 V0、终端直接跑)才自己起。
+const HOST_WAIT_MS = (Number(args["host-wait"]) || 60) * 1000
+
+/** 这个工程当前的服务记录;进程已经不在就当没有 */
+const readRecord = () => {
+  const r = readJson(D.record)
+  return r?.pid && r.projectDir === projectDir && pidAlive(r.pid) ? r : null
+}
+
 let reused = false
-let port = state.port
+let port = null
 let pid = null
 
-if (!args.restart && dev?.pid && dev.projectDir === projectDir && pidAlive(dev.pid) && (await isServing(dev.port))) {
-  reused = true
-  port = dev.port
-  pid = dev.pid
-  log(`[reuse] dev server pid=${pid} port=${port}`)
-} else if (dev?.pid && pidAlive(dev.pid)) {
-  // 走到这里说明「有一个活着的旧 dev server,但这次不打算用它」——
-  // 要么 --restart,要么它半死(进程在、端口不应答)。**必须先杀掉它**:
-  // 不杀的话每次 --restart 都会多留一个 webpack dev server(每个吃数百 MB),
-  // 端口还会一路往上爬。实测:连跑三次后 8082 与 8083 上各留了一个僵尸。
-  try {
-    process.kill(dev.pid)
-    log(`[kill] 结束旧 dev server pid=${dev.pid} port=${dev.port}`)
-    // 给它一点时间释放端口,否则紧接着的 probe 可能还认为端口被占
-    await new Promise((r) => setTimeout(r, 800))
-  } catch (e) {
-    log(`[warn] 结束旧 dev server pid=${dev.pid} 失败: ${e.message}`)
+if (args.restart) {
+  const r = readRecord()
+  if (r) {
+    killTree(r.pid)
+    log(`[kill] --restart:结束旧 dev server pid=${r.pid} port=${r.port}`)
+    // 给它一点时间释放端口和文件句柄(Windows 的 taskkill 返回时进程未必已经退干净)
+    await sleep(800)
   }
 }
 
 // --port:接管一个已经在跑的 dev server(不管是谁起的),只做编译判定。
-// 存在的意义是把「dev server 起不起得来」和「编译判定/预览链路通不通」拆成两件事分别验证 ——
-// Windows 下 detached 失效时(实测:关掉 PowerShell 窗口进程就被收走),
-// 这条路让后面几段仍然可调,不至于卡在第一步。
+// 存在的意义是把「dev server 起不起得来」和「编译判定/预览链路通不通」拆成两件事分别验证。
 if (args.port) {
   const attach = Number(args.port)
   if (!(await isServing(attach))) {
@@ -173,78 +175,74 @@ if (args.port) {
       hint: `先手工起 dev server(在 ${portalDir} 下跑 yarn serve),再用 --port=${attach} 接管`,
     })
   }
+  const r = readRecord()
   reused = true
   port = attach
-  pid = dev?.port === attach ? dev.pid : null
+  pid = r?.port === attach ? r.pid : null
   log(`[attach] 接管 127.0.0.1:${attach} 上已有的 dev server`)
-}
-
-// 宿主(Electron 主进程)可能正在起 —— 它监听 .octo-fastui.json,出现即 spawn(§8.6.1)。
-// 这里等它一会儿再决定自己动手,否则两边会各起一个 dev server 打架。
-if (!reused && !args.restart) {
-  for (let i = 0; i < 30; i++) {
-    const d = readJson(S.devserver)
-    if (d?.pid && d.projectDir === projectDir && pidAlive(d.pid) && (await isServing(d.port))) {
-      reused = true
-      port = d.port
-      pid = d.pid
-      log(`[host] 宿主已起好 dev server pid=${pid} port=${port}`)
-      break
+} else {
+  let r = readRecord()
+  if (!r && hostPresent(P.root)) {
+    postRequest(P.root, { sessionDir: S.sessionRoot, projectDir, name })
+    log(`[host] 已请求宿主起 dev server,等待中(最多 ${HOST_WAIT_MS / 1000} 秒)…`)
+    const deadline = Date.now() + HOST_WAIT_MS
+    while (!r && Date.now() < deadline) {
+      await sleep(500)
+      r = readRecord()
     }
-    if (i === 0) log("[wait] 等宿主启动 dev server(最多 15 秒)…")
-    await sleep(500)
+    if (!r) log("[host] 宿主未在时限内起好服务,改由本脚本自己启动")
+  }
+  if (r) {
+    reused = true
+    port = r.port
+    pid = r.pid
+    log(`[reuse] dev server pid=${pid} port=${port} owner=${r.owner ?? "unknown"}`)
   }
 }
 
 if (!reused) {
-  log("[fallback] 宿主没有接管,由本脚本自己启动 —— Windows 下这个进程活不过本次调用(§6.3),属已知模式差异")
+  log("[fallback] 不在 Octo 里(或宿主没有响应),由本脚本自己启动 dev server")
   const cli = resolveCliService()
   if (!cli) {
     fail("CLI_SERVICE_NOT_FOUND", `共享池里找不到 @turboui/turbo-ui-cli-service 的入口`, { hint: "先跑 ensure-env.mjs" })
   }
+  mkdirSync(D.dir, { recursive: true })
 
-  // 端口冲突重试:探测到空闲 → 真正 listen 之间有几百毫秒窗口,理论上会被抢(§6.2③)
+  // 端口在 spawn 这一刻挑,不沿用任何记下来的端口(SPEC-DES-004 §3.4)。
+  // 探测到真正 listen 之间有窗口,可能被抢 —— 靠下面的 EADDRINUSE 重试兜住。
+  let candidate = Number(manifest.portRangeStart) || 8081
   let started = false
   for (let attempt = 1; attempt <= 3 && !started; attempt++) {
-    const free = await findFreePort(port)
-    if (!free) fail("NO_FREE_PORT", `从 ${port} 起找不到空闲端口`)
+    const free = await findFreePort(candidate)
+    if (!free) fail("NO_FREE_PORT", `从 ${candidate} 起找不到空闲端口`)
     port = free
 
     const cliArgs = [cli, "serve", "--replace-policy=dev", "--target=esnext"]
     const childEnv = { ...process.env, OCTO_DEPS: P.depsModules, OCTO_PORT: String(port) }
+    // 只看本次启动之后新写的日志 —— 日志是追加的,上一次的 EADDRINUSE 会被误认成这一次的
+    const logOffset = readLogs().length
 
     if (process.platform === "win32") {
       // Windows 下 Node 的 detached **不足以**脱离 —— 实测:verify 退出(或宿主的
-      // bash 工具收尾)后 dev server 被一起收走,`Get-Process -Id <pid>` 查不到。
-      // 根因是父进程所在的 Job Object 被关闭时会连坐整棵进程树,而 detached 只是
-      // 新建进程组,并不脱离 Job。
+      // bash 工具收尾)后 dev server 被一起收走。根因是父进程所在的 Job Object 被关闭时
+      // 会连坐整棵进程树,而 detached 只是新建进程组,并不脱离 Job。
       // PowerShell 的 Start-Process 创建的是真正独立的进程,不在调用者的 Job 里。
       const q = (v) => `'${String(v).replace(/'/g, "''")}'`
       const psScript = [
-        // 输出也定成 UTF-8:PowerShell 的中文报错默认按系统代码页(内网 GBK)出来,Node 这边
-        // 按 utf8 读就是乱码,而"乱码报错"正是 2026-09-07 误删事故的起点(§5.1.2)——错误信息必须能读。
-        // 只设 `[Console]::OutputEncoding`:`$OutputEncoding` 管的是 PS 经管道传给外部程序的
-        // stdin 编码,这段脚本里没有那种管道,设了是空转。
+        // 输出也定成 UTF-8:PowerShell 的中文报错默认按系统代码页(内网 GBK)出来,错误信息必须能读(§5.1.2)
         `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8`,
         `$env:OCTO_DEPS=${q(P.depsModules)}`,
         `$env:OCTO_PORT=${q(String(port))}`,
         `$p = Start-Process -FilePath ${q(RT.node)}` +
           ` -ArgumentList @(${cliArgs.map(q).join(",")})` +
           ` -WorkingDirectory ${q(portalDir)}` +
-          ` -RedirectStandardOutput ${q(S.devserverLog)}` +
-          ` -RedirectStandardError ${q(S.devserverLog + ".err")}` +
+          ` -RedirectStandardOutput ${q(D.log)}` +
+          ` -RedirectStandardError ${q(D.log + ".err")}` +
           ` -WindowStyle Hidden -PassThru`,
         `$p.Id`,
       ].join("; ")
-      // **必须走 -EncodedCommand,不能用 -Command**(v15)。
-      //
-      // PowerShell 5.1 读命令行参数时按系统 ANSI 代码页解释(内网是 GBK),而 Node 按 UTF-8
-      // 编码 argv 传出去 —— 项目路径里只要有中文,传过去就是乱码,Start-Process 报"找不到路径"。
-      // 2026-09-09 内网实测:工作目录 `D:\10 agent测试\` 下 dev server 起不来。
-      // 这跟 install.ps1 那条"必须存 UTF-8 with BOM"是同一个根因(PS 5.1 的编码假设)。
-      //
-      // -EncodedCommand 收的是 UTF-16LE 的 Base64,完全绕开代码页,是微软给的标准解法;
-      // 顺带也免掉了命令行里的引号转义问题。
+      // **必须走 -EncodedCommand,不能用 -Command**(v15):PowerShell 5.1 按系统 ANSI 代码页
+      // 解释命令行参数,项目路径里有中文就是乱码。-EncodedCommand 收 UTF-16LE 的 Base64,绕开代码页。
       const encoded = Buffer.from(psScript, "utf16le").toString("base64")
       try {
         const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
@@ -253,14 +251,13 @@ if (!reused) {
         })
         pid = Number(String(out).trim().split(/\s+/).pop())
       } catch (e) {
-        // 取 e.stderr 而不是 e.message:execFileSync 的 message 是
-        // `Command failed: <完整 argv>\n<stderr>`,而 argv 里那串 base64 有 1300+ 字符,
-        // 会把真正的报错挤到后面 —— 这一行是要 agent 原样转达给用户的,必须能读(§5.1.2)。
+        // 取 e.stderr 而不是 e.message:message 里带着 1300+ 字符的 base64 argv,会把真正的报错挤到后面
         const detail = String(e.stderr || e.message).trim().split(/\r?\n/).slice(0, 5).join(" ")
-        fail("SPAWN_FAILED", `Start-Process 启动 dev server 失败: ${detail}`, { log: S.devserverLog })
+        fail("SPAWN_FAILED", `Start-Process 启动 dev server 失败: ${detail}`, { log: D.log })
       }
     } else {
-      const fd = openSync(S.devserverLog, "a")
+      const fd = openSync(D.log, "a")
+      // detached:以独立进程组启动,结束时能连同子进程一起收掉(host.mjs killTree)
       const child = spawn(RT.node, cliArgs, {
         cwd: portalDir,
         env: childEnv,
@@ -273,23 +270,27 @@ if (!reused) {
     }
 
     await sleep(1500)
-    const tail = readLogs().slice(-4000)
-    if (/EADDRINUSE/i.test(tail)) {
+    const fresh = readLogs().slice(logOffset)
+    if (/EADDRINUSE/i.test(fresh)) {
       log(`[retry ${attempt}] 端口 ${port} 被抢占,换一个`)
-      port += 1
+      candidate = port + 1
       continue
     }
     if (!pidAlive(pid)) {
-      fail("DEVSERVER_EXITED", "dev server 启动后立即退出", { log: S.devserverLog })
+      fail("DEVSERVER_EXITED", "dev server 启动后立即退出", { log: D.log })
     }
     started = true
   }
   if (!started) fail("PORT_RACE", "连续 3 次端口都被抢占")
 
-  writeFileSync(
-    S.devserver,
-    JSON.stringify({ port, pid, projectDir, logPath: S.devserverLog, startedAt: new Date().toISOString() }, null, 2),
-  )
+  const startedAt = new Date().toISOString()
+  // 本脚本退出后没人持有这个进程 —— 登记下来,由宿主下次启动时清理
+  try {
+    registerPid(P.root, { pid, projectDir, startedAt, owner: "skill" })
+  } catch (e) {
+    log(`[warn] 登记 dev server pid 失败(不影响本次验证): ${e.message}`)
+  }
+  writeFileSync(D.record, JSON.stringify({ port, pid, projectDir, logPath: D.log, startedAt, owner: "skill" }, null, 2))
 }
 
 // ── 等编译结束(§5.5.1 的三条规则)─────────────────────────────────
@@ -303,6 +304,12 @@ let stage = "WAITING_FOR_OUTPUT"
 let roundsSeen = 0
 
 while (Date.now() - t0 < timeoutMs) {
+  // 服务进程已经没了就不可能等到编译结果 —— 立即失败,不要干等到超时
+  if (pid && !pidAlive(pid)) {
+    emit(`RESULT: FAIL | DEVSERVER_EXITED: dev server 进程已退出(pid=${pid})\nPORT: ${port}\nLOG: ${logPath()}\nDEVSERVER_LOG: ${D.log}\n`)
+    block("LOG_TAIL", readLogs().split(/\r?\n/).filter((l) => l.trim()).slice(-40).join("\n"))
+    process.exit(1)
+  }
   const size = logSize()
   const mt = logMtime()
 
@@ -358,8 +365,8 @@ while (Date.now() - t0 < timeoutMs) {
       // 且 100% 可判定。WARN 在 SKILL.md 里的既定语义是"不阻塞、不用管",
       // 用它承载一个必然白屏的错误等于不查。
       //
-      // **故意不输出 PREVIEW_URL** —— 有它模型就可能直接跳到第 ⑤ 步宣布完成。
-      // dev server 不受影响(仍在跑、.devserver.json 已写),下一轮 verify 复用它,秒级返回。
+      // **故意不输出 PREVIEW_CARD** —— 有它模型就可能直接跳到第 ⑤ 步宣布完成。
+      // dev server 不受影响(仍在跑、服务记录已写),下一轮 verify 复用它,秒级返回。
       //
       // **契约行在前、块在后,与下面的 COMPILE_ERROR 分支同形**(§5.1.1)。
       // 人排障时的习惯动作是"从 `RESULT:` 那行往下截一段贴出去" —— 块要是放在
@@ -374,7 +381,7 @@ while (Date.now() - t0 < timeoutMs) {
         `RESULT: FAIL | MISSING_VUE_IMPORT: ${apiMisses.length} 个文件用了 vue 的 API 但没 import —— 运行时 ReferenceError,页面会整页白屏\n` +
           `HINT: 按下面 MISSING_IMPORTS 块给的 import 行补进对应文件,然后重跑 verify\n` +
           `PORT: ${port}\nPID: ${pid}\nPROJECT_DIR: ${projectDir}\nCOMPILE: OK\n` +
-          `LOG: ${logPath()}\nDEVSERVER_LOG: ${S.devserverLog}\n`,
+          `LOG: ${logPath()}\nDEVSERVER_LOG: ${D.log}\n`,
       )
       block(
         "MISSING_IMPORTS",
@@ -389,13 +396,15 @@ while (Date.now() - t0 < timeoutMs) {
       process.exit(1)
     }
     ok({
-      PREVIEW_URL: `http://127.0.0.1:${port}`,
+      // 卡片只记产物,不记端口(SPEC-DES-004 §3.3):端口会过期,产物不会。
+      // 整行拼好给模型原样输出,不让它自己拼。
+      PREVIEW_CARD: `<artifact type="text/link">fastui://${name}</artifact>`,
       PORT: port,
       PID: pid,
       PROJECT_DIR: projectDir,
       REUSED: reused,
       COMPILE_MS: Date.now() - t0,
-      LOG: S.devserverLog,
+      LOG: D.log,
     })
   }
 
@@ -406,7 +415,7 @@ while (Date.now() - t0 < timeoutMs) {
   // 免得同一个 key 在不同分支指向不同文件、把顺着它去找的人带偏。
   emit(
     `RESULT: FAIL | COMPILE_ERROR: webpack 编译未通过\n` +
-      `PORT: ${port}\nPID: ${pid}\nLOG: ${logPath()}\nDEVSERVER_LOG: ${S.devserverLog}\n`,
+      `PORT: ${port}\nPID: ${pid}\nLOG: ${logPath()}\nDEVSERVER_LOG: ${D.log}\n`,
   )
   // ── 运行时不兼容的指纹:命中就把方向指对(§4.1 / §5.5)──────────────
   //
@@ -472,7 +481,7 @@ const stageHint = {
 emit(
   `RESULT: FAIL | COMPILE_TIMEOUT: 等待编译结果超过 ${timeoutMs / 1000} 秒\n` +
     `STAGE: ${stage}\nROUNDS_SEEN: ${roundsSeen}\nPORT: ${port}\nPID: ${pid}\n` +
-    `HINT: ${stageHint}\nLOG: ${logPath()}\nDEVSERVER_LOG: ${S.devserverLog}\n`,
+    `HINT: ${stageHint}\nLOG: ${logPath()}\nDEVSERVER_LOG: ${D.log}\n`,
 )
 block("LOG_TAIL", tailLines)
 process.exit(1)

@@ -11,7 +11,7 @@ import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, usage, log, parseArgs } from "./lib/result.mjs"
 import { SKILL_DIR, TEMPLATE_DIR, envDir, envPaths, readManifest, sessionPaths, readJson, exists } from "./lib/paths.mjs"
-import { claimPort, findFreePort } from "./lib/port.mjs"
+import { hostPresent, postRequest } from "./lib/host.mjs"
 import { ensureDirLink } from "./lib/link.mjs"
 
 const args = parseArgs()
@@ -163,25 +163,14 @@ try {
   })
 }
 
-// ③ 分配端口。已有状态文件且那个端口还空着就沿用,免得每次调用都换端口。
-const prev = readJson(S.state)
-let port = null
-if (prev?.port) {
-  const { probe } = await import("./lib/port.mjs")
-  if (await probe(prev.port)) port = prev.port
-  else if (prev.projectDir === projectDir) port = prev.port // 被自己的 dev server 占着
-}
-if (!port) {
-  const octoRoot = path.dirname(S.sessionRoot)
-  port = await findFreePort(Number(manifest.portRangeStart) || 8081, 50, (p) => claimPort(octoRoot, p, S.sessionRoot))
-}
-if (!port) fail("NO_FREE_PORT", `从 ${manifest.portRangeStart} 起连续 50 个端口都被占用`)
+// ③ 不分配端口(SPEC-DES-004)。端口由宿主在起服务的那一刻挑,不写进状态文件、也不写进卡片 ——
+// 写下来的端口会过期:服务一停它就还给系统,被别的对话捡走之后,记着它的卡片就指到了别人那里。
 
+const prev = readJson(S.state)
 const state = {
   name,
   projectDir,
   writeDir,
-  port,
   envDir: P.root,
   depsDir: P.depsModules,
   // 宿主要调 scripts/export-zip.mjs 打交付包(§8.6.2),得知道 skill 装在哪。
@@ -193,11 +182,20 @@ const state = {
 }
 writeFileSync(S.state, JSON.stringify(state, null, 2))
 
+// 在 Octo 里就请宿主现在起服务:模型写代码的几十秒里 webpack 已经编完进入 watch,
+// 等到 verify 时只剩一次增量编译。不在 Octo 里(外网 V0、终端直接跑)就什么都不做。
+if (hostPresent(P.root)) {
+  try {
+    postRequest(P.root, { sessionDir: S.sessionRoot, projectDir, name })
+  } catch (e) {
+    log(`[warn] 投递预热请求失败(不影响后续,verify 会再请求): ${e.message}`)
+  }
+}
+
 ok({
   PROJECT_DIR: projectDir,
   WRITE_DIR: writeDir,
   ENTRY_FILE: path.join(writeDir, "index.vue"),
-  PORT: port,
   DEPS_DIR: P.depsModules,
   SKILL_DIR,
   SESSION_STATE: S.state,

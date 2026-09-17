@@ -156,8 +156,21 @@ export function sessionPaths(artifactDir) {
     outputs,
     sessionRoot,
     state: path.join(sessionRoot, ".octo-fastui.json"),
-    devserver: path.join(sessionRoot, ".devserver.json"),
-    devserverLog: path.join(sessionRoot, "devserver.log"),
+  }
+}
+
+/**
+ * 某个产物工程的 dev server 运行时文件(SPEC-DES-004 §3.9)。
+ *
+ * **按产物名分,不按会话分**:一个对话里 `new-session --name` 换个值就是另一个工程,
+ * 两个工程要能同时预览,服务记录和日志就不能共用一份。
+ */
+export function devserverPaths(sessionRoot, name) {
+  const dir = path.join(sessionRoot, "devservers")
+  return {
+    dir,
+    record: path.join(dir, `${name}.json`),
+    log: path.join(dir, `${name}.log`),
   }
 }
 
