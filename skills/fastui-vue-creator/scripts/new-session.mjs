@@ -10,7 +10,7 @@
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, usage, log, parseArgs } from "./lib/result.mjs"
-import { SKILL_DIR, TEMPLATE_DIR, envDir, envPaths, readManifest, sessionPaths, readJson, exists } from "./lib/paths.mjs"
+import { SKILL_DIR, TEMPLATE_DIR, envDir, envPaths, readManifest, resolveRuntime, sessionPaths, readJson, exists } from "./lib/paths.mjs"
 import { hostPresent, postRequest } from "./lib/host.mjs"
 import { ensureDirLink } from "./lib/link.mjs"
 
@@ -173,6 +173,9 @@ const state = {
   writeDir,
   envDir: P.root,
   depsDir: P.depsModules,
+  // 宿主起 dev server 用哪个 node。共享池里未必有 node(系统 node 够用时安装脚本不下载,§4.1),
+  // 宿主自己去猜会猜错 —— 唯一确定知道的是跑着本脚本的这一侧(与 verify 的选法一致)。
+  nodeBin: resolveRuntime(P).node,
   // 宿主要调 scripts/export-zip.mjs 打交付包(§8.6.2),得知道 skill 装在哪。
   // 让它自己去猜是不可靠的:skill 目录随平台/配置而变,而 XDG_CONFIG_HOME 在
   // Electron 主进程与 server 子进程之间还可能不一致 —— 唯一确定知道这个路径的是脚本自己。
