@@ -11,12 +11,12 @@
  */
 // execFileSync:Windows 分支用它跑 PowerShell 的 Start-Process(v15 改走 -EncodedCommand 时引入)
 import { execFileSync, spawn } from "node:child_process"
-import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, usage, warn, log, block, emit, logPath, parseArgs } from "./lib/result.mjs"
 import { devserverPaths, envDir, envPaths, readManifest, readJson, sessionPaths, resolveRuntime } from "./lib/paths.mjs"
 import { findFreePort, isServing } from "./lib/port.mjs"
-import { hostPresent, killTree, postRequest, registerPid } from "./lib/host.mjs"
+import { START_MARK, hostPresent, killTree, postRequest, registerPid } from "./lib/host.mjs"
 import { parseRounds, extractErrors } from "./lib/compile.mjs"
 import { lintMissingImports, lintMissingVueApis } from "./lib/lint.mjs"
 
@@ -95,9 +95,14 @@ function latestMtime(dir) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-// Windows 的 Start-Process 不允许 stdout/stderr 重定向到同一个文件,
-// 于是 stderr 落在 <log>.err —— 判定时两份都要看(编译错误可能走 stderr)
-const LOG_FILES = process.platform === "win32" ? [D.log, D.log + ".err"] : [D.log]
+// Windows 上本脚本用 Start-Process 自己起服务时,stdout/stderr 不允许重定向到同一个文件,
+// stderr 落在 <log>.err —— 这种情况判定时两份都要看(编译错误可能走 stderr)。
+// **宿主起的服务只写 <log> 一份**:此时不能读 .err,那里可能残留着以前某次自起时的旧编译错误,
+// 拼进来会被当成最新一轮的结果。所以默认只读 <log>,确认是本脚本自起的服务才加上 .err。
+let LOG_FILES = [D.log]
+const includeErrLog = () => {
+  if (process.platform === "win32") LOG_FILES = [D.log, D.log + ".err"]
+}
 
 function readLogs() {
   return LOG_FILES.map((f) => {
@@ -146,10 +151,84 @@ const pidAlive = (pid) => {
 // 只有不在 Octo 里(外网 V0、终端直接跑)才自己起。
 const HOST_WAIT_MS = (Number(args["host-wait"]) || 60) * 1000
 
-/** 这个工程当前的服务记录;进程已经不在就当没有 */
-const readRecord = () => {
+/** 「正在起」的记录最多信这么久;超过还没就绪,宿主那边早就按超时处理掉了 */
+const STARTING_GRACE_MS = 120_000
+
+/**
+ * 这个工程当前可用的服务记录,没有就返回 null。
+ *
+ * - 宿主起服务失败时会写 `status: "error"`:原样返回 `{ error, at, logTail }`,由调用方决定是否作数
+ * - 进程不在 → 没有
+ * - 「正在起」→ 在宽限期内算有(verify 接着等它就绪)
+ * - 其余情况还要端口能应答:宿主崩溃后留下的记录,pid 可能已经被别的程序复用,
+ *   只看 pid 活着会一直等到编译超时
+ */
+async function readRecord() {
   const r = readJson(D.record)
-  return r?.pid && r.projectDir === projectDir && pidAlive(r.pid) ? r : null
+  if (!r || r.projectDir !== projectDir) return null
+  if (r.status === "error") return { error: String(r.error || "宿主启动预览服务失败"), at: Number(r.at) || 0, logTail: r.logTail }
+  if (!r.pid || !pidAlive(r.pid)) return null
+  if (r.status === "starting") {
+    const age = Date.now() - Date.parse(r.startedAt ?? "")
+    return Number.isFinite(age) && age < STARTING_GRACE_MS ? r : null
+  }
+  return (await isServing(r.port)) ? r : null
+}
+
+/** 宿主明确说起不来 —— 立即失败,不在 Octo 里自己起(自己起的进程宿主收不到,用户点卡片看到的也不是它) */
+function failHostStart(r) {
+  emit(
+    `RESULT: FAIL | HOST_START_FAILED: Octo 启动预览服务失败 —— ${r.error}\n` +
+      `HINT: 这是预览环境的问题,不是你写的代码的问题,不要改 .vue 重试。把这一行原样告诉用户\n` +
+      `LOG: ${logPath()}\nDEVSERVER_LOG: ${D.log}\n`,
+  )
+  if (r.logTail) block("LOG_TAIL", String(r.logTail))
+  process.exit(1)
+}
+
+/** 请宿主起服务并等它;宿主报失败就立即失败,等不到返回 null */
+async function requestHostAndWait(waitMs) {
+  const requestedAt = Date.now()
+  postRequest(P.root, { sessionDir: S.sessionRoot, projectDir, name })
+  log(`[host] 已请求宿主起 dev server,等待中(最多 ${waitMs / 1000} 秒)…`)
+  const deadline = requestedAt + waitMs
+  while (Date.now() < deadline) {
+    await sleep(500)
+    const r = await readRecord()
+    if (r?.error) {
+      if (r.at >= requestedAt) failHostStart(r)
+      continue // 以前某次失败留下的,不作数
+    }
+    if (r) return r
+  }
+  return null
+}
+
+/**
+ * 正在等的服务进程没了。宿主会合法地换进程 —— 起步阶段撞端口换端口重试、用户点了「重新编译」、
+ * 点卡片时发现服务卡死杀掉重起。这些情况下新进程马上就会出现,不能直接判失败:
+ * 失败会让模型去改本来没问题的代码(SPEC-DES-004 §2 否决「每次点卡片都重启」的同一个理由)。
+ */
+async function followReplacement(deadPid) {
+  const noticedAt = Date.now()
+  // 宿主换进程时,旧进程退出到新进程写记录之间有一小段空窗
+  while (Date.now() - noticedAt < 10_000) {
+    const r = await readRecord()
+    if (r?.error) {
+      if (r.at >= noticedAt - 2000) failHostStart(r)
+    } else if (r && r.pid !== deadPid) {
+      return r
+    }
+    await sleep(500)
+  }
+  return hostPresent(P.root) ? await requestHostAndWait(HOST_WAIT_MS) : null
+}
+
+/** 日志里最后一次「在这个端口上启动」的位置;换过进程之后只看这之后的输出 */
+function startOffsetFor(p) {
+  const text = readLogs()
+  const idx = text.lastIndexOf(`${START_MARK}${p}\n`)
+  return idx >= 0 ? idx : 0
 }
 
 let reused = false
@@ -157,8 +236,8 @@ let port = null
 let pid = null
 
 if (args.restart) {
-  const r = readRecord()
-  if (r) {
+  const r = await readRecord()
+  if (r && !r.error) {
     killTree(r.pid)
     log(`[kill] --restart:结束旧 dev server pid=${r.pid} port=${r.port}`)
     // 给它一点时间释放端口和文件句柄(Windows 的 taskkill 返回时进程未必已经退干净)
@@ -175,27 +254,23 @@ if (args.port) {
       hint: `先手工起 dev server(在 ${portalDir} 下跑 yarn serve),再用 --port=${attach} 接管`,
     })
   }
-  const r = readRecord()
+  const r = await readRecord()
   reused = true
   port = attach
-  pid = r?.port === attach ? r.pid : null
+  pid = r && !r.error && r.port === attach ? r.pid : null
   log(`[attach] 接管 127.0.0.1:${attach} 上已有的 dev server`)
 } else {
-  let r = readRecord()
+  let r = await readRecord()
+  if (r?.error) r = null // 以前某次失败留下的,这次重新请求
   if (!r && hostPresent(P.root)) {
-    postRequest(P.root, { sessionDir: S.sessionRoot, projectDir, name })
-    log(`[host] 已请求宿主起 dev server,等待中(最多 ${HOST_WAIT_MS / 1000} 秒)…`)
-    const deadline = Date.now() + HOST_WAIT_MS
-    while (!r && Date.now() < deadline) {
-      await sleep(500)
-      r = readRecord()
-    }
+    r = await requestHostAndWait(HOST_WAIT_MS)
     if (!r) log("[host] 宿主未在时限内起好服务,改由本脚本自己启动")
   }
   if (r) {
     reused = true
     port = r.port
     pid = r.pid
+    if (r.owner === "skill") includeErrLog()
     log(`[reuse] dev server pid=${pid} port=${port} owner=${r.owner ?? "unknown"}`)
   }
 }
@@ -207,6 +282,7 @@ if (!reused) {
     fail("CLI_SERVICE_NOT_FOUND", `共享池里找不到 @turboui/turbo-ui-cli-service 的入口`, { hint: "先跑 ensure-env.mjs" })
   }
   mkdirSync(D.dir, { recursive: true })
+  includeErrLog()
 
   // 端口在 spawn 这一刻挑,不沿用任何记下来的端口(SPEC-DES-004 §3.4)。
   // 探测到真正 listen 之间有窗口,可能被抢 —— 靠下面的 EADDRINUSE 重试兜住。
@@ -221,6 +297,7 @@ if (!reused) {
     const childEnv = { ...process.env, OCTO_DEPS: P.depsModules, OCTO_PORT: String(port) }
     // 只看本次启动之后新写的日志 —— 日志是追加的,上一次的 EADDRINUSE 会被误认成这一次的
     const logOffset = readLogs().length
+    appendFileSync(D.log, `\n${START_MARK}${port}\n`)
 
     if (process.platform === "win32") {
       // Windows 下 Node 的 detached **不足以**脱离 —— 实测:verify 退出(或宿主的
@@ -302,10 +379,25 @@ let stableSince = 0
 // 卡在哪个阶段 —— 超时时输出它,直接指向原因(见下面的 COMPILE_TIMEOUT 分支)
 let stage = "WAITING_FOR_OUTPUT"
 let roundsSeen = 0
+/** 只解析这个偏移之后的日志 —— 换过服务进程后,旧进程那几轮编译结果不作数 */
+let logOffset = 0
+let switches = 0
 
 while (Date.now() - t0 < timeoutMs) {
-  // 服务进程已经没了就不可能等到编译结果 —— 立即失败,不要干等到超时
+  // 服务进程没了:宿主可能正在合法地换进程,先跟到新进程;真的没有了才失败,不干等到超时
   if (pid && !pidAlive(pid)) {
+    const next = switches < 5 ? await followReplacement(pid) : null
+    if (next) {
+      switches++
+      log(`[switch] 服务进程已更换 pid ${pid} → ${next.pid},port ${port} → ${next.port},继续等待编译结果`)
+      pid = next.pid
+      port = next.port
+      if (next.owner === "skill") includeErrLog()
+      logOffset = startOffsetFor(port)
+      lastSize = -1
+      stableSince = 0
+      continue
+    }
     emit(`RESULT: FAIL | DEVSERVER_EXITED: dev server 进程已退出(pid=${pid})\nPORT: ${port}\nLOG: ${logPath()}\nDEVSERVER_LOG: ${D.log}\n`)
     block("LOG_TAIL", readLogs().split(/\r?\n/).filter((l) => l.trim()).slice(-40).join("\n"))
     process.exit(1)
@@ -333,7 +425,7 @@ while (Date.now() - t0 < timeoutMs) {
   }
 
   // 规则 2:必须匹配到完整的一对「开始 → 结束」
-  const text = readLogs()
+  const text = readLogs().slice(logOffset)
   const all = parseRounds(text)
   roundsSeen = all.length
   const rounds = all.filter((r) => r.outcome !== null)

@@ -12,6 +12,13 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 export const requestDir = (envRoot) => path.join(envRoot, ".devserver-requests")
+
+/**
+ * 每次起 dev server 之前往它的日志里写一行这个标记(宿主与本脚本都写)。
+ * 日志是按产物追加的,换过进程之后,verify 靠它找到「新进程从哪一行开始」,
+ * 旧进程那几轮编译结果不作数。标记行不匹配 lib/compile.mjs 的任何编译标志。
+ */
+export const START_MARK = "[octo-devserver] start port="
 export const pidRegistryDir = (envRoot) => path.join(envRoot, ".devserver-pids")
 const heartbeatFile = (envRoot) => path.join(envRoot, ".octo-host.json")
 
