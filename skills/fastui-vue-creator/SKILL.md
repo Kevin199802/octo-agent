@@ -124,11 +124,12 @@ node scripts/new-session.mjs --artifact-dir="<[Artifact Folder] 绝对路径>" -
 
 `--artifact-dir` 用系统给的 **[Artifact Folder]** 原值。`--name` 用一个简短的英文/拼音工程名。
 
-记住返回的三个值,后面都要用:
+记住返回的两个值,后面都要用:
 
 - `WRITE_DIR` —— **你唯一可以新建文件的目录**
 - `ENTRY_FILE` —— 聚合入口,**唯一允许你修改的既有文件**
-- `PORT` —— 预览端口
+
+这一步**不分配端口**。预览地址由 Octo 在用户点开预览时当场给出,你不需要、也不应该记任何端口号。
 
 ### ③ 写代码 —— 边界见下面「硬约束」
 
@@ -145,7 +146,7 @@ dev server 起不来时(比如宿主环境不允许后台进程存活),可以让
 node scripts/verify.mjs --session-dir="…" --port=8081
 ```
 
-- `RESULT: OK` → 拿 `PREVIEW_URL` 走第 ⑤ 步
+- `RESULT: OK` → 拿 `PREVIEW_CARD` 走第 ⑤ 步
 - `RESULT: FAIL | COMPILE_ERROR` → **读 `ERRORS_BEGIN`…`ERRORS_END` 之间的原文**,里面有 `file:line`,
   按它改代码,然后**再跑一次 verify**。改完必须重新验证,不要凭感觉判断
 - `RESULT: FAIL | MISSING_VUE_IMPORT` → 你用了 `ref` / `computed` / `onMounted` 这类 vue 的 API 却没 import。
@@ -154,6 +155,8 @@ node scripts/verify.mjs --session-dir="…" --port=8081
   (`.vue` 就放进它的 `<script>` 块,`.ts` / `.js` 直接放文件头),**再跑一次 verify**
 - `WARN: … 用了 X 但没有 import`(组件,不阻塞)→ **照样必须回去补**,别因为 `RESULT: OK` 就当作做完了。
   它没做成 FAIL 只是因为脚手架理论上可能全局注册过某个组件,不代表可以不管
+- `RESULT: FAIL | HOST_START_FAILED` → Octo 启动预览服务失败,**这是环境问题,不是你的代码问题**。
+  不要改 `.vue` 重试,也不要自己去起服务;把 `RESULT:` 与 `HINT:` 两行原样告诉用户
 - 首次编译要 1–3 分钟,属正常
 
 > ⚠️ **上面这三条都是你自己的代码问题,按提示改完重跑就是了 —— 不要当成"脚本报错"转述给用户。**
@@ -180,11 +183,15 @@ HINT: 这条编译错误**不是你写的代码的问题**,别改 .vue 重试。
 
 ### ⑤ 输出预览 —— 不能省
 
-`verify` 返回 `RESULT: OK` 之后,**必须**输出这一行(端口换成 `verify` 给的 `PREVIEW_URL`):
+`verify` 返回 `RESULT: OK` 之后,**必须把 `PREVIEW_CARD:` 后面那一整行原样输出**,例如:
 
 ```
-<artifact type="text/link">http://127.0.0.1:8081</artifact>
+<artifact type="text/link">fastui://user-profile-page</artifact>
 ```
+
+**不要自己拼这一行,不要改成 `http://127.0.0.1:<端口>`。** 卡片只记产物名,不记端口:
+端口会过期(服务一停就还给系统,会被别的对话占用),记着端口的卡片点进去会显示别人的页面;
+产物名不会过期,Octo 在用户点开卡片时按产物名当场找到或启动对应的服务。
 
 Design 靠这个标签渲染预览面板。**只有这个标签会被识别** —— 用别的形式给链接(纯文本 URL、markdown 链接、
 代码块)都不会出卡片,用户就只能自己开浏览器,等于白做。
@@ -238,7 +245,7 @@ agent 把用户的正常目录当成"失败操作留下的残留",执行 `Remove
 
 | ❌ 禁止 | 为什么 |
 |---|---|
-| 自己跑 `yarn serve` / `yarn dev` 代替 `verify` | 绕过 verify 就没有编译门禁,你会开始"我觉得应该好了";而且 `verify` 还负责端口分配、写 `.devserver.json` 给宿主回收进程 |
+| 自己跑 `yarn serve` / `yarn dev` 代替 `verify` | 绕过 verify 就没有编译门禁,你会开始"我觉得应该好了";而且在 Octo 里预览服务由宿主统一起停,自己起的进程宿主收不到,关掉 Octo 后会一直占着端口 |
 | 修改、调试 `scripts/` 下的任何文件 | 那是 skill 的一部分,不是本次任务的产物。脚本有 bug 应该报告,不是就地改 |
 | 环境装不上就换个方式硬凑一个能跑的 | 装不上是环境问题,该由人处理。你绕过去之后跑起来的东西,和设计师机器上的不是同一个。**但注意:「机器上没装过 node」不算装不上,那是你该去装的,见 0.2** |
 
