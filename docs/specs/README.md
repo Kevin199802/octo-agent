@@ -50,7 +50,7 @@
 
 ---
 
-## 已编号 · Design / octo_make（SPEC-DES-001 ~ 004）
+## 已编号 · Design / octo_make（SPEC-DES-001 ~ 005）
 
 | 编号 | 标题 | 状态 | 领域 | 文件 |
 |---|---|---|---|---|
@@ -58,6 +58,7 @@
 | 002 | fastui 环境的内网托管操作手册（从 001 §4.4 拆出）—— **给内网运维 / 资源投放的人照着做**：三样资产各走哪条分发链路、portable node 下载哪几个精确文件名、sha256 从 `SHASUMS256.txt` 抄还是自算、投放到内网 `/design/fastui-env/` 的目录与自检命令、`manifest.json` 完整示例与 URL 写在哪；含首装两批实测坑（代理三层堵不满导致 manifest 504、macOS yarn 路径错等）与「装不上时跑什么」两条命令（`doctor.mjs` 环境快照 + 安装脚本 `--check` 网络探测，§4.4.9） | 随 001 v15；第一版 nginx 上只托管 node 包 + manifest（deps 整包不做） | infra/design | [fastui-env-hosting.md](design/fastui-env-hosting.md) |
 | 003 | fastui 管道要 UXAI 仓做的五件事（从 001 §8.6 拆出）—— **给 UXAI 仓 Design 模块的前端开发**：① 导出代码包按钮、② external URL tab 的编辑功能 gate、③ dev server 由宿主起并持有、④ 运行时错误 bridge 的监听端、⑤ 预览就绪前不要挂 iframe；每件含落点、判据、文件契约与改动清单，五件**均须增量式兼容改造，不得影响 Design 现有功能** | ③ 已合入（UXAI PR #801，内网实测过）；①⑤ 已实现待内网实测（PR #812）；② 查明不用改；④ 等第三层再做 | infra/design | [fastui-uxai-integration.md](design/fastui-uxai-integration.md) |
 | 004 | fastui 预览：卡片不记端口，点击时当场取服务 —— 修「多对话时预览卡片串台」（前一个对话的卡片点进去显示后一个对话的页面）。根因是端口被写死进卡片、而端口会被回收复用。**v2 推翻 v1 的「端口治理」**（登记表 + 归属判定 + 自愈，补丁会制造新的错误显示），改为卡片只记产物（`fastui://<产物名>`），点击时由宿主按「会话目录 + 产物名」当场给地址：服务活着且应答就复用，否则当场挑端口起服务；端口在 spawn 那一刻由主进程挑，不写卡片、不写状态文件、不要登记表；去掉 `MAX_SERVERS` 淘汰；同对话多产物可同时预览；`verify` 在 Octo 里不自己起服务而是请求宿主；退出杀整棵进程树 + 崩溃后下次启动清理。含否决记录（反向代理、升级 webpack-dev-server v4、每次点击重启）与内网 N1–N10 验证清单 | v2 已实现待内网验证（2026-09-17） | infra/design | [fastui-preview-identity.md](design/fastui-preview-identity.md) |
+| 005 | fastui 预览卡片独立 subtype，接上分辨率切换 —— 预览卡片原来是 `subtype: "url"`、与所有 http(s) 外链共用能力开关，分辨率切换是关的。注册独立 subtype **`fastui`**（`subtype-registry` + `SUBTYPE_CONFIG`），能力表 = url 原样 + 打开 viewport；「导出代码包」从通用外链 handler 搬进 fastui handler、只认 `fastui://`，外链 handler 回归干净。含逐项能力开关理由（归档对外部 URL 是响亮失败而非空图）、切换行为（CSS 缩放不改 src；自适应↔固定尺寸会重载，既有逻辑保留）与 Mac 上的 Electron 手工验证 | 已实现待验证（2026-09-18） | infra/design | [fastui-subtype.md](design/fastui-subtype.md) |
 
 ---
 
