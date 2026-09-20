@@ -236,30 +236,66 @@ ipcMain.handle("fastui-export-zip", (_e, sessionDir: string) => FastuiExport.exp
 //   → 返回 { ok, zipPath, bytes, fileCount } 给渲染进程
 ```
 
-#### `skillDir` 怎么定位 —— **由 `new-session` 写进状态文件，不靠宿主猜**
+#### `skillDir` 怎么定位 —— **问 server 要，不靠宿主拼**（v17 修正）
 
 v12 写的"由主进程按 `.octo/skills/fastui-vue-creator` 推导"**是错的**：skill 的实际扫描位置是 `<octoConfig>/skill/<name>/`（`packages/opencode/src/skill/index.ts` 的 `octoSkillDir`）。
 
-但真正的问题不是"猜哪个路径"，而是**宿主根本没有可靠的推导依据**：
+v16 改成"由 `new-session` 把 `SKILL_DIR` 写进状态文件，宿主直接读"，方向对，但**不够**：状态文件是建会话那一刻的快照，升级前建的会话里根本没有这个字段。2026-09-20 内网 Mac 的现场就是这样 —— 存量产物全部落到宿主的候选链上，而候选链在那台机器上全部落空：
 
-> ⚠️ **`XDG_CONFIG_HOME` 在主进程与 server 之间是分裂的。** `packages/desktop/src/main/storage.ts` 的 app-data-fallback 模式会把 `XDG_CONFIG_HOME` 指到 `<userData>/xdg-config`，而这份 env **只在 `sidecar.ts` 传给 server 子进程，没有写回主进程的 `process.env`**。于是那个模式下 server 把 skill 装在 `<userData>/xdg-config/octo/skill/`，主进程却会去 `~/.config/octo/skill/` 找。内网 Windows 域环境恰好是 fallback 模式最可能触发的地方。
->
-> 这不是导出功能引入的（`main/ipc.ts` 里既有的 `getOctoConfigPath()` 是一模一样的表达式），但导出功能踩上去就是"技能可能未安装"。
-
-**唯一确定知道 skill 装在哪的是脚本自己**（`paths.mjs` 用 `import.meta.url` 往上推）。所以 `new-session` 把它写进状态文件，宿主直接读：
-
-```js
-// new-session.mjs
-const state = { …, skillDir: SKILL_DIR, … }
+```
+find: /Users/…/.config/octo/skill/fastui-vue-creator /scripts/export-zip.mjs
+ls:   /Users/…/.config/octo/skill/fastui-vue-creator/scripts/export-zip.mjs → No such file
+                                                    ↑ 实际目录名尾部多一个空格
 ```
 
-宿主侧保留候选链只为兼容**升级前建的老会话**（那些状态文件里没有这个字段），按顺序逐个 `existsSync`（"文件在不在"的确定判断，不是猜路径）：
+> **根因：skill 目录名 ≠ skill 名。** `Skill.Info.name` 取自 SKILL.md 的 frontmatter，目录名是另一回事 —— `skill/index.ts` 里 `name` 与 `skillDirMap[name] = basename(dirname(match))` 是分开记的，server 从不假设两者相等；宿主拿常量 `SKILL_NAME` 拼路径，就假设了。
+>
+> **不是个例**：`ls -1 ~/.config/octo/skill | sed 's/$/|/'` 显示那台机器上 4 个 skill 目录都带尾部空格（`H Design 官网设计规范␠` / `fastui-vue-creator␠` / `竞品分析␠` / `半导体领域PC端设计规范␠`）。某条分发或安装链路会系统性地带进畸变，宿主侧必须不依赖目录名。
+>
+> **Windows 免疫是因为 Win32 API 会剥离路径末尾的空格和点**，NTFS 上正常途径建不出这种目录名 —— 平台差异来自文件系统的命名约束，不是代码里的 `platform === "win32"` 分支。同一次采集显示那台机器上 `XDG_CONFIG_HOME` 未设置、app-data-fallback 落点为空，所以曾被怀疑的"环境变量分裂"在这个现场并不成立。
 
-| 顺序 | 候选 | 说明 |
+**真相源是 server**：skill 是它扫出来的，`Skill.Info.location` 就是 `Glob.scan({ absolute: true })` 扫到的绝对路径。所以宿主**按 `name` 找、拿 `location`**——`name` 来自 frontmatter（skill 的身份），`location` 来自实际扫描（事实），中间不经过任何"目录名应该长什么样"的假设：
+
+```ts
+// main/fastui-export.ts
+GET <serverUrl>/skill?directory=<projectDir>   // Basic auth，与 checkHealth 同款
+  → list.find(s => s.name === "fastui-vue-creator").location → dirname() 即 skill 目录
+```
+
+`serverUrl` / `password` 由 `index.ts` 在 sidecar 就绪时经 `FastuiExport.setServerInfo()` 注入、`onExit` 时置空；`directory` 由会话目录上溯两层推出（与前端 `sessionDirOf` 互逆），缺了它会落到 sidecar 的 cwd 上、扫不到项目内的 skill。超时 3s：该 instance 必然是热的（会话就跑在它下面），正常是毫秒级；超时兜的是 `directory` 推错落到冷 instance 的情况。
+
+候选链保留为**兜底**（server 未就绪 / 请求超时 / 该 skill 真没装），按顺序逐个 `existsSync`：
+
+| 顺序 | 候选 | 存在理由 |
 |---|---|---|
-| 1 | `state.skillDir` | **正路**，`new-session` 写的 |
-| 2 | `~/.config/octo/skill/fastui-vue-creator` | 老会话兜底；`XDG_CONFIG_HOME` 分裂时会落空 |
-| 3 | `<sessionDir>/../skills/fastui-vue-creator` | 老会话兜底 |
+| 1 | `GET /skill` 的 `location` | **正路**，对目录名畸变、XDG 取值差异、项目内副本一次全覆盖 |
+| 2 | `state.skillDir` | `new-session` 写的历史快照 |
+| 3 | `$XDG_CONFIG_HOME/octo/skill/<name>` | server 扫描的落点（`core/global.ts:15`） |
+| 4 | `~/.config/octo/skill/<name>` | `deployBuiltinSkills` **硬编码**部署到这里（`migrate.ts:185`），完全不看 XDG —— 设过那个变量的机器上，部署落点与扫描落点本就是两个目录 |
+| 5 | `<sessionDir>/../skills/<name>` | 老会话兜底 |
+
+> ⚠️ **候选 #3/#4 都是拿常量拼目录名，对 2026-09-20 那个根因同样 miss。** 候选链兜的是别的故障模式，不要因为"加了候选就好了"把因果搞反，更不要反过来把 #1 当冗余删掉。
+>
+> 📎 候选 #3 读 `XDG_CONFIG_HOME` 时**刻意用 `||` 而不是 `??`**:空串要当成"没设",与 server 侧的 `xdg-basedir`(`env.XDG_CONFIG_HOME || …`)同语义。用 `??` 的话空串会被当成有效值、候选 #3 退化成相对路径 —— 眼下会被 #4 兜住(两者产出逐字相同),但那是靠另一条候选救,而且那条相对路径会混进 `tried` 诊断日志误导排查。
+>
+> ⚠️ **`existsSync` 不让这条链变得"确定"**：它只让"这个字符串对应的文件在不在"确定，而字符串是拼的。确定的判断挂在不确定的前提上，整体仍然不确定。
+
+全部落空时 `log.warn` 会把试过的路径都记上（`[fastui] 定位不到导出脚本`），用户侧只给一句"未找到 … 的导出脚本,请确认该技能已安装"。
+
+> 📌 **相关但未修**：`main/ipc.ts` 的 `add-skill` 有 `if (existsSync(destDir)) return { error: "同名 skill 已存在" }` —— **已装过就不覆盖**，技能库 UI 更新不动一个已存在的 skill，机器上会留一份旧副本。另一个独立的坑，不在本节修复范围内。
+
+**验证**（外网可复现）：`packages/desktop/src/main/fastui-export.test.ts` 真起 HTTP server 扮演 `/skill`、真在临时目录放脚本文件，9 条用例覆盖：
+
+- **目录名尾部带空格时仍能定位**（钉住本次真实根因），并断言结果确实落在带空格的那个目录里
+- 查询按会话推出的项目目录发起，且 Basic auth 正确发出（fake server 会校验，不对就 401）
+- 401 / 返回非数组 JSON / server 不可用 → 都退回候选链，不当成"没装"、不抛出去（本模块约定「返回结果对象、永不 throw」）
+- 状态文件指向旧版副本（有目录无脚本）时继续下探
+- XDG 落空时兜到 `~/.config`（证明 #3/#4 不是重复）
+- 一处都没有时返回 `null`
+
+候选链读的 `homedir()` / `XDG_CONFIG_HOME` 全部走 `PathEnv` 注入 —— 测试结果不能取决于跑测试的人本地装没装某个 skill。
+
+机制层面的完整复盘（含"平台差异不一定来自平台分支"这条方法论）见 learning 笔记 [derive-vs-query-server-owned-paths.md](../../learning/derive-vs-query-server-owned-paths.md)。
 
 #### node 用哪个
 
