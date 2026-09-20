@@ -59,8 +59,29 @@ cherry-pick / rebase 到新 base 后,必须重新核对当初手工解决过的�
   `(SPEC-INS-NNN)`;很多 fix 其实就是修某个 spec 覆盖的功能,同样适用。匹配不到(全局性修复 /
   跨领域改动 / 不涉及具体 spec 的小改动)不必强行凑编号。
 
-> 本仓已随上游 CI 一起移除 `pr-standards` / 合规机器人,以上是**人工约定**,不再有自动打标签 /
-> 自动关闭。`.github/TEAM_MEMBERS`、`pull_request_template.md` 保留作参考与可能的将来启用。
+> ⚠️ **更正(2026-09-20):上面这些不只是人工约定,UXAI 仓的合规机器人还活着,而且真的会关 PR。**
+> (此前本节写的是"已随上游 CI 一起移除 `pr-standards` / 合规机器人",与实际不符 —— 实测 PR #904
+> 收到了两条合规评论并被打上 `needs:compliance` / `needs:issue` 标签。)
+>
+> UXAI `.github/workflows/` 里 **`pr-standards` 与 `compliance-close` 均为 active**:
+>
+> | workflow | 触发 | 行为 |
+> |---|---|---|
+> | `pr-standards` | PR opened / edited / synchronize | 标题不合 conventional → 打 `needs:title` + 评论;缺 linked issue → 打 `needs:issue` + 评论;正文缺模板小节 → 打 **`needs:compliance`** + 评论 |
+> | `compliance-close` | **每 30 分钟定时** | 扫所有带 `needs:compliance` 的 open PR,合规评论超过 **2 小时**就**直接关闭** |
+>
+> **`.github/TEAM_MEMBERS` 里全是上游 opencode 的人,本仓成员一个都不在** —— 所以我们每个人提的
+> PR 都会走这套检查。想彻底静音,把本仓成员加进那个文件(`pr-standards` 和 `pr-management` 都会
+> `grep -qxF "$LOGIN" .github/TEAM_MEMBERS` 后直接跳过),这是一次性的修法,比每个 PR 去凑模板划算。
+>
+> 在那之前,提 PR 要知道的两条:
+>
+> - **`fix:` / `chore:` / `test:` 开头的 PR 需要 linked issue**;`docs:` / `refactor:` / `feat:`
+>   会跳过这项检查(`pr-standards.yml` 的 `skipIssueCheck`)。没有对应 issue 又必须用 `fix:` 时,
+>   正文写清楚没有 issue 的理由即可 —— 那只会留下一个标签和一条评论,**不会**触发自动关闭。
+> - **真正会关 PR 的只有 `needs:compliance`**(正文缺模板小节)。**2 小时内合掉、或者编辑正文补上
+>   `.github/pull_request_template.md` 的小节骨架**,都能避免。PR #904 没被关掉只是因为它在
+>   1 小时内就合并了,不是因为机器人不工作。
 
 ---
 
