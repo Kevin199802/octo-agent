@@ -2,7 +2,7 @@
 
 ## 结论与证据范围
 
-用户最新确认：**PDF/XLSX 没有问题**，此前 DOCX 生成/编辑、直接 `write` / `edit` 和 MCP return 打点也已确认成功。当前已定位的问题是三条 TXT Shell 写入调用漏传 `artifactFiles`，导致采集结果为 `script-targets-not-declared`，未生成产物事件。PDF/XLSX 不再列为待排查问题；TXT 完全漏传参数的执行前拦截已在代码中实现，自动化验证通过，等待新包端上复验。
+用户最新确认：**PDF/XLSX 没有问题**，此前 DOCX 生成/编辑、直接 `write` / `edit` 和 MCP return 打点也已确认成功。当前已定位的问题是三条 TXT Shell 写入调用漏传 `artifactFiles`，导致采集结果为 `script-targets-not-declared`，未生成产物事件。PDF/XLSX 不再列为待排查问题；TXT 完全漏传参数的执行前拦截已实现；最新日志进一步确认空列表误用于 Add-Content 写入。现已补充直接 PowerShell 内容命令的静态 TXT 目标识别，25 项定向测试及类型检查通过，等待新包端上复验。
 
 成功场景以用户人工确认为依据；三条 TXT 漏报另有完整 tool part 支持，详见文末。当前没有所有调用的 eventId、接收端记录或精确事件数，故不把成功样本扩展解释为所有生成方式、所有文件大小及重试场景均已验收。
 
@@ -113,7 +113,7 @@ Insight 产物事件原先依赖页面消费工具结果，会话切换可能影
 
 已知限制及评审重点：
 
-- 已登记 Insight 调用完全漏传 artifactFiles 时，命令执行前报错，文件不会被该调用改写；填空列表或漏列部分实际目标仍可能漏报，不能靠完成后的只读检查补回首次快照。
+- 已登记 Insight 调用完全漏传 artifactFiles 时，命令执行前报错，文件不会被该调用改写；直接 PowerShell Add-Content/Set-Content 的静态 TXT 路径现可在执行前补入目标；其他命令、动态路径加错误非空声明仍有漏报边界，不能靠完成后的只读检查补回首次快照。
 - 反复追加或覆盖来补打点会改变用户文件，不能作为补救方法。
 - 文件字节变化不证明 Office/PDF 内容有效；进程外并发写入、后台导出、未声明目标等仍有覆盖边界。
 - TXT Shell 完全漏传 artifactFiles 已增加执行前保护，自动化验证通过；尚需使用新包复验模型补齐参数后的完整流程。PDF/XLSX 已经用户确认正常。当前 PR 不应宣称所有脚本写入路径已全面覆盖。
@@ -157,3 +157,16 @@ Insight 产物事件原先依赖页面消费工具结果，会话切换可能影
 验证：新增真实 Shell 回归覆盖 Set-Content 创建、Add-Content 追加上传文件、变量内容覆盖，检查拒绝后文件仍保持原状；补齐参数后产生预期的一条 write 和两条 edit，7890 只追加一次。另覆盖只读空列表、子任务继承检查、非 Insight 调用兼容。
 
 第一轮采集/发送测试 24 项通过；随后增加子任务断言及 script-no-targets 诊断，定向复验 3 项通过。本次未打包或执行用户端真实文件任务，需重新构建安装包后复验。
+
+## 补证与修复：空列表误用于上传 TXT 追加（2026-09-23）
+
+新调用 `call_dead5b84eb564f5d9c7ec6b4` 的 input 明确包含 `artifactFiles: []`，实际执行 `Add-Content -LiteralPath` 向原会话 uploads 中的 TXT 追加 7890。exit=0，但 artifactScript.reason 为 `script-no-targets`、files 为空。此前仅防止字段完全缺失，未拦住这个空列表缺口；本次日志证明未生成事件，不是发送请求失败。
+
+本次局部修复（UXAI 提交 a0e343a3c，尚未打包）：
+
+- 仅在已登记 Insight PowerShell 调用中识别直接 Add-Content/Set-Content 的静态 TXT 路径（-Path、-LiteralPath 或首个位置参数），与声明合并后再进行命令执行前快照。原 input 保留，发现结果记录为 metadata.artifactTargetDiscovery。
+- 命令成功且原文件字节改变时生成 artifact-file-edit，新增文件生成 artifact-file-write，source=script；复用原队列、边界检查、锁和轮次去重，不为补打点重放写入。
+- 动态变量、路径数组、通配符、切换工作目录后的相对路径无法可靠解析时，空列表在执行前被拒绝，要求明确声明。显式声明仍可支持动态命令。不自动扩展到任意 Bash/Python 或非 TXT 中间文件，PDF/XLSX/DOCX 保持原有声明路径。
+- 回归包含带中文、空格、方括号、单引号的上传文件路径，空列表创建/追加、非空列表漏列、只读命令、动态路径拒绝及显式声明恢复、非 TXT 中间脚本不计数，验证 7890 仅追加一次。
+
+验证：packages/opencode 内 delivery.test.ts 与 scripts.test.ts 共 25 pass、0 fail，542 次断言；bun typecheck 通过。尚未构建 beta 包，接收端真实落库仍需新包验证，旧调用缺少执行前快照不能据此补报。
