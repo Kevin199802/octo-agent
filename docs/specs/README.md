@@ -7,7 +7,7 @@
 
 ---
 
-## 已编号 · Insight（SPEC-INS-001 ~ 033）
+## 已编号 · Insight（SPEC-INS-001 ~ 034）
 
 | 编号 | 标题 | 状态 | 领域 | 文件 |
 |---|---|---|---|---|
@@ -44,6 +44,7 @@
 | 031 | Chat 历史会话迁移 — 设置里一次性把 chat 老会话（agent=octo_ai）改归属到 insight：回填 agent + directory + project_id，用户选目标目录；备份即记录、可重新迁移、不做还原按钮；**临时功能，后续版本整体下掉** | 草案（待实现） | infra/insight | [insight-chat-session-migration.md](infra/insight-chat-session-migration.md) |
 | 032 | Insight 子代理分治（多文档通读）+ 工具面声明化 — 一份文档一个 `insight_reader` 子代理（子代理自己抽取、只回传结论），解 016 v2 遗留的「10 份文档通读撞窗口」；`extract_document` 的 gate 从 registry 按 agent 名硬编码改为**权限层声明**（defaults deny + 显式 allow，第三方 skill 可自助）；task 常驻放开但候选收敛到 `insight_reader` 且不外溢到其他 agent；工作区判据改「会话树根会话」。**v2（2026-08-21）补入口覆盖面**：md/txt 不走 `extract_document`、而是被上游翻成一次 50KB 封顶的 `read`，10 份两三万字第一轮就超限且单份已被静默截断——改为发送前按**总字节**分层（≤32KB 内联不变，超了整批转分治），单份 >150KB 响亮失败；并给子代理补「读完 / 读准」的硬判据（总行数自查、原话锚点、边读边记） | v1 已合入 dev（#683）；v2 入口覆盖面已实现；**v3（2026-08-27 内网实测回补：office 分治判据 / 单份超量改切段 / 子代理会话 id 守卫 / 串行闸）待内网验证** | infra/insight | [insight-subagent-dispatch.md](infra/insight-subagent-dispatch.md) |
 | 033 | 会话身份工具 `get_session_identity` — 供 skill 调内网接口时拿当前用户 `userId` / `account` 与当前 `sessionId`：renderer 从 `localStorage.userInfo` 经 `promptAsync.extra` 透传，原生工具原样输出进模型上下文（skill 访问不到 `ctx.extra`）；缺 userId 显式失败；只开放给 `octo_insight`；含「给 skill 作者的约定」与二期 `uuid~` 执行前校验后续项 | 已合入 dev（UXAI [#909](https://github.com/MyHeavenDyf/UXAI/pull/909)），外网 API 层验证通过，UI 内 V4 与内网 N1 待验 | agents | [insight-session-identity.md](agents/insight-session-identity.md) |
+| 034 | 研究报告库检索工具 `insight_report_search` — 并列新增一个原生工具，查内网**独立的「研究报告库」**（既往用户研究报告的 MD 灌成的库，与 wiki 全量库不重叠）；形态照抄 SPEC-INS-030 的 `knowledge_search`（同 host、path 换 `queryReportKnowledge`、body `{question, account}`、扁平数组、缺工号显式拒答、只给 `octo_insight` 且 chip turn 关闭），`knowledge_search` 一字不改；响应多一个 `downloadUrl`，**当前真实数据恒为 null，本期只解析存进 `metadata.sources`、UI 零改动**；引用 UI 复用现成的 `knowledge-references`；后续项 = 下载交互（问用户 → 落文件管理 → `@` 继续对话）与二期按用户权限过滤（必须服务端做） | 已实现待验证（2026-09-24） | agents | [insight-report-search.md](agents/insight-report-search.md) |
 
 > **025 编号说明（2026-07-28）**：question 工具答题 UI 起草时取号 023，但同期 `@` 引用面板已用 023 落地并推送、`composer-draft` 已占 024。按下方 019 / 020 确立的"孤儿号改分配新号，不动已发布号"原则，未推送的这份改分配为 025。
 
