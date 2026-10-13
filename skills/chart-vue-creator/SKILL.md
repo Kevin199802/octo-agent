@@ -37,7 +37,7 @@ version: 0.1.0
 | --- | --- |
 | 生成任何图表原型 | 先按[规范索引](design/04-references/chart-spec/index.md)选择规范:用户指定优先,明确半导体项目用半导体,其余默认 HD;仅加载所选规范及适用专项;[生成与验收](design/04-references/prototype/generation-review.md) |
 | 交互网页原型 | **走下半段的工程流程** —— 技术栈固定 Vue 3 + TypeScript + ECharts,在真实脚手架里编译,不另起 Vite 工程 |
-| 工程交接说明 | [Handoff 交付](design/04-references/prototype/handoff.md):内容要求照它写,但文件落在 `<WRITE_DIR>/<页面名>/HANDOFF.md`(见硬约束 2),且"验证与限制"一节只写 `verify` 的实际结果 |
+| 工程交接说明 | [Handoff 交付](design/04-references/prototype/handoff.md):内容要求照它写,但文件落在 `<WRITE_DIR>/<页面名>/HANDOFF.md`,"验证与限制"按硬约束 2 的分层写法记录 |
 | 使用 ECharts 实现 | [能力边界与告知](design/04-references/prototype/echarts-capabilities.md) |
 | 明确要求单文件或离线 HTML | [HTML 交付](design/04-references/prototype/html-prototype.md) |
 | 平滑、聚合、拟合、采样、归一化、排名或评分 | [数据语义](design/04-references/data-semantics.md)中与处理相符的部分 |
@@ -322,9 +322,19 @@ agent 把用户的正常目录当成"失败操作留下的残留",执行 `Remove
 那些是脚手架的壳,改了会让整个工程起不来,而且它们和交付给开发的结构强相关。
 
 **工程根已经有一份 `HANDOFF.md`**,讲的是这个工程怎么跑(`OCTO_DEPS` / `OCTO_PORT` 那些),**不要动它**。
-设计交接写成 `<WRITE_DIR>/<页面名>/HANDOFF.md`,内容按[上半段的 Handoff 交付](design/04-references/prototype/handoff.md)来,
-但"验证与限制"一节**只写 `verify` 的实际结果**,不要写"已执行类型检查/生产构建"——
-`verify` 跑的是 webpack 编译,不是 `tsc --noEmit`,**ECharts option 的类型错它抓不到**。
+设计交接写成 `<WRITE_DIR>/<页面名>/HANDOFF.md`,内容按[上半段的 Handoff 交付](design/04-references/prototype/handoff.md)来。
+
+"验证与限制"一节**分层记录,不要把编译通过扩写成别的验证也通过**:
+
+| 哪一类 | 怎么记 |
+|---|---|
+| 编译门禁 | 以 `verify` 的实际输出为依据,它返回 `RESULT: OK` 才算过 |
+| 视觉与交互 | 设计师在预览里看过什么、在什么尺寸下看的,照实写;没看过就写未验证 |
+| 导出代码包 | 跑过 `export-zip` 才算;没跑就是未验证 |
+| 业务图表组件接入 | 本管道直接用 ECharts、不接内部封装组件,一律记为待接入 |
+
+⚠️ **不要写"已执行类型检查 / 生产构建"** —— `verify` 跑的是 webpack dev 编译,既不是 `tsc --noEmit`
+也不是 `yarn build`,**ECharts option 的类型错它抓不到**。没跑过的检查不许出现在交接文档里。
 
 多个页面时,在 `<ENTRY_FILE>` 里怎么组织(tab 切换、纵向排列)按用户的实际要求来,不必预设。
 
@@ -338,6 +348,10 @@ agent 把用户的正常目录当成"失败操作留下的残留",执行 `Remove
 
 **按需引入在这个脚手架上不要用。** 底下是老 webpack,按需那条路要解析 `.mjs` / 条件导出,
 是已知容易出事的地方;体积问题等跑通了再说。
+
+> **element-plus 是承载工程已有的依赖**(在脚手架的 `devDependencies` 里),用它属于遵从工程既有约定,
+> 不是上半段规范里说的"自行引入外部 UI 库"。但**用了 element-plus 不等于视觉合规** ——
+> 字体、间距、颜色仍要按上半段选中的规范逐项核对,该覆盖的样式要覆盖。
 
 ⚠️ **不要写 `import { X } from '$/lake-xxx'`。** `$` 是这个脚手架的 webpack alias,
 脚手架的壳(`main.vue`)确实用 `LakeLayout` 做布局 —— **那是壳的事,与你写的页面无关**。
