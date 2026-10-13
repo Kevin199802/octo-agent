@@ -42,7 +42,13 @@ const S = sessionPaths(path.join(sessionRoot, "outputs"))
 // 会话目录已知,日志改写这里 —— 与 devserver.log 同目录,一处就能看全
 setLogSink(path.join(S.sessionRoot, "octo-fastui.log"))
 const state = readJson(S.state)
-if (!state) fail("NO_SESSION", `找不到会话状态 ${S.state}`, { hint: "先跑 new-session.mjs" })
+// HINT 里**先说传参**:实测这个失败更多是 --session-dir 给了会话 ID 而不是绝对路径
+// (给 ID 时 path.resolve 会把它当相对路径接到 cwd 后面,于是状态文件自然找不到),
+// 而不是真的没跑过 new-session.mjs。
+if (!state)
+  fail("NO_SESSION", `找不到会话状态 ${S.state}`, {
+    hint: "--session-dir 要给 .octo/<sessionId> 的**绝对路径**(不是会话 ID 本身);路径没错的话再跑 new-session.mjs",
+  })
 
 const projectDir = args["project-dir"] ? path.resolve(String(args["project-dir"])) : state.projectDir
 const portalDir = path.join(projectDir, "packages", "portal")
@@ -383,7 +389,50 @@ let roundsSeen = 0
 let logOffset = 0
 let switches = 0
 
+// ── 等待期间的进度行(走 stderr,不进契约)──────────────────────────
+// 以前整个等待期一个字都不输出,诊断信息只在超时后才打印 —— 而默认 timeout 是 300s,
+// 远长于 agent 的 bash 超时。真卡住时命令先被掐断,那行 `STAGE:` 永远打不出来,
+// 模型只能自己猜(实测:它拿 dev server 日志里一条几百毫秒的**旧** `DONE Compiled
+// successfully` 当成"编译已经过了,是脚本自己的问题",然后反复重跑 verify)。
+// 所以把阶段和判据**边等边吐**,被掐断也至少留下最后一行。
+//
+// **不能靠调小 timeout 代替**:首次编译确实要 1–3 分钟,调小就是把正常情况判死。
+//
+// `LOG_VS_EDIT` 是三条判据里最要紧的那个数:dev server 日志 mtime 减 views/ 最新 mtime。
+// 负数 = 文件都改完了、服务端一个字都没写 —— 大概率是 watcher 没捕获到这次改动
+//(它同时解释"脚本一直不返回 + 预览不刷新 + 重启宿主才生效"),而不是脚本在死等。
+/** dev server 日志 mtime − views/ 最新 mtime,秒;负数 = 改完之后服务端从未输出 */
+const logVsEdit = () => {
+  const mt = logMtime()
+  return mt ? `${((mt - baseline) / 1000).toFixed(1)}s` : "(日志还没生成)"
+}
+const progressMs = Math.max(1, Number(args["progress-interval"]) || 30) * 1000
+let progressAt = 0
+let progressStage = ""
+function progress(force = false) {
+  const now = Date.now()
+  // 阶段变了就提前报一次;但 3s 内不重复 —— 日志持续增长时阶段会来回跳
+  if (!force && now - progressAt < (stage === progressStage ? progressMs : 3000)) return
+  progressAt = now
+  progressStage = stage
+  const mt = logMtime()
+  const waited = Math.round((now - t0) / 1000)
+  // 怀疑写进**每一行**而不是只报一次:输出随时可能被掐断,模型看到的往往只有最后一行
+  const suspect =
+    stage === "WAITING_FOR_OUTPUT" && mt && mt <= baseline && waited >= 60
+      ? " | SUSPECT: 改动之后 dev server 一个字都没输出,watcher 可能没捕获到这次改动 —— 这不等于编译已通过"
+      : ""
+  log(
+    `[wait] STAGE: ${stage} | WAITED: ${waited}s/${timeoutMs / 1000}s | ROUNDS_SEEN: ${roundsSeen} | ` +
+      `LOG_SIZE: ${logSize()} | LOG_VS_EDIT: ${logVsEdit()}` +
+      suspect,
+  )
+}
+log(`[wait] 开始等编译 | PORT: ${port} | PID: ${pid} | TIMEOUT: ${timeoutMs / 1000}s | DEVSERVER_LOG: ${D.log}`)
+progress(true)
+
 while (Date.now() - t0 < timeoutMs) {
+  progress()
   // 服务进程没了:宿主可能正在合法地换进程,先跟到新进程;真的没有了才失败,不干等到超时
   if (pid && !pidAlive(pid)) {
     const next = switches < 5 ? await followReplacement(pid) : null
@@ -573,6 +622,8 @@ const stageHint = {
 emit(
   `RESULT: FAIL | COMPILE_TIMEOUT: 等待编译结果超过 ${timeoutMs / 1000} 秒\n` +
     `STAGE: ${stage}\nROUNDS_SEEN: ${roundsSeen}\nPORT: ${port}\nPID: ${pid}\n` +
+    // 与上面 [wait] 行同一个数:负数 = dev server 在改动后从未输出(watcher 的嫌疑)
+    `LOG_VS_EDIT: ${logVsEdit()}\n` +
     `HINT: ${stageHint}\nLOG: ${logPath()}\nDEVSERVER_LOG: ${D.log}\n`,
 )
 block("LOG_TAIL", tailLines)

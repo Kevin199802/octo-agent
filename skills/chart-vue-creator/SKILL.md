@@ -197,6 +197,10 @@ node scripts/verify.mjs --session-dir="…" --port=8081
 - `RESULT: FAIL | HOST_START_FAILED` → Octo 启动预览服务失败,**这是环境问题,不是你的代码问题**。
   不要改 `.vue` 重试,也不要自己去起服务;把 `RESULT:` 与 `HINT:` 两行原样告诉用户
 - 首次编译要 1–3 分钟,属正常
+- 等待期间 verify 每 30 秒往 stderr 打一行 `[wait] STAGE: … | WAITED: … | LOG_VS_EDIT: …`,**看到它就说明脚本还在等,不是卡死**
+- **整条命令被超时掐断(没看到 `RESULT:` 那行)时**:不要去翻 dev server 日志、拿里面的 `Compiled successfully` 判定"编译已通过、是脚本的问题"
+  —— 那条很可能是更早一轮编译留下的。把最后一行 `[wait]` 原样报给用户;其中 `LOG_VS_EDIT` 是负数 = 你改完文件后 dev server 一个字都没输出
+  (它没收到这次改动),属环境问题,改 `.vue` 重试没有用
 
 > ⚠️ **上面这几条都是你自己的代码问题,按提示改完重跑就是了 —— 不要当成"脚本报错"转述给用户。**
 > §0.1 那条"把 `RESULT:` / `HINT:` 原样告诉用户"针对的是环境类失败(装不上、拉不到、起不来),
