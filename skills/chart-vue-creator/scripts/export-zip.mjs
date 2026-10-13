@@ -32,7 +32,11 @@ const S = sessionPaths(path.join(sessionRoot, "outputs"))
 setLogSink(path.join(S.sessionRoot, "octo-fastui.log"))
 const state = readJson(S.state)
 const projectDir = args["project-dir"] ? path.resolve(String(args["project-dir"])) : state?.projectDir
-if (!projectDir) fail("NO_SESSION", `找不到会话状态 ${S.state}`, { hint: "先跑 new-session.mjs" })
+// HINT 同 verify.mjs:这个失败更常见的原因是 --session-dir 给了会话 ID 而不是绝对路径
+if (!projectDir)
+  fail("NO_SESSION", `找不到会话状态 ${S.state}`, {
+    hint: "--session-dir 要给 .octo/<sessionId> 的**绝对路径**(不是会话 ID 本身);路径没错的话再跑 new-session.mjs",
+  })
 
 const name = path.basename(projectDir)
 const outPath = args.out ? path.resolve(String(args.out)) : path.join(S.outputs, `${name}.zip`)

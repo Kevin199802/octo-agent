@@ -171,6 +171,26 @@ test("端口探测:别人监听在 0.0.0.0 上时判为被占(只试绑 127.0.0.
   if (!(await probe(18310))) throw new Error("端口释放后应判为空闲")
 })
 
+test("等待期间要周期性吐进度行 —— 被 agent 的 bash 超时掐断时,模型才拿得到 STAGE", async () => {
+  const sb = sandbox()
+  appendFileSync(sb.log, `\n${START_MARK}18320\n`)
+  const a = fakeServer({ cwd: sb.portal, port: 18320, log: sb.log, compile: false })
+  await sleep(600)
+  writeFileSync(sb.record, JSON.stringify({ port: 18320, pid: a.pid, projectDir: sb.projectDir, owner: "host", status: "ready" }))
+  // 模拟"watcher 没捕获到这次改动":views 的 mtime 比 dev server 日志新,而日志之后再没动静
+  writeFileSync(path.join(sb.portal, "src", "views", "index.vue"), "<template><div/></template>")
+
+  const r = await runVerify(sb, ["--timeout=6", "--progress-interval=2"])
+  const waits = r.out.split(/\r?\n/).filter((l) => l.includes("[wait] STAGE:"))
+  // 多于一行 = 真的是"边等边吐",不是只在超时后补打一行
+  if (waits.length < 2) throw new Error(`期望等待期间有多行进度,实际 ${waits.length} 行\n${r.out.slice(-800)}`)
+  if (!waits.every((l) => l.includes("WAITING_FOR_OUTPUT"))) throw new Error(`阶段应为 WAITING_FOR_OUTPUT:\n${waits.join("\n")}`)
+  // 负数就是 watcher 嫌疑的那个判据 —— 它没打出来,这次改动等于白做
+  if (!/LOG_VS_EDIT: -/.test(waits[waits.length - 1])) throw new Error(`进度行里没有负的 LOG_VS_EDIT:\n${waits.join("\n")}`)
+  if (!r.result.includes("COMPILE_TIMEOUT")) throw new Error(`期望 COMPILE_TIMEOUT,实际 ${r.result}\n${r.out.slice(-800)}`)
+  if (!/^LOG_VS_EDIT: -/m.test(r.out)) throw new Error("超时契约块里也该带 LOG_VS_EDIT")
+})
+
 let passed = 0
 const t0 = Date.now()
 for (const t of tests) {

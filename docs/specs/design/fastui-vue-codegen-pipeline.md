@@ -1,6 +1,6 @@
 # SPEC-DES-001 — fastui/lake 组件代码生成：预览与交付管道
 
-> 状态：草案（v18，修订记录改为可读结构、决策回填正文；§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003；§6 端口分配已被 SPEC-DES-004 取代） · 优先级 P1 · 规模 [L] · 领域 infra/design
+> 状态：草案（v19，编译门禁等待期补进度行与 `LOG_VS_EDIT` 判据；修订记录改为可读结构、决策回填正文；§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003；§6 端口分配已被 SPEC-DES-004 取代） · 优先级 P1 · 规模 [L] · 领域 infra/design
 >
 > 上游已实现：✗ —— 本 spec 全部为 Design 侧新增；参考实现是 ICT 的 `ict-component-creator` skill（外部，React + 自制 mini bundler），**其管道分层可借鉴、具体实现不可照搬**（理由见 §1.3）
 >
@@ -12,6 +12,17 @@
 >
 > 本节是历史。决策的权威版本在正文对应章节，二者冲突以正文为准——修订记录不得被当作依据反向引用。
 >
+> **2026-10-13：v19(编译门禁等待期改为边等边吐进度行)**——偶发"verify 长时间不返回 + 预览面板不刷新 + 重启宿主后改动才生效"。本版只修**诊断链路**,不动判定内核:
+>
+> - ① 等待期每 30 秒往 stderr 打一行 `[wait] STAGE: … | WAITED: … | ROUNDS_SEEN: … | LOG_SIZE: … | LOG_VS_EDIT: …`(阶段切换时提前,`--progress-interval` 可调)。原来诊断字段只在超时(默认 300s)后打印,而 **agent 的 bash 超时远短于此 —— 真卡住时那行 `STAGE:` 永远打不出来**,模型转而拿 dev server 日志里更早一轮的 `DONE Compiled successfully in 553ms` 当成"编译已过、是脚本的问题"。**不调小默认 timeout**:首次编译确实要 1–3 分钟;
+> - ② 新判据 `LOG_VS_EDIT`(dev server 日志 mtime − `views/` 最新 mtime)同时进 `COMPILE_TIMEOUT` 出参 —— 负数即"规则 1 不满足",直接把"watcher 没捕获到这次改动"与"脚本在死等"分开;
+> - ③ `NO_SESSION` 的 `HINT` 改为先说传参:实测更常见的原因是 `--session-dir` 给了会话 ID 而不是绝对路径,不是没跑过 `new-session.mjs`(`verify.mjs` / `export-zip.mjs` 两处);
+> - ④ `verify.test.mjs` 加一条回归(假 dev server 在文件改动后不再输出 → 断言多行进度 + 负的 `LOG_VS_EDIT` + `COMPILE_TIMEOUT`),本地 6/6 过;改动按 [SPEC-DES-006](chart-vue-creator-integration.md) 的 vendoring 约定同步到 `chart-vue-creator`。
+>
+> **根因尚未证实**:主假设是 dev server 的文件 watcher 漏掉了那次改动(它能同时解释三个现象),但现场缺的恰恰就是上面这行判据 —— 本版只保证"下次卡住时拿得到它",不宣布结论。
+>
+> → 详见 §5.5、§5.5.1
+
 > **2026-09-15：v18(修订记录改为可读结构 + 把只活在修订记录里的决策回填正文)**——本版**不改任何设计结论**,只改"决策写在哪"。起因是 2026-09-14 的一个线上 bug:装 yarn 用错了 registry 源(用成项目依赖源,上面没有 `yarn` 这个包),内网主路径首装必挂。根因不只是选错文件 —— 那个决策当时写在 §0.0 v16 条目一个 3,460 字符长段的 ④ 号子项里,而它违反的规则在 §4.1,**正文当时提到 `template/.npmrc` 的次数是 0**。违反规则的决策被记在了物理上远离那条规则的地方,读 §4.1 的人看不见它。
 >
 > - ① **修订记录加权威声明**:本节是历史,决策的权威版本在正文,冲突以正文为准,不得被反向引用为依据。
@@ -1195,6 +1206,7 @@ LOG: <日志绝对路径>
       --project-dir=<产物目录>
       --restart                     强制重启 dev server(默认复用)
       --timeout=300                 秒
+      --progress-interval=30        秒,等待期进度行的间隔(排查与回归测试用,见 §5.5.1)
 ```
 
 起（或复用）dev server，等编译完成，解析日志判定 success/error。失败时把**错误原文（含 file:line）**返回给 agent。详见 §7.3。
@@ -1211,7 +1223,7 @@ LOG: <日志绝对路径>
       ERRORS_BEGIN … ERRORS_END              ← 错误原文,含 file:line
 
       RESULT: FAIL | MISSING_VUE_IMPORT: …   ← 漏 import 静态检查(§7.3.1),编译之前就返回
-      RESULT: FAIL | COMPILE_TIMEOUT: …      ← STAGE / ROUNDS_SEEN / HINT / LOG_TAIL
+      RESULT: FAIL | COMPILE_TIMEOUT: …      ← STAGE / ROUNDS_SEEN / LOG_VS_EDIT / HINT / LOG_TAIL
       RESULT: FAIL | SPAWN_FAILED: …         ← 见下,§6.3 自管兜底路径专属
 ```
 
@@ -1261,6 +1273,18 @@ dev server 是常驻 watch 的，模型写文件的过程中 webpack 就会被�
 第 3 条是关键 —— 它把"等模型彻底写完"这件不可观测的事，转换成了"等 webpack 不再被触发"这件可观测的事。webpack 的 `watchOptions.aggregateTimeout` 默认 300ms，800ms 留了足够余量，且**不需要改 template**。
 
 超时上限仍是 §6.2④ 的 5 分钟（首次编译 1–3 分钟）。
+
+**等待期间必须边等边吐进度行（v19，2026-10-13）。** 这三条判据原来只在**超时之后**才输出（`STAGE:` / `ROUNDS_SEEN:` / `LOG_TAIL`），而 5 分钟的上限与 agent 的 bash 超时放在一起有个盲点：**bash 远先于 5 分钟被掐断，于是真卡住时那行 `STAGE:` 永远打不出来**。模型手里只剩"命令超时"一条信息，实测它会去翻 dev server 日志，把更早一轮留下的 `DONE Compiled successfully in 553ms` 当成"编译已经过了，是脚本自己的问题"，然后反复重跑 —— 诊断字段写了，但在最需要它的那条路径上从来不会被看到。
+
+所以等待循环每 30 秒（阶段切换时提前，`--progress-interval` 可调）往 stderr 打一行：
+
+```
+[wait] STAGE: WAITING_FOR_OUTPUT | WAITED: 30s/300s | ROUNDS_SEEN: 0 | LOG_SIZE: 48 | LOG_VS_EDIT: -12.4s
+```
+
+`LOG_VS_EDIT` = dev server 日志 mtime − `views/` 最新 mtime，**负数就是上面规则 1 不满足**：文件都改完了而服务端一个字都没输出 —— dev server 没收到这次改动（watcher 的嫌疑），不是脚本在死等。它同时进 `COMPILE_TIMEOUT` 的出参，因为超时输出才是能被截图带出内网的那一份（§5.1.1）。
+
+**不能用"调小默认 timeout"代替**：首次编译确实要 1–3 分钟，调小就是把正常情况判死。
 
 ### 5.6 `export-zip.mjs` — 打交付包（**v12：提为第一版，正确性需求**）
 
