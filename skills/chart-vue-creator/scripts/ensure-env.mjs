@@ -39,18 +39,11 @@ const upgradeHint = `${installHint} ${process.platform === "win32" ? "-Upgrade" 
 // ── 1. 占位未填充 ────────────────────────────────────────────────
 // 最容易漏、也最容易被误判成代码 bug 的一种状态(§8.3):skill 装上了,
 // 但内网组装没做,于是一跑就报"找不到文件"这种看不出根因的错。
-const DESIGN_DIR = path.join(SKILL_DIR, "design")
-const placeholders = [
-  path.join(TEMPLATE_DIR, "PLACEHOLDER.md"),
-  path.join(VENDOR_DIR, "PLACEHOLDER.md"),
-  // chart-vue-creator 专有:设计方法论目录同样是组装进来的,漏填必须响亮失败。
-  // 它不在 fastui-vue-creator 里,这是两份 scripts/ 的已知差异之一。
-  path.join(DESIGN_DIR, "PLACEHOLDER.md"),
-]
+const placeholders = [path.join(TEMPLATE_DIR, "PLACEHOLDER.md"), path.join(VENDOR_DIR, "PLACEHOLDER.md")]
 for (const p of placeholders) {
   if (exists(p)) {
     fail("SKILL_NOT_ASSEMBLED", `skill 未完成内网组装,${path.relative(SKILL_DIR, p)} 仍是占位文件`, {
-      hint: `【这是内网组装步骤,由 skill 维护者在维护机上执行,不是 agent 或用户能做的】把内网脚手架模板复制到 ${TEMPLATE_DIR}、设计方法论目录复制到 ${DESIGN_DIR},再删掉各自的 PLACEHOLDER.md`,
+      hint: `【这是内网组装步骤,由 skill 维护者在维护机上执行,不是 agent 或用户能做的】把内网脚手架模板复制到 ${TEMPLATE_DIR},再删掉 PLACEHOLDER.md`,
     })
   }
 }

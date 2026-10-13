@@ -31,12 +31,22 @@ version: 0.1.0
 3. 按下表加载实现所需资料,完成方案或原型。使用 ECharts 时先核对所需能力;无法实现或需要其他技术配合的部分,按能力边界规则主动告知用户。只检查本次需要及已承诺的能力,分别记录实际验证与未验证部分。
 4. 先说明"要判断什么 → 推荐方案 → 关键交互";**要出原型就走下半段的工程流程**,交付以 `verify` 通过的工程为准,并简述示例数据、处理口径和适用边界。内部路由、规范清单不默认放进产品界面。
 
+## 原型交付硬门槛
+
+- **本 skill 的承载环境固定是既有 Vue 工程**(下半段那套脚手架 + 管道),遵从它的目录、依赖、编译门禁、预览和导出机制。上游规则里"无承载工程时默认 Vite"那条分支在这里**永远不适用** —— 不要另建第二个 Vite 工程。`index.html` 只是工程入口,单独一个 `.html` 不能当成完成产物;用户明确要求单文件/离线 HTML 时才走那条路。
+- 接入既有工程的通用原则见[承载工程规则](design/04-references/prototype/hosted-project.md);**本环境的具体命令、路径与失败码全部在下半段**,两处冲突时以下半段为准。
+- 「半导体四箱体、640→420px、散点/密度短线、截图窗口」这一匹配案例可从[四箱体骨架](design/06-assets/semiconductor-four-box-vue/)取逻辑与组件,**但只取适用部分**:它是独立 Vite 工程,`echarts/core` 按需注册的写法、`vite.config.ts`、测试依赖、目录结构**一概不要照搬**(本环境要求全量引入,见硬约束 3)。其他任务不要套用这个案例。
+- [产物门槛](design/04-references/prototype/delivery-gates.md)里"新建独立默认工程"那节及其 `check_prototype.py` **不适用本环境**,不要执行;既有工程那节的验收要求(目标尺寸、交互、图片导出分别记录实际证据)照常适用。
+
+> ⚠️ **不要执行 `design/` 下的任何脚本。** 那些是上游包自用的检查工具(维护期跑的),在本环境里既不适用、也不是验证手段;本环境唯一的门禁是下半段的 `verify.mjs`。
+
 ## 按需读取
 
 | 任务 | 入口 |
 | --- | --- |
 | 生成任何图表原型 | 先按[规范索引](design/04-references/chart-spec/index.md)选择规范:用户指定优先,明确半导体项目用半导体,其余默认 HD;仅加载所选规范及适用专项;[生成与验收](design/04-references/prototype/generation-review.md) |
-| 交互网页原型 | **走下半段的工程流程** —— 技术栈固定 Vue 3 + TypeScript + ECharts,在真实脚手架里编译,不另起 Vite 工程 |
+| 交互网页原型 | **走下半段的工程流程** —— 技术栈固定 Vue 3 + TypeScript + ECharts,在真实脚手架里编译,不另起 Vite 工程;通用原则见[承载工程规则](design/04-references/prototype/hosted-project.md) |
+| 目标尺寸 / 交互 / 图片导出的验收要求 | [产物门槛](design/04-references/prototype/delivery-gates.md)的「目标尺寸和交互」与「最终状态」两节(跳过"新建独立默认工程") |
 | 工程交接说明 | [Handoff 交付](design/04-references/prototype/handoff.md):内容要求照它写,但文件落在 `<WRITE_DIR>/<页面名>/HANDOFF.md`,"验证与限制"按硬约束 2 的分层写法记录 |
 | 使用 ECharts 实现 | [能力边界与告知](design/04-references/prototype/echarts-capabilities.md) |
 | 明确要求单文件或离线 HTML | [HTML 交付](design/04-references/prototype/html-prototype.md) |
@@ -330,7 +340,7 @@ agent 把用户的正常目录当成"失败操作留下的残留",执行 `Remove
 |---|---|
 | 编译门禁 | 以 `verify` 的实际输出为依据,它返回 `RESULT: OK` 才算过 |
 | 视觉与交互 | 设计师在预览里看过什么、在什么尺寸下看的,照实写;没看过就写未验证 |
-| 导出代码包 | 跑过 `export-zip` 才算;没跑就是未验证 |
+| 导出 | 工程代码包跑过 `export-zip` 才算;图表的**图片导出**(PNG)另记一项,实际导出并确认文件能打开才算 |
 | 业务图表组件接入 | 本管道直接用 ECharts、不接内部封装组件,一律记为待接入 |
 
 ⚠️ **不要写"已执行类型检查 / 生产构建"** —— `verify` 跑的是 webpack dev 编译,既不是 `tsc --noEmit`
