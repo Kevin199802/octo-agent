@@ -124,6 +124,7 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 | CODE | 含义 | 最可能的原因 | 内网下一步 | 外网还需要什么 |
 |---|---|---|---|---|
 | ~~`NO_PYTHON`~~ | **SPEC-DES-001 v20 起已删除**：`install.sh` 不再用 python3（JSON 改用系统自带的 `osascript` 解析）。还看到这个码说明 skill 是旧版，升级 skill 即可。**不要**让用户 `xcode-select --install` | 旧版 skill | 升级 skill | 无 |
+| `NO_JSON_PARSER` | macOS 自带的 `osascript`（用来解析 manifest）跑不起来（v20 新增）。**只在真要下载 node 或跑 `--check` 时才报** | 公司安全策略（MDM / EDR）禁用了 `osascript` | 给这台机器装上任意版本的 node，整个跳过下载链路 | `DETAIL` 里 osascript 的报错原文 |
 | `NO_MANIFEST` | 没有 manifest 地址，或离线目录里没有 `manifest.json` | 参数传错 / 离线包不完整 | 看 `HINT` 给的两个开关 | 完整命令行（`=====` 那行） |
 | `SKILL_MANIFEST_BROKEN` | 读不了 skill 自带的 `references/env.manifest.json`（**仅 ps1**） | skill 包没组装好 / 文件被编辑坏 | 重新上架 skill | `DETAIL` 里的异常原文 |
 | `MANIFEST_UNREACHABLE` | manifest 请求失败（`--check` 模式下的码） | **代理 / 网络 / 证书**，见 §3.3 | 跑一次 `--check` 全量 | `[http]` 行的两个码 + `[body]` |

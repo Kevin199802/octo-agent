@@ -21,6 +21,7 @@
 # 本脚本原来用 python3 解析 manifest,于是 `NO_PYTHON` 的判断被骗过,误报成 MANIFEST_NOT_JSON。
 # 而本脚本**唯一必须跑通的场景恰恰就是这种空白机器**。JSON 一律走下面的 json_eval(JXA)。
 # 自查哪些是占位命令:`find /usr/bin -inum "$(stat -f %i /usr/bin/python3)"`
+#
 # `-E` 不能省:ERR trap **默认不被 shell 函数继承**,而 --check 的全部逻辑都在 check_mode / 
 # http_get / probe_asset 这些函数里 —— 少了它,S8 的兜底在整条 --check 路径上一次都不成立
 # (review 实测:函数内注入裸崩,一行契约行都打不出来)。
@@ -171,6 +172,21 @@ json_eval() {   # <文件> <JS 表达式> [参数]
   osascript -l JavaScript -e 'function run(a){var m=JSON.parse(ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(a[0],$.NSUTF8StringEncoding,null)));var A=a[1];return String('"$2"')}' "$1" "${3:-}"
 }
 
+# 解析器本身跑不跑得起来,**真跑一次**来判 —— 不能用 `command -v`。
+# v16~v19 的 require_py 栽的正是这个:只查"命令在不在",不查"跑不跑得起来",
+# 于是解析器自己挂了被报成"manifest 不是 JSON"。osascript 同理可能被公司安全策略(MDM / EDR)拦掉,
+# 那时要报**解析器**的问题,而不是让 agent 去怀疑 manifest 或 manifest 地址。
+# 走的是与真实解析同一个 json_eval(含读文件那段),不另写一条只验 JSON.parse 的探针。
+# 只在真要解析远端 manifest 的两处调(--check、下载 node):复用系统 node 那条路不解析,
+# osascript 被禁但有 node 的机器不该被拦下。
+require_json() {
+  local out
+  printf '{"a":1}' > "$TMP/json-probe.json"
+  out="$(json_eval "$TMP/json-probe.json" 'm.a' 2>&1)" || true
+  [ "$out" = "1" ] || fail NO_JSON_PARSER "系统自带的 osascript 跑不起来,无法解析 manifest" "$(printf '%s' "$out" | head -c 300 | tr '\n' ' ')" \
+    "这台机器可能禁用了 osascript(公司安全策略)。装上任意版本的 node 即可整个跳过这条链路(有 node 时不需要解析 manifest)"
+}
+
 # 读 skill 自带的 `references/env.manifest.json`(随 skill 走,不走网络)。
 skill_manifest_field() {   # <字段名>;数组打成空格分隔
   local j="$SKILL_DIR/references/env.manifest.json"
@@ -288,6 +304,7 @@ probe_asset() {  # 平台键 url
 
 check_mode() {
   local mjson bad total key file v seen
+  require_json
   echo "CHECK_MODE: probe-only"
   echo "PLATFORM_HERE: $PLATFORM_KEY"
   if [ -n "$PROXY" ]; then echo "PROXY_MODE: via $(redact "$PROXY")"; else echo "PROXY_MODE: direct(--noproxy '*')"; fi
@@ -389,6 +406,10 @@ echo "[node] 来源: $NODE_SRC${EFFECTIVE_NODE:+ -> $EFFECTIVE_NODE}${SYS_NODE_V
 # 这条依赖就不该再存在, 而正是去掉它,才让「已有 node 的机器」
 # 引导脚本这一段一次网络请求都不发,彻底绕开曾经 504 / 403 过的那条链路
 # (装 yarn 与 1GB 依赖仍走内网 npm 源,那是 setup-env 的事,不在这条链路上)。
+# 解析器自检放在取 manifest 之前:osascript 被禁时 skill_manifest_field 会静默读成空串,
+# 不先判掉的话会报成 NO_MANIFEST,把人引去找 manifest 地址。
+if [ -n "$NEED_NODE" ]; then require_json; fi
+
 MJSON=""; BASE=""
 if [ -z "$NEED_NODE" ]; then
   if [ -n "$MANIFEST" ] || [ -n "$FROM_LOCAL" ]; then

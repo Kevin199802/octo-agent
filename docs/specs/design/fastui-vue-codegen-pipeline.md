@@ -16,7 +16,7 @@
 >
 > - ① **根因**:`/usr/bin/python3` 在没装 CLT 的机器上**也存在**,只是个 xcrun 占位程序 —— `command -v` 找得到,一运行就报错退出并弹"安装命令行开发者工具"窗。于是 v16 的 `require_py` 被骗过,真正解析 manifest 时 python 跑不起来,被误报成"manifest 不是 JSON"(实际上 manifest 已经 200 拿到了)。Windows 免疫是因为 ps1 用 PowerShell 自带的 `ConvertFrom-Json`;
 > - ② **改法**:JSON 解析一律走 JXA(`osascript -l JavaScript`,macOS 本体自带的 JavaScriptCore,不经 xcrun),删掉 `require_py` 与 `NO_PYTHON`。**不保留"有 node 用 node、没有用 JXA"的分叉** —— 原 bug 正藏在只有空白机器才走到的那条分支里;一种解析器每次安装都走,坏了第一台机器就暴露;
-> - ③ 新增约束:`install.sh` **只许用 macOS 本体自带的命令**(§4.1 关键点)。`/usr/bin` 下约 70 个命令(python3 / git / make / cc / clang …)是同一个占位程序,自查方法写在脚本文件头;
+> - ③ 新增约束:`install.sh` **只许用 macOS 本体自带的命令**(§4.1 关键点)。解析器本身另加自检 `require_json` → `NO_JSON_PARSER`:**真跑一次** `json_eval`,不用 `command -v` —— `require_py` 栽的正是"只查命令在不在、不查跑不跑得起来";否则 osascript 被公司安全策略拦掉时会重演同一种误报(review 补,假 `osascript` 复现过:读内置 URL 时报成 `NO_MANIFEST`、`--from-local` 时报成 `MANIFEST_NOT_JSON`)。只放在真要解析远端 manifest 的两处,有 node 的机器不受影响。`/usr/bin` 下约 70 个命令(python3 / git / make / cc / clang …)是同一个占位程序,自查方法写在脚本文件头;
 > - ④ SKILL.md 删掉"缺 python3 就 `xcode-select --install`"那段,改为明确禁止让用户装 CLT、禁止 agent 自己调 `python3` 排查(内网大概率也装不上 CLT,那条 HINT 本身就是死路);[排障手册](../../fastui-debugging.md) 同步;
 > - ⑤ 本地模拟空白 Mac(去掉 node + `DEVELOPER_DIR=/nonexistent`)实测:**v19 原样复现 `MANIFEST_NOT_JSON`**,v20 下载 / `--from-local` / Intel 平台键 / `--check` / 真错误页 / 缺平台 / 复用系统 node 全部符合预期(§9.1 V0-k)。改动按 [SPEC-DES-006](chart-vue-creator-integration.md) 的 vendoring 约定同步到 `chart-vue-creator`。
 >
@@ -767,7 +767,7 @@ the variables unset the behaviour is identical to the original scaffold.
 - **② 的 `template/` 来源路径不要硬编码**：skill（自定义技能与平台技能一致）落在 `.octo/skills/<skillName>/`，脚本一律用 `import.meta.url` 推导同级的 `../template/`。这样前期以自定义技能验证、后期上架平台技能，脚本不用改一个字
 - **安装脚本的网络请求（拉 manifest、下 node 包）证书校验默认放行**（`install.sh` 的 `-k` / `install.ps1` 的等价开关），传 `--strict-cert` / `-StrictCert` 才严格校验（v12）。理由：内网证书基本是自签名的；完整性不靠证书链保证，靠下载后的 **sha256 比对**（见 [§4.4.3](fastui-env-hosting.md#443-sha256-从哪来)）——那校验的是文件内容本身，比证书链更强。`doctor` 与 `--check` 都会打印 `TLS_VERIFY: ON/OFF` 说明当前跑的是哪一档
 - **判断"池子里的 node 能不能用"时跑一次 `node -v`**，不是看文件在不在、也不看有没有带 `--upgrade` 参数（v16 订正）——旧判据本质是拿一次 50MB 下载去替代一次版本查询，新判据只需要一次进程调用
-- **`install.sh` 只许用 macOS 本体自带的命令，禁止任何 Xcode Command Line Tools 占位命令**（v20）。它唯一必须跑通的场景就是空白机器，而 `/usr/bin` 下 python3 / git / make / cc 等约 70 个命令在没装 CLT 时**照样存在**、只是一运行就失败并弹安装窗 —— `command -v` 判不出来。JSON 因此一律用 JXA（`osascript -l JavaScript`）解析，**不分"有 node 用 node"的分叉**（分叉正是 v16~v19 藏 bug 的地方）；表达式避开 `??` / `?.`（老系统的 JavaScriptCore 不认）。sha256 用 `shasum`（perl，系统本体）。自查占位命令：`find /usr/bin -inum "$(stat -f %i /usr/bin/python3)"`
+- **`install.sh` 只许用 macOS 本体自带的命令，禁止任何 Xcode Command Line Tools 占位命令**（v20）。它唯一必须跑通的场景就是空白机器，而 `/usr/bin` 下 python3 / git / make / cc 等约 70 个命令在没装 CLT 时**照样存在**、只是一运行就失败并弹安装窗 —— `command -v` 判不出来。JSON 因此一律用 JXA（`osascript -l JavaScript`）解析，**不分"有 node 用 node"的分叉**（分叉正是 v16~v19 藏 bug 的地方）；表达式避开 `??` / `?.`（老系统的 JavaScriptCore 不认）。sha256 用 `shasum`（perl，系统本体）。**依赖的系统命令要真跑一次来判能不能用，不能用 `command -v`**：解析器自检 `require_json` 解析一个临时文件，跑不起来报 `NO_JSON_PARSER`（osascript 可能被公司安全策略禁用），只在下载 node / `--check` 时检查。自查占位命令：`find /usr/bin -inum "$(stat -f %i /usr/bin/python3)"`
 
 #### v16 更正 —— 不需要 sudo 不是必须用 portable node 的理由
 
@@ -1779,6 +1779,7 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
   6. `--check` → 两个平台都探到，`RESULT: OK`
   7. 不传 `--manifest` → 从 skill 自带的 `env.manifest.json` 读出 `manifestUrl`（日志 `[http]` 行打的是该 URL）
   8. 有系统 node → `[node] 来源: system`，不读 manifest
+  9. PATH 前面放一个总是失败的假 `osascript` → 下载 / `--from-local` / `--check` 三条路都报 `NO_JSON_PARSER`（不再误报 `NO_MANIFEST` / `MANIFEST_NOT_JSON`）；同时有系统 node 时照常走 `来源: system`，不被拦
   > 未覆盖：真 Intel 硬件、老版本 macOS 上的 JavaScriptCore（表达式已避开 `??` / `?.`）—— 留给 §9.2 阶段 1 第 5 条。
 
 ### 9.2 内网验证
@@ -1788,7 +1789,7 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
 2. `ensure-env` 探针通过
 3. **`flushdns` + 断网**后重跑，页面仍能渲染 lake 组件 ✅ *（已验证）*
 4. Windows / macOS 各做一遍
-5. **macOS 空白机（没 node、没装 Xcode 命令行工具；Intel 优先）**（v20）：由 agent 全程跑，断言能装完、**全程不弹「安装命令行开发者工具」窗**、不出现 `NO_PYTHON` 或误报的 `MANIFEST_NOT_JSON`。找不到真空白机时，可在装过 CLT 的机器上用 `DEVELOPER_DIR=/nonexistent` + 全新 `--env-dir` 模拟（PATH 里也要去掉 node），但 Intel 硬件那一半只有真机能验
+5. **macOS 空白机（没 node、没装 Xcode 命令行工具；Intel 优先）**（v20）：由 agent 全程跑，断言能装完、**全程不弹「安装命令行开发者工具」窗**、不出现 `NO_PYTHON` 或误报的 `MANIFEST_NOT_JSON`。**再在内网能找到的最老 macOS 版本上跑一次**（V0-k 没覆盖老系统的 JavaScriptCore，Intel 机器往往系统也老，可以一起验）。找不到真空白机时，可在装过 CLT 的机器上用 `DEVELOPER_DIR=/nonexistent` + 全新 `--env-dir` 模拟（PATH 里也要去掉 node），但 Intel 硬件那一半只有真机能验
 
 **阶段 2 — 会话布局与端口** ✅ *（核心机制已于 2026-09-03 内网实测通过；dev server 宿主化于 2026-09-07 在 Windows + macOS arm64 各跑通一遍）*
 

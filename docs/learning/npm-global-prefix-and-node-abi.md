@@ -163,6 +163,7 @@ nginx 托管 + sha256 校验链路，都还在，只是降级成兜底了）。
 - **取消一个依赖，要取消干净才有收益。** 这次除了不下载 node，还必须**不去读远端 manifest**
   —— 否则"绕开曾经 504 的那条链路"只绕开了一半，仍然会在同一个网关上卡住。顺带 `python3`
   也从 macOS 的硬门槛降为"只有要解析 manifest 时才需要"（本地 JSON 有 node 就用 node 解析）。
+  （2026-10-14 补记：这一步降得不彻底 —— 没装 Xcode 命令行工具的 Mac 上 `/usr/bin/python3` 是个跑不起来的占位程序，空白机首装照样挂；[SPEC-DES-001 v20](../specs/design/fastui-vue-codegen-pipeline.md) 已彻底去掉 python3，JSON 一律走 JXA。）
 - **但"换一个本地来源"要换对文件 —— 这次换错了，而且错得很贵**（2026-09-14 补记）。
   起草时把装 yarn 的 registry 回落到了 **`template/.npmrc`**，理由是"它也是本地的、还与依赖树同版本"。
   可那是**项目依赖源**，上面根本没有 `yarn` 这个包；装 yarn 要的是**通用 npm 镜像**。
