@@ -1,5 +1,30 @@
 # v0.6.8 验证记录
 
+## 2026-10-13 Python检查范围说明
+
+### 第三轮审阅：结构与执行状态一致性
+
+- 两份交付规则及回归用例统一：必需文件、依赖声明、test/build脚本缺失或package.json不可解析为结构FAIL；结构符合但运行环境缺失为对应执行项未验证；实际命令失败为FAIL。
+- 在维护机临时副本实测check_prototype.py：删除test、删除build、删除vite声明均返回FAIL（退出码1）；保留完整结构但不带node_modules，结构PASS、执行UNVERIFIED（退出码2）。原骨架未改动。
+- 包检查与git diff --check通过。本轮未重新运行浏览器或无Python环境Agent测试，未复现内网弹窗；上述实测仅核对脚本判定与新文档是否一致。
+
+
+### 第二轮审阅：范围与后续排查
+
+- 已同步 `05-tests/vue-echarts-cases.md` 为有Python与无Python两条等价路径；不因跳过包装脚本而否定已实际执行的结构、test/build检查。
+- 静态读取本机另一个Skill `chart-vue-creator/SKILL.md` 与 `scripts/install/install.sh`：下载Node时及 `--check` 诊断路径均存在 `require_py`；函数检查Python命令路径是否存在，缺失时提示 `xcode-select --install`。确认的是代码入口存在，不是现场弹窗由此触发。
+- **另行跟进（不属于本PR修复范围）**：由creator维护者取得弹窗前实际命令、参数、父子调用链和相关日志（隐去凭据），区分advisor检查、creator下载Node、creator诊断等入口；若命中creator安装路径，在其源码仓库单独修复，并覆盖无Node/无Python以及诊断分支的验证。
+- 本PR未改动creator、未执行其安装/诊断脚本，也未触发系统安装用于复现。不得将本PR或CI通过作为现场问题已解决的证据。第二轮修改后包检查及差异空白检查通过；行为与内网环境仍未实测。
+
+
+- PR #4审阅补正：两份运行时入口同步Python前置条件，补充直接检查结构及使用现有Node/包管理器执行test/build的路径。本次静态核对不能证明无Python机器上的Agent执行行为或弹窗已解决。
+- 本地绕开Python包装脚本，直接运行骨架的 `npm test`（5项通过）与 `npm run build`（vue-tsc及Vite构建通过，有大于500kB的chunk体积警告）。这验证了现有Node命令可独立执行；本机仍有Python，未模拟缺Python或系统stub环境。
+
+- 已核对独立工程检查的限制位于命令之前，README明确维护机用途；仅修改文档及维护记录，版本仍为0.6.8。
+- 本地 `python3 scripts/check_package.py` 和 `git diff --check` 已通过；使用本维护机既有Python，未安装解释器或Command Line Tools。
+- 未复现内网Python安装弹窗，原因仍待现场命令证据确认；未重新执行浏览器、内网门禁或干净环境安装验证。PR自动检查以GitHub Actions实际结果为准。
+
+
 ## 2026-10-13 GitHub 仓库维护
 
 - 私有仓库初始 `main` 的 GitHub Actions `Validate skill` 运行通过。

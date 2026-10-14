@@ -13,7 +13,7 @@
 | | 状态 |
 |---|---|
 | skill 骨架（SKILL.md 两段式、scripts、design 实体化） | ✅ 已合入 dev |
-| 上游 v0.6.8 同步 | ✅ `design/` = 上游 commit `dc562a3` |
+| 上游 v0.6.8 同步 | ✅ `design/` = 上游 commit `1629ba8`（2026-10-14，版本号未涨） |
 | 内网组装 + 端到端跑通 | ✅ 2026-10-13，柱状图，`verify` 返回 OK、预览出图 |
 | echarts 在老 webpack 上可用 | ✅ 内网实测（产物带 `_echarts_instance` attr） |
 | 外网自动验证 | ✅ 链接 0 死链、`lint.test` 31/31、`verify.test` 5/5 |
@@ -27,7 +27,7 @@
 | T3 | `_example/index.vue` 本身是否被编译过 —— SKILL.md 称它"真实编译通过"，内网首跑时模型可能已替换掉入口对它的引用 | 文案诚实性 |
 | T4 | 复杂图表实测（平行坐标、箱图叠点云等）—— 柱状图证明管道通，不证明能力够 | — |
 | T5 | 拿产物问开发"这样交付收不收" —— 决定要不要做封装组件 / 裸 ECharts 的分流（§5.2） | — |
-| T6 | macOS 弹 python3 安装窗：抓现场确认来源。**2026-10-14 找到更可能的来源**：没 node 的 Mac 上管道自己的 `install.sh` 会调 `/usr/bin/python3`（没装 CLT 时是个一运行就弹窗的占位程序），已在 [SPEC-DES-001 v20](fastui-vue-codegen-pipeline.md) 去掉；上游文档命令仍是次要嫌疑（§7.2） | — |
+| T6 | macOS 弹 python3 安装窗：抓现场确认来源。**2026-10-14 找到更可能的来源**：没 node 的 Mac 上管道自己的 `install.sh` 会调 `/usr/bin/python3`（没装 CLT 时是个一运行就弹窗的占位程序），已在 [SPEC-DES-001 v20](fastui-vue-codegen-pipeline.md) 去掉；次要嫌疑（上游文档命令）已由上游 `1629ba8` 收口（§7.2） | — |
 | T7 | `echarts` 从幻影依赖提成直接依赖（§6.2） | 不阻塞 |
 | T8 | 漏 import 门禁覆盖 `echarts` 与 element-plus 命令式 API（SPEC-DES-001 的 L1） | 不阻塞 |
 | T9 | `export-zip` 不检查本次代码是否通过 `verify`（上游 codex 评审指出） | 不阻塞 |
@@ -226,7 +226,7 @@ shasum -a 256 <文档仓>/skills/fastui-vue-creator/template/yarn.lock \
 
 | | |
 |---|---|
-| 当前同步版本 | **v0.6.8**（上游 commit `dc562a3`，同步于 2026-10-13） |
+| 当前同步版本 | **v0.6.8**（上游 commit `1629ba8`，同步于 2026-10-14；上一次 `dc562a3`，2026-10-13） |
 
 **搬进来时做了什么**：整目录平移，相对关系不变 —— 上游文件之间的 `../03-methods/`、`../VALIDATION.md` 这类链接全部仍然成立。只改了一行：`description.md` 里指向包根的 SKILL.md 链接改成 `../SKILL.md`。
 
@@ -244,10 +244,10 @@ shasum -a 256 <文档仓>/skills/fastui-vue-creator/template/yarn.lock \
 1. `git clone` 或 `git pull` 上游仓，看一眼 `CHANGELOG.md` 与 `git log`
 2. **整目录覆盖** `design/`（按上表排除），重做那一行链接修正，**不做任何 merge**
 3. **diff 上游 `SKILL.md` 与本 skill SKILL.md 的上半段** —— 上游改了设计规则 / 按需读取表 / 新增入口文件，要同步抄进上半段并加 `design/` 前缀；下半段是我们的地盘，不受上游影响
-4. 更新本节的「当前同步版本」
+4. 更新本节的「当前同步版本」，**必须连 commit 一起记** —— 上游会不涨版本号就改内容（`1629ba8` 即是）
 5. 检查新增文件有没有与下半段重复或冲突的规则，判据见 §4.2 的分工
 
-已向上游反馈两处会进生产包的 `python3` 可执行命令（`delivery-gates.md:16` 的 `check_prototype.py`、`README.md:11` 的 `check_package.py`），建议把限定说明挪到命令前面。
+已向上游反馈两处会进生产包的 `python3` 可执行命令（`delivery-gates.md` 的 `check_prototype.py`、`README.md` 的 `check_package.py`），建议把限定说明挪到命令前面。**上游 `1629ba8` 已采纳**：限定说明前置，并改为"确认有可用解释器才执行、不试运行系统 `python3` 探测、不为此装 Python 或 CLT"，`vue-echarts-delivery.md` 与回归用例同步。该提交的 `VALIDATION.md` 另记了一条跟进项「creator 的 `install.sh` 存在 `require_py`」—— 那是 v20 之前的代码，已由 [SPEC-DES-001 v20](fastui-vue-codegen-pipeline.md) 去掉，可回告上游关闭。
 
 ## 8. 验证
 

@@ -20,6 +20,18 @@
 
 输入：明确半导体四箱截图编辑器，四组、640→420px、密度短线、散点样式、原貌、右键窗口及 PNG 导出；不指定单文件 HTML。生成后先看交付目录，再在真实浏览器检查两个容器宽度。
 
-判定：仅有 `semiconductor-boxplot-snapshot.html` 即 **FAIL**；使用参考 HTML 绕过默认 Vue 工程也是 **FAIL**。新建独立默认Vite工程结构须通过 `scripts/check_prototype.py <工程目录> --run`；既有工程须通过其指定门禁并随完整工程交付；640px 出现四条纵向点柱而看不见箱体，或 420px 轴字/箱体拥挤，同样 **FAIL**。只有源码或口头宣称“已稳定”而无尺寸截图与实际 PNG，记为**未验证**。使用骨架只能降低生成难度，不能代替新模型的独立产物测试。
+判定：仅有 `semiconductor-boxplot-snapshot.html` 即 **FAIL**；使用参考 HTML 绕过默认 Vue 工程也是 **FAIL**。新建独立默认Vite工程采用两条等价的验证路径：环境已确认有可用Python时运行 `scripts/check_prototype.py <工程目录> --run`；Python不可用或状态不明时，不安装或试运行系统Python探测，直接按产物门槛核对工程结构，并通过已有Node/包管理器执行项目test、build。分别记录结构检查方式与结果、Python脚本执行/未执行状态及test/build各自结果；不能仅因未运行Python脚本判FAIL。两条路径均将缺少必需文件、依赖声明、test/build脚本或无法解析package.json判为结构FAIL；结构符合但Node/包管理器不可用或依赖尚未安装时，执行项记未验证；未取得检查证据不推定通过，命令实际失败仍判FAIL；既有工程须通过其指定门禁并随完整工程交付；640px 出现四条纵向点柱而看不见箱体，或 420px 轴字/箱体拥挤，同样 **FAIL**。只有源码或口头宣称“已稳定”而无尺寸截图与实际 PNG，记为**未验证**。使用骨架只能降低生成难度，不能代替新模型的独立产物测试。
 
 本条是待执行回归用例，不表示 GLM V5.1 已通过。
+
+### 双路径判定边界（回归预期）
+
+| 工程/环境状态 | 有Python和无Python路径共同预期 |
+| --- | --- |
+| package.json缺test或build | 结构FAIL，不能以未验证替代 |
+| 缺vue/echarts/vite/typescript依赖声明 | 结构FAIL；区别于已声明但未安装 |
+| 必需文件齐全且声明完整，依赖未安装 | 结构可通过；test/build执行未验证 |
+| 结构符合，Node或包管理器不可用 | 执行未验证，不假称已通过 |
+| test/build实际执行返回失败 | 对应执行项FAIL |
+
+此表是行为预期；维护机脚本检查不能替代无Python环境中的Agent执行验证。
