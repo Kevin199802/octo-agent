@@ -1,6 +1,6 @@
 # SPEC-DES-001 — fastui/lake 组件代码生成：预览与交付管道
 
-> 状态：草案（v19，编译门禁等待期补进度行与 `LOG_VS_EDIT` 判据；修订记录改为可读结构、决策回填正文；§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003；§6 端口分配已被 SPEC-DES-004 取代） · 优先级 P1 · 规模 [L] · 领域 infra/design
+> 状态：草案（v20，macOS 安装脚本去掉 `python3`，修空白 Mac 首装必挂；修订记录改为可读结构、决策回填正文；§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003；§6 端口分配已被 SPEC-DES-004 取代） · 优先级 P1 · 规模 [L] · 领域 infra/design
 >
 > 上游已实现：✗ —— 本 spec 全部为 Design 侧新增；参考实现是 ICT 的 `ict-component-creator` skill（外部，React + 自制 mini bundler），**其管道分层可借鉴、具体实现不可照搬**（理由见 §1.3）
 >
@@ -12,6 +12,18 @@
 >
 > 本节是历史。决策的权威版本在正文对应章节，二者冲突以正文为准——修订记录不得被当作依据反向引用。
 >
+> **2026-10-14：v20(macOS 安装脚本去掉 `python3`,修空白 Mac 首装必挂)**——内网一台 Intel Mac(没装 node、也没装 Xcode 命令行工具)首装时 `install.sh` 报 `MANIFEST_NOT_JSON`,agent 转而让用户 `xcode-select --install`。**与 Intel 无关**,arm64 同条件同样必挂:
+>
+> - ① **根因**:`/usr/bin/python3` 在没装 CLT 的机器上**也存在**,只是个 xcrun 占位程序 —— `command -v` 找得到,一运行就报错退出并弹"安装命令行开发者工具"窗。于是 v16 的 `require_py` 被骗过,真正解析 manifest 时 python 跑不起来,被误报成"manifest 不是 JSON"(实际上 manifest 已经 200 拿到了)。Windows 免疫是因为 ps1 用 PowerShell 自带的 `ConvertFrom-Json`;
+> - ② **改法**:JSON 解析一律走 JXA(`osascript -l JavaScript`,macOS 本体自带的 JavaScriptCore,不经 xcrun),删掉 `require_py` 与 `NO_PYTHON`。**不保留"有 node 用 node、没有用 JXA"的分叉** —— 原 bug 正藏在只有空白机器才走到的那条分支里;一种解析器每次安装都走,坏了第一台机器就暴露;
+> - ③ 新增约束:`install.sh` **只许用 macOS 本体自带的命令**(§4.1 关键点)。解析器本身另加自检 `require_json` → `NO_JSON_PARSER`:**真跑一次** `json_eval`,不用 `command -v` —— `require_py` 栽的正是"只查命令在不在、不查跑不跑得起来";否则 osascript 被公司安全策略拦掉时会重演同一种误报(review 补,假 `osascript` 复现过:读内置 URL 时报成 `NO_MANIFEST`、`--from-local` 时报成 `MANIFEST_NOT_JSON`)。只放在真要解析远端 manifest 的两处,有 node 的机器不受影响。`/usr/bin` 下约 70 个命令(python3 / git / make / cc / clang …)是同一个占位程序,自查方法写在脚本文件头;
+> - ④ SKILL.md 删掉"缺 python3 就 `xcode-select --install`"那段,改为明确禁止让用户装 CLT、禁止 agent 自己调 `python3` 排查(内网大概率也装不上 CLT,那条 HINT 本身就是死路);[排障手册](../../fastui-debugging.md) 同步;
+> - ⑤ 本地模拟空白 Mac(去掉 node + `DEVELOPER_DIR=/nonexistent`)实测:**v19 原样复现 `MANIFEST_NOT_JSON`**,v20 下载 / `--from-local` / Intel 平台键 / `--check` / 真错误页 / 缺平台 / 复用系统 node 全部符合预期(§9.1 V0-k)。改动按 [SPEC-DES-006](chart-vue-creator-integration.md) 的 vendoring 约定同步到 `chart-vue-creator`。
+>
+> **顺带**:[SPEC-DES-006](chart-vue-creator-integration.md) T6「macOS 弹 python3 安装窗」来源大概率就是这里(没 node 的机器上 `install.sh` 会去调 `/usr/bin/python3`),而非原先怀疑的上游文档命令。依赖树里会不会再撞 CLT(node-gyp)见 §4.2:原生模块只有 fsevents(N-API、自带预编译、optional),不需要现场编译。**shasum 没换**:它是 perl 脚本、属系统本体,不是占位命令;换成 openssl 反而要面对 PATH 里的 openssl 可能是 Homebrew 版、老系统 LibreSSL 参数差异等验不到的变数。
+>
+> → 详见 §4.1、§9.1 V0-k
+
 > **2026-10-13：v19(编译门禁等待期改为边等边吐进度行)**——偶发"verify 长时间不返回 + 预览面板不刷新 + 重启宿主后改动才生效"。本版只修**诊断链路**,不动判定内核:
 >
 > - ① 等待期每 30 秒往 stderr 打一行 `[wait] STAGE: … | WAITED: … | ROUNDS_SEEN: … | LOG_SIZE: … | LOG_VS_EDIT: …`(阶段切换时提前,`--progress-interval` 可调)。原来诊断字段只在超时(默认 300s)后打印,而 **agent 的 bash 超时远短于此 —— 真卡住时那行 `STAGE:` 永远打不出来**,模型转而拿 dev server 日志里更早一轮的 `DONE Compiled successfully in 553ms` 当成"编译已过、是脚本的问题"。**不调小默认 timeout**:首次编译确实要 1–3 分钟;
@@ -211,7 +223,7 @@
 
 | | 状态 |
 |---|---|
-| 环境安装（共享池 node + deps） | ⚠️ **不要当已通** —— Windows ✅；macOS arm64 那次跑的是修复前的旧版、且绕过了 manifest；v16 新增的「复用系统 node」这条路只在本地 macOS 验过（[§9.1](#91-外网可做本地-mac) V0-i），内网未验（[§4.4.8 第二批](fastui-env-hosting.md#448-首装踩到的坑内网实测分两批2026-09-07--09-08)）（[§4.1](#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)、[§4.4](fastui-env-hosting.md#44-内网托管要准备什么怎么放离线操作手册)） |
+| 环境安装（共享池 node + deps） | ⚠️ **不要当已通** —— Windows ✅；macOS arm64 那次跑的是修复前的旧版、且绕过了 manifest；v16 新增的「复用系统 node」这条路只在本地 macOS 验过（[§9.1](#91-外网可做本地-mac) V0-i），内网未验；**v20 修了空白 Mac（没 node + 没装 Xcode 命令行工具）首装必挂**，本地模拟过（V0-k），内网待验（[§4.4.8 第二批](fastui-env-hosting.md#448-首装踩到的坑内网实测分两批2026-09-07--09-08)）（[§4.1](#41-v1-路线手上有能跑的-node-就用它一个都没有才分发-portable-node)、[§4.4](fastui-env-hosting.md#44-内网托管要准备什么怎么放离线操作手册)） |
 | 会话工程创建（链接 + 复制模板 + 端口） | ✅ [§3.2](#32-会话布局沿用-design-现有约定)、[§5.3](#53-new-sessionmjs--创建会话工程) |
 | 编译门禁（起 dev server + 判定 + 错误回传） | ✅ [§5.5](#55-verifymjs--编译门禁) |
 | 漏 import 静态检查（组件 `WARN` / vue API `FAIL`） | 组件那档内网实测有效；**vue API 那档本地用例全过（[§9.1](#91-外网可做本地-mac) V0-j，含 2026-09-12 review 打出的 10 个反例），内网未验**（前提「脚手架无 auto-import」已确认）。**只覆盖 `'vue'` 白名单**（`views/` 下 `.vue`/`.ts`/`.js` 都查）（[§7.3.1](#731-编译门禁挡不住的一类漏-importliblintmjs)） |
@@ -755,6 +767,7 @@ the variables unset the behaviour is identical to the original scaffold.
 - **② 的 `template/` 来源路径不要硬编码**：skill（自定义技能与平台技能一致）落在 `.octo/skills/<skillName>/`，脚本一律用 `import.meta.url` 推导同级的 `../template/`。这样前期以自定义技能验证、后期上架平台技能，脚本不用改一个字
 - **安装脚本的网络请求（拉 manifest、下 node 包）证书校验默认放行**（`install.sh` 的 `-k` / `install.ps1` 的等价开关），传 `--strict-cert` / `-StrictCert` 才严格校验（v12）。理由：内网证书基本是自签名的；完整性不靠证书链保证，靠下载后的 **sha256 比对**（见 [§4.4.3](fastui-env-hosting.md#443-sha256-从哪来)）——那校验的是文件内容本身，比证书链更强。`doctor` 与 `--check` 都会打印 `TLS_VERIFY: ON/OFF` 说明当前跑的是哪一档
 - **判断"池子里的 node 能不能用"时跑一次 `node -v`**，不是看文件在不在、也不看有没有带 `--upgrade` 参数（v16 订正）——旧判据本质是拿一次 50MB 下载去替代一次版本查询，新判据只需要一次进程调用
+- **`install.sh` 只许用 macOS 本体自带的命令，禁止任何 Xcode Command Line Tools 占位命令**（v20）。它唯一必须跑通的场景就是空白机器，而 `/usr/bin` 下 python3 / git / make / cc 等约 70 个命令在没装 CLT 时**照样存在**、只是一运行就失败并弹安装窗 —— `command -v` 判不出来。JSON 因此一律用 JXA（`osascript -l JavaScript`）解析，**不分"有 node 用 node"的分叉**（分叉正是 v16~v19 藏 bug 的地方）；表达式避开 `??` / `?.`（老系统的 JavaScriptCore 不认）。sha256 用 `shasum`（perl，系统本体）。**依赖的系统命令要真跑一次来判能不能用，不能用 `command -v`**：解析器自检 `require_json` 解析一个临时文件，跑不起来报 `NO_JSON_PARSER`（osascript 可能被公司安全策略禁用），只在下载 node / `--check` 时检查。自查占位命令：`find /usr/bin -inum "$(stat -f %i /usr/bin/python3)"`
 
 #### v16 更正 —— 不需要 sudo 不是必须用 portable node 的理由
 
@@ -788,9 +801,8 @@ npm install -g yarn --prefix=<自定义目录>      # 2026-09-11 实测,系统 n
 小版本不同只出一条 `WARN:`，不阻塞 —— `env.lock.json` 仍然记录**实际的** `nodeVersion`（精确到小版本），那是诊断价值：「同一台机器行为变了」时，先看它是不是换了运行时。
 
 **收益**：内网很多人装 opencode 时已经有 node，这批人首装直接跳过 50MB 下载，也就整个绕开了
-manifest / node 包那条链路（504 与 403 都在那条链路上）。顺带，`python3` 也不再是 macOS 的
-硬门槛 —— 它只用来解析 manifest，而这条路不读 manifest（有 node 就用 node 解析 skill 自带的
-`env.manifest.json`）。
+manifest / node 包那条链路（504 与 403 都在那条链路上）。
+（v16 当时顺带把 `python3` 降为「只在解析 manifest 时才需要」；v20 起 `install.sh` 已完全不用 `python3`，见上面「关键点」。）
 
 #### 为什么最后没设版本门禁（起草时设过白名单，定案去掉）
 
@@ -1758,6 +1770,17 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
   8. **PATH 里只有 node、没有 python3** → 照样装完（老版本会在第一步 `NO_PYTHON` 直接死）
 - **V0-j 漏 import 检查不误报**（§7.3.1）：`node scripts/lib/lint.test.mjs`，零依赖、毫秒级，断言**全部用例通过**（不写死条数——加用例是常态，写死了每次都得改 spec）。**重心在"不该报"那一侧**：注释、字符串、成员调用、编译宏、局部同名绑定、`import as` 别名，以及 2026-09-12 review 打出来的那 10 个反例。误报会让模型陷进"补 import → 撞名 → `SyntaxError` → 删掉 → 又 MISSING"的死锁。
   > **判据的一部分**：改 `lint.mjs`、或往白名单加名字，**必须先在这里补一条"不该报"的用例**再动实现。通过这个用例集只证明**没回归**——它是自造的，证明不了"不误报"，那件事只有 §9.2 阶段 3 第 5 条那种真实页面回归才验得了。
+- **V0-k 空白 Mac 首装（没 node、没装 Xcode 命令行工具）**（v20 新增，2026-10-14 本地 macOS 实测通过）：`env -i HOME=$HOME PATH=/usr/bin:/bin DEVELOPER_DIR=/nonexistent bash install.sh --env-dir=<临时目录> …` —— PATH 去掉 node，`DEVELOPER_DIR` 指向不存在的路径让 `/usr/bin/python3` 等占位命令全部失效（等价于没装 CLT）。假 node 包（`bin/node` 是 shell 脚本：`-v` 打版本，否则打出交接参数）+ 本地 HTTP 服务托管 manifest，逐条断言：
+  1. **对照组：v19 的 `install.sh` 在同一环境下报 `MANIFEST_NOT_JSON`** —— 复现内网实撞，证明这个模拟环境有判别力
+  2. 下载分支走通：sha256 校验（带 `sha256:` 前缀、大写）→ 解压 → `exec setup-env.mjs`，且带上 manifest 的 `npmRegistry`
+  3. `--from-local` 同样走通
+  4. 假 `uname` 返回 `x86_64` → 取 `darwin-x64` 的包（Intel 平台键）
+  5. manifest 是 HTML 错误页 → 仍报 `MANIFEST_NOT_JSON`（真错误页的判断没改坏）；缺本平台 → `NO_PLATFORM_PKG`
+  6. `--check` → 两个平台都探到，`RESULT: OK`
+  7. 不传 `--manifest` → 从 skill 自带的 `env.manifest.json` 读出 `manifestUrl`（日志 `[http]` 行打的是该 URL）
+  8. 有系统 node → `[node] 来源: system`，不读 manifest
+  9. PATH 前面放一个总是失败的假 `osascript` → 下载 / `--from-local` / `--check` 三条路都报 `NO_JSON_PARSER`（不再误报 `NO_MANIFEST` / `MANIFEST_NOT_JSON`）；同时有系统 node 时照常走 `来源: system`，不被拦
+  > 未覆盖：真 Intel 硬件、老版本 macOS 上的 JavaScriptCore（表达式已避开 `??` / `?.`）—— 留给 §9.2 阶段 1 第 5 条。
 
 ### 9.2 内网验证
 
@@ -1766,6 +1789,7 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
 2. `ensure-env` 探针通过
 3. **`flushdns` + 断网**后重跑，页面仍能渲染 lake 组件 ✅ *（已验证）*
 4. Windows / macOS 各做一遍
+5. **macOS 空白机（没 node、没装 Xcode 命令行工具；Intel 优先）**（v20）：由 agent 全程跑，断言能装完、**全程不弹「安装命令行开发者工具」窗**、不出现 `NO_PYTHON` 或误报的 `MANIFEST_NOT_JSON`。**再在内网能找到的最老 macOS 版本上跑一次**（V0-k 没覆盖老系统的 JavaScriptCore，Intel 机器往往系统也老，可以一起验）。找不到真空白机时，可在装过 CLT 的机器上用 `DEVELOPER_DIR=/nonexistent` + 全新 `--env-dir` 模拟（PATH 里也要去掉 node），但 Intel 硬件那一半只有真机能验
 
 **阶段 2 — 会话布局与端口** ✅ *（核心机制已于 2026-09-03 内网实测通过；dev server 宿主化于 2026-09-07 在 Windows + macOS arm64 各跑通一遍）*
 

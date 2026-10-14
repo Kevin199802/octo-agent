@@ -27,7 +27,7 @@
 | T3 | `_example/index.vue` 本身是否被编译过 —— SKILL.md 称它"真实编译通过"，内网首跑时模型可能已替换掉入口对它的引用 | 文案诚实性 |
 | T4 | 复杂图表实测（平行坐标、箱图叠点云等）—— 柱状图证明管道通，不证明能力够 | — |
 | T5 | 拿产物问开发"这样交付收不收" —— 决定要不要做封装组件 / 裸 ECharts 的分流（§5.2） | — |
-| T6 | macOS 弹 python3 安装窗：抓现场确认来源（嫌疑是上游文档里的可执行命令，已反馈上游，§7.2） | — |
+| T6 | macOS 弹 python3 安装窗：抓现场确认来源。**2026-10-14 找到更可能的来源**：没 node 的 Mac 上管道自己的 `install.sh` 会调 `/usr/bin/python3`（没装 CLT 时是个一运行就弹窗的占位程序），已在 [SPEC-DES-001 v20](fastui-vue-codegen-pipeline.md) 去掉；上游文档命令仍是次要嫌疑（§7.2） | — |
 | T7 | `echarts` 从幻影依赖提成直接依赖（§6.2） | 不阻塞 |
 | T8 | 漏 import 门禁覆盖 `echarts` 与 element-plus 命令式 API（SPEC-DES-001 的 L1） | 不阻塞 |
 | T9 | `export-zip` 不检查本次代码是否通过 `verify`（上游 codex 评审指出） | 不阻塞 |
@@ -276,7 +276,7 @@ shasum -a 256 <文档仓>/skills/fastui-vue-creator/template/yarn.lock \
 | N4 | 复杂图表（T4） | 平行坐标、箱图叠点云等在 640/420px 下的几何与交互 | ⏸ 待做 |
 | N5 | 导出包干净可跑 | `export-zip` 产物解压后无 `node_modules`、`yarn install && yarn serve` 能起 | ⏸ 待做 |
 | N6 | `echarts` 提直接依赖不波及 fastui（T7） | 改 `package.json` 后 `yarn install --frozen-lockfile` 通过且 `git diff --stat yarn.lock` 零变化；两份 lock 的 sha256 相同 | ⏸ 待做 |
-| N7 | python3 弹窗来源（T6） | 弹窗出现时 agent 正在执行的命令 | ⏸ 待做 |
+| N7 | python3 弹窗来源（T6） | 用 v20 的 skill 在没装 CLT 的 Mac 上首装 + 出图，全程不再弹窗；仍弹则记下弹窗时 agent 正在执行的命令 | ⏸ 待做 |
 
 ---
 

@@ -116,9 +116,9 @@ portable node 到共享池。这是整套流程里唯一能在裸机上跑起来
 > ⚠️ 跳过的只有"弄到一个 node"这一段。**后面装 yarn、装那 1GB 依赖照样要连内网 npm 源** ——
 > 首装该花的几分钟一分不少。
 
-> macOS 上 `install.sh` **只在需要下载 node 时**才要 `python3`(用来解析 manifest,不是跑 node)。
-> 缺 `python3` 又确实需要下载时,它会 `RESULT: FAIL | NO_PYTHON` 并给出 `xcode-select --install` ——
-> 那属于下面 0.2 表里"装的过程中失败了",是人的活,把原文转达给用户即可。
+> macOS 上 `install.sh` **不需要 `python3`,也不需要 Xcode 命令行工具**(JSON 用系统自带的 `osascript` 解析)。
+> **不要让用户跑 `xcode-select --install`,也不要自己调 `python3` 排查** —— 没装命令行工具的 Mac 上
+> `python3` 只是个占位程序,一运行就给用户弹安装窗,而且内网多半装不上。安装失败按 `RESULT:` / `HINT:` 原文走 0.2 表。
 
 装环境要几分钟,告诉用户正在装。装完回到 ①。
 

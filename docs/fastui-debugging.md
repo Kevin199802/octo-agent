@@ -123,12 +123,13 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 
 | CODE | 含义 | 最可能的原因 | 内网下一步 | 外网还需要什么 |
 |---|---|---|---|---|
-| `NO_PYTHON` | macOS 上没有 python3（只用来解析 manifest，与 node 无关）。**v16 起只在真要下载 node 或跑 `--check` 时才报** —— 机器上有任何一个能跑的 node 时这条根本不会出现 | 干净的 macOS，且这台机器一个能跑的 node 都没有 | `xcode-select --install`；或先确认 `[node] 来源` 那行为什么判成了要下载 | 无 |
+| ~~`NO_PYTHON`~~ | **SPEC-DES-001 v20 起已删除**：`install.sh` 不再用 python3（JSON 改用系统自带的 `osascript` 解析）。还看到这个码说明 skill 是旧版，升级 skill 即可。**不要**让用户 `xcode-select --install` | 旧版 skill | 升级 skill | 无 |
+| `NO_JSON_PARSER` | macOS 自带的 `osascript`（用来解析 manifest）跑不起来（v20 新增）。**只在真要下载 node 或跑 `--check` 时才报** | 公司安全策略（MDM / EDR）禁用了 `osascript` | 给这台机器装上任意版本的 node，整个跳过下载链路 | `DETAIL` 里 osascript 的报错原文 |
 | `NO_MANIFEST` | 没有 manifest 地址，或离线目录里没有 `manifest.json` | 参数传错 / 离线包不完整 | 看 `HINT` 给的两个开关 | 完整命令行（`=====` 那行） |
 | `SKILL_MANIFEST_BROKEN` | 读不了 skill 自带的 `references/env.manifest.json`（**仅 ps1**） | skill 包没组装好 / 文件被编辑坏 | 重新上架 skill | `DETAIL` 里的异常原文 |
 | `MANIFEST_UNREACHABLE` | manifest 请求失败（`--check` 模式下的码） | **代理 / 网络 / 证书**，见 §3.3 | 跑一次 `--check` 全量 | `[http]` 行的两个码 + `[body]` |
 | `DOWNLOAD_FAILED` | 拉 manifest 或 node 包失败（安装模式下的码） | 同上 | 同上 | 同上；若是 node 包，还要 `ASSET_*` 行 |
-| `MANIFEST_NOT_JSON` | HTTP 200 了，但返回的不是 JSON | **十有八九是代理 / 网关 / SSO 的登录页** | 把 `[body]` 那段发出来 | `[body]` 原文（这就是答案本身） |
+| `MANIFEST_NOT_JSON` | HTTP 200 了，但返回的不是 JSON | **十有八九是代理 / 网关 / SSO 的登录页**。⚠️ **v20 之前的 skill** 在「没 node 也没装 Xcode 命令行工具」的 Mac 上**必然**误报这个码（真因是 `/usr/bin/python3` 是个跑不起来的占位程序，`[body]` 里其实是合法 JSON） | 先看 `[body]`：是合法 JSON 就是旧版误报，升级 skill；是 HTML 再查代理 | `[body]` 原文（这就是答案本身） |
 | `MANIFEST_PARSE_FAILED` | JSON 合法，但取不到本平台的包信息（**仅 sh**） | manifest 里缺 `node.platforms.<平台>` | 核对 manifest | manifest 全文 |
 | `NO_PLATFORM_PKG` | `node.platforms` 里没有这台机器的平台键 | 投放时漏了 `darwin-arm64` / `darwin-x64` | 补 manifest 条目 | `PLATFORM_HERE:` 那行 |
 | `ASSET_UNREACHABLE` | `--check` 判定：有平台的包拉不到 | 见 §3.2 的四种组合 | 把整段 `--check` 输出发出来 | 全部 `ASSET_*` 行 + `[body]` |

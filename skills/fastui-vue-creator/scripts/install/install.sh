@@ -13,6 +13,15 @@
 #   (--skip-node 现在基本是历史开关:手上有能跑的 node 时本来就不会下载)
 #                   [--proxy=<地址>]   # 默认强制直连,只有确实必须经代理才传
 #   bash install.sh --check            # 只探测网络,不下载、不安装(见文件末尾 check_mode)
+#
+# ⚠️ **只许用 macOS 本体自带的命令,禁止用任何 Xcode Command Line Tools(CLT)占位命令。**
+# `/usr/bin` 下的 python3 / git / make / cc / clang 等约 70 个命令在没装 CLT 的机器上**也存在**,
+# 但它们是同一个 xcrun 占位程序:`command -v` 找得到,一运行就报错退出、还会给用户弹
+# "需要安装命令行开发者工具"的窗。2026-10 内网实撞:没装 node 也没装 CLT 的 Mac 上,
+# 本脚本原来用 python3 解析 manifest,于是 `NO_PYTHON` 的判断被骗过,误报成 MANIFEST_NOT_JSON。
+# 而本脚本**唯一必须跑通的场景恰恰就是这种空白机器**。JSON 一律走下面的 json_eval(JXA)。
+# 自查哪些是占位命令:`find /usr/bin -inum "$(stat -f %i /usr/bin/python3)"`
+#
 # `-E` 不能省:ERR trap **默认不被 shell 函数继承**,而 --check 的全部逻辑都在 check_mode / 
 # http_get / probe_asset 这些函数里 —— 少了它,S8 的兜底在整条 --check 路径上一次都不成立
 # (review 实测:函数内注入裸崩,一行契约行都打不出来)。
@@ -149,32 +158,40 @@ if [ -n "$SYS_NODE" ]; then
   esac
 fi
 
-PY="$(command -v python3 || true)"
-# **python3 不再是硬门槛**:它只用来解析 manifest.json,而复用系统 node 的机器根本不拉
-# manifest。放在这里一票否决,会让"有 node、没装 Xcode CLT"的 mac 在第一步就被拦下 ——
-# 那台机器其实什么都不缺。真正要用到的两处(--check、下载 node)各自调 require_py。
-require_py() {
-  [ -n "$PY" ] || fail NO_PYTHON "找不到 python3,无法解析 manifest.json" "" "安装 Xcode Command Line Tools: xcode-select --install;或在一台已有 node 的机器上跑(复用系统 node 那条路不需要 python3)"
+# ── JSON 解析:一律走 JXA(`osascript -l JavaScript`)────────────────
+#
+# 原来用 python3,而 `/usr/bin/python3` 在没装 CLT 的机器上是个跑不起来的占位程序(见文件头)。
+# JXA 是 macOS 本体自带的 JavaScriptCore,不经 xcrun,空白机器上也能跑。
+# **不分"有 node 用 node、没有用 JXA"两条路**:原来的 bug 正是藏在那条只有空白机器才会走到的
+# 分支里 —— 一种解析器、每次安装都走,它坏了第一台机器就会暴露,而不是等到最难排查的那台。
+#
+# 表达式里 `m` 是解析后的对象、`A` 是可选的第三个参数;返回值按 String() 打到 stdout。
+# 解析失败(文件不在 / 不是 JSON / 表达式抛错)→ 非零退出,错误进 stderr。
+# ⚠️ 表达式别用 `??` / `?.`:老系统(Intel Mac 常见)的 JavaScriptCore 不认。
+json_eval() {   # <文件> <JS 表达式> [参数]
+  osascript -l JavaScript -e 'function run(a){var m=JSON.parse(ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(a[0],$.NSUTF8StringEncoding,null)));var A=a[1];return String('"$2"')}' "$1" "${3:-}"
+}
+
+# 解析器本身跑不跑得起来,**真跑一次**来判 —— 不能用 `command -v`。
+# v16~v19 的 require_py 栽的正是这个:只查"命令在不在",不查"跑不跑得起来",
+# 于是解析器自己挂了被报成"manifest 不是 JSON"。osascript 同理可能被公司安全策略(MDM / EDR)拦掉,
+# 那时要报**解析器**的问题,而不是让 agent 去怀疑 manifest 或 manifest 地址。
+# 走的是与真实解析同一个 json_eval(含读文件那段),不另写一条只验 JSON.parse 的探针。
+# 只在真要解析远端 manifest 的两处调(--check、下载 node):复用系统 node 那条路不解析,
+# osascript 被禁但有 node 的机器不该被拦下。
+require_json() {
+  local out
+  printf '{"a":1}' > "$TMP/json-probe.json"
+  out="$(json_eval "$TMP/json-probe.json" 'm.a' 2>&1)" || true
+  [ "$out" = "1" ] || fail NO_JSON_PARSER "系统自带的 osascript 跑不起来,无法解析 manifest" "$(printf '%s' "$out" | head -c 300 | tr '\n' ' ')" \
+    "这台机器可能禁用了 osascript(公司安全策略)。装上任意版本的 node 即可整个跳过这条链路(有 node 时不需要解析 manifest)"
 }
 
 # 读 skill 自带的 `references/env.manifest.json`(随 skill 走,不走网络)。
-# **有系统 node 就用它解析**,没有才用 python3 —— 这个文件是纯本地的,不该把
-# "机器上有没有 python3"变成读它的前提。
 skill_manifest_field() {   # <字段名>;数组打成空格分隔
-  local f="$1" j="$SKILL_DIR/references/env.manifest.json"
+  local j="$SKILL_DIR/references/env.manifest.json"
   [ -f "$j" ] || return 0
-  if [ -n "$SYS_NODE" ]; then
-    "$SYS_NODE" -e 'const fs=require("fs");let v="";try{v=JSON.parse(fs.readFileSync(process.argv[2],"utf8"))[process.argv[1]]??""}catch{};console.log(Array.isArray(v)?v.join(" "):String(v))' "$f" "$j" 2>/dev/null || true
-  elif [ -n "$PY" ]; then
-    "$PY" - "$f" "$j" <<'PYJSON' 2>/dev/null || true
-import json, sys
-try:
-    v = json.load(open(sys.argv[2])).get(sys.argv[1], "")
-except Exception:
-    v = ""
-print(" ".join(str(x) for x in v) if isinstance(v, list) else v)
-PYJSON
-  fi
+  json_eval "$j" 'Array.isArray(m[A])?m[A].join(" "):(m[A]==null?"":m[A])' "$1" 2>/dev/null || true
 }
 
 # manifest 默认从 skill 的 env.manifest.json 里读(§4.4.6:URL 直接写死在那里)
@@ -228,12 +245,7 @@ body_preview() {  # file —— 给 DETAIL 用的一行摘要
 }
 
 platforms_of() {  # manifest.json → 每行 "<平台键>\t<相对路径>"
-  "$PY" - "$1" <<'PYEOF'
-import json, sys
-m = json.load(open(sys.argv[1]))
-for k, v in (m.get("node", {}).get("platforms", {}) or {}).items():
-    print("%s\t%s" % (k, v.get("file", "")))
-PYEOF
+  json_eval "$1" '(function(p){return Object.keys(p).map(function(k){return k+"\t"+(p[k].file||"")}).join("\n")})((m.node&&m.node.platforms)||{})'
 }
 
 # ── --check:只探测,不下载(v15 Q10)──────────────────────────────
@@ -292,7 +304,7 @@ probe_asset() {  # 平台键 url
 
 check_mode() {
   local mjson bad total key file v seen
-  require_py
+  require_json
   echo "CHECK_MODE: probe-only"
   echo "PLATFORM_HERE: $PLATFORM_KEY"
   if [ -n "$PROXY" ]; then echo "PROXY_MODE: via $(redact "$PROXY")"; else echo "PROXY_MODE: direct(--noproxy '*')"; fi
@@ -320,7 +332,7 @@ check_mode() {
   echo "MANIFEST_HTTP: $HTTP_CODE"
   echo "MANIFEST_BYTES: $(wc -c < "$mjson" | tr -d ' ')"
   echo "MANIFEST_MS: $HTTP_MS"
-  if ! "$PY" -c "import json,sys;json.load(open(sys.argv[1]))" "$mjson" 2>/dev/null; then
+  if ! json_eval "$mjson" 'typeof m' >/dev/null 2>&1; then
     dump_body "$mjson" "manifest 正文"
     fail MANIFEST_NOT_JSON "manifest 拿到了但不是 JSON(多半是代理/网关的错误页)" "$(body_preview "$mjson")" "响应体已记进 LOG"
   fi
@@ -394,7 +406,9 @@ echo "[node] 来源: $NODE_SRC${EFFECTIVE_NODE:+ -> $EFFECTIVE_NODE}${SYS_NODE_V
 # 这条依赖就不该再存在, 而正是去掉它,才让「已有 node 的机器」
 # 引导脚本这一段一次网络请求都不发,彻底绕开曾经 504 / 403 过的那条链路
 # (装 yarn 与 1GB 依赖仍走内网 npm 源,那是 setup-env 的事,不在这条链路上)。
-if [ -n "$NEED_NODE" ]; then require_py; fi
+# 解析器自检放在取 manifest 之前:osascript 被禁时 skill_manifest_field 会静默读成空串,
+# 不先判掉的话会报成 NO_MANIFEST,把人引去找 manifest 地址。
+if [ -n "$NEED_NODE" ]; then require_json; fi
 
 MJSON=""; BASE=""
 if [ -z "$NEED_NODE" ]; then
@@ -423,10 +437,10 @@ else
   fail NO_MANIFEST "要下载 node,但没有 manifest 地址" "" "传 --manifest=<url> 或 --from-local=<目录>"
 fi
 
-# manifest 是不是 JSON,在这里就判掉 —— 否则下面两处 `$PY -c json.load` 会带着 python
-# traceback 撞进 ERR trap,报成一条 UNEXPECTED。**让失败发生在离根因近的地方**(§4.4.8):
+# manifest 是不是 JSON,在这里就判掉 —— 否则下面两处 json_eval 会带着解析错误
+# 撞进 ERR trap,报成一条 UNEXPECTED。**让失败发生在离根因近的地方**(§4.4.8):
 # 拿到 200 却不是 JSON,现实里就是代理/网关/SSO 的错误页,这个信息要直接说出来。
-if [ -n "$MJSON" ] && ! "$PY" -c "import json,sys;json.load(open(sys.argv[1]))" "$MJSON" 2>/dev/null; then
+if [ -n "$MJSON" ] && ! json_eval "$MJSON" 'typeof m' >/dev/null 2>&1; then
   dump_body "$MJSON" "manifest 正文"
   fail MANIFEST_NOT_JSON "manifest 拿到了但不是合法 JSON(多半是代理/网关/SSO 的错误页)" \
     "$(body_preview "$MJSON")" \
@@ -437,7 +451,7 @@ fi
 # 两个都没有时不作数 —— setup-env 里有个写死的 YARN_REGISTRY 兜底(§4.1 ③)。
 # **不能用 template/.npmrc**:那是项目依赖源,装 yarn 会报错(2026-09-14 复核)。
 if [ -z "$REGISTRY" ] && [ -n "$MJSON" ]; then
-  REGISTRY="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('npmRegistry',''))" "$MJSON")"
+  REGISTRY="$(json_eval "$MJSON" 'm.npmRegistry||""')"
 fi
 
 # ── 下载 + 校验 + 解压 node ────────────────────────────────────
@@ -445,16 +459,10 @@ if [ -n "$NEED_NODE" ]; then
   [ -n "$MJSON" ] || fail NO_MANIFEST "要装 node,但没有可用的 manifest"
 
   read -r FILE SHA STRIP NODEVER <<EOF
-$("$PY" - "$MJSON" "$PLATFORM_KEY" <<'PYEOF'
-import json,sys
-m=json.load(open(sys.argv[1])); p=m.get("node",{}).get("platforms",{}).get(sys.argv[2])
-if not p: print("__MISSING__ __MISSING__ 1 __MISSING__"); sys.exit(0)
-print(p.get("file",""), p.get("sha256",""), p.get("stripComponents",1), m.get("node",{}).get("version",""))
-PYEOF
-)
+$(json_eval "$MJSON" '(function(n){var p=n.platforms&&n.platforms[A];if(!p)return "__MISSING__ __MISSING__ 1 __MISSING__";return [p.file||"",p.sha256||"",p.stripComponents==null?1:p.stripComponents,n.version||""].join(" ")})(m.node||{})' "$PLATFORM_KEY")
 EOF
   # 这里必须显式判空:heredoc 里的命令替换失败**不触发 ERR trap、也不被 set -e 拦住**
-  # (实测确认),python 崩掉的话 FILE 会是空串,然后一路带着空 URL 往下走。
+  # (实测确认),解析崩掉的话 FILE 会是空串,然后一路带着空 URL 往下走。
   [ -n "${FILE:-}" ] || fail MANIFEST_PARSE_FAILED "解析 manifest 失败,取不到 $PLATFORM_KEY 的包信息" "" "确认 $MJSON 是合法 JSON 且有 node.platforms.$PLATFORM_KEY"
   [ "$FILE" = "__MISSING__" ] && fail NO_PLATFORM_PKG "manifest 里没有 $PLATFORM_KEY 的 node 包" "" "在 manifest.json 的 node.platforms 里补一条"
 
