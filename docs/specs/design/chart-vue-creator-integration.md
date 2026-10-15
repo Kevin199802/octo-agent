@@ -32,6 +32,7 @@
 | T8 | 漏 import 门禁覆盖 `echarts` 与 element-plus 命令式 API（SPEC-DES-001 的 L1） | 不阻塞 |
 | T9 | `export-zip` 不检查本次代码是否通过 `verify`（上游 codex 评审指出） | 不阻塞 |
 | T10 | `verify` 偶现卡死 —— 与本次集成无关，`verify.mjs` 两份代码相同，fastui 侧同样存在 | 独立排查 |
+| T11 | **版本管理**：上架前照搬 [SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog)（`doctor` 改读 frontmatter、删 `env.manifest.json` 的 `skillVersion`、建 `docs/releases/skills/chart-vue-creator.md`、从 `1.0.0` 起号）。上游 `design/` 当作依赖记"上游版本@commit"（上游会不涨号改内容）。fastui 侧 v21 已改，两份 `doctor.mjs` / `lib/paths.mjs` 目前因此不同 | 上架前 |
 
 ---
 

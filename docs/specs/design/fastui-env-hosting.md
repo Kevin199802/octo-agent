@@ -287,15 +287,15 @@ v14 的 doctor 自己用 Node 的 `fetch` 探 manifest，于是有了 2026-09-08
 3. 抄/算 sha256（§4.4.3）
 4. 按 §4.4.5 写 `manifest.json`，放进 `fastui-env/`
 5. 按 §4.4.4 的自检命令确认 manifest 和资源都能拉到
-6. 在内网跑 `assemble.mjs --template=<脚手架模板> --vendor=<三份组件 skill>`
-7. 把 assemble 产出的 skill 包按技能库的上架流程上架
+6. 按 [SPEC-DES-001 §8.3](fastui-vue-codegen-pipeline.md#83-外网仓只放外网能维护的部分内网资产留占位) 手工组装 skill 包（填 `template/` 与 `vendor/`）
+7. 按 [SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog) 的上架流程上架技能库
 8. 在一台**干净的**设计师机器上调一次 skill，全程观察是否零人工介入（[§9.2](fastui-vue-codegen-pipeline.md#92-内网验证) 阶段 1）
 
 **fastui 发新版后的升级（每次）**
 
 1. 更新脚手架模板的 `package.json` → 在内网维护机上 `yarn install` → 得到新 `yarn.lock`
-2. 产出新的 `env.lock.json`（新 `envVersion` + 新 `lockfileHash`），写 env CHANGELOG
-3. 跑 `assemble.mjs`（带上新 template）→ 上架新版 skill 包
+2. 回外网涨 skill 版本号、CHANGELOG 记下 template 改了什么（[SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog)）
+3. 拉对应 tag 重新组装（带上新 template）→ 上架新版 skill 包
 4. **服务器上什么都不用改**（node 没变、template 随 skill 包走）
 5. 设计师端下次调 skill 时 `ensure-env` 检出 `lockfileHash` 不匹配 → agent 自动跑 `install --upgrade` → 共享池增量 `yarn install` → 校验 hash → 继续
 

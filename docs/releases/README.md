@@ -4,6 +4,8 @@
 
 当前只覆盖 **insight 线**;其他产品线(studio / design / make / chat)如需纳入,按节追加即可。
 
+**skill 的版本记录另放 [skills/](skills/)**,一个 skill 一个文件、按版本往上追加 —— skill 的版本号与上架流程跟 UXAI 版本无关,定义见 [SPEC-DES-001 §5.2.4](../specs/design/fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog)。当前:[fastui-vue-creator](skills/fastui-vue-creator.md)。
+
 ## 文件结构
 
 每个版本文件头部维护三个指针:

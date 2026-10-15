@@ -1,6 +1,6 @@
 # SPEC-DES-001 — fastui/lake 组件代码生成：预览与交付管道
 
-> 状态：草案（v20，macOS 安装脚本去掉 `python3`，修空白 Mac 首装必挂；修订记录改为可读结构、决策回填正文；§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003；§6 端口分配已被 SPEC-DES-004 取代） · 优先级 P1 · 规模 [L] · 领域 infra/design
+> 状态：草案（v21，skill 发布版本号与 CHANGELOG 定型，首次上架定为 1.0.0；修订记录改为可读结构、决策回填正文；§4.4 / §8.6 已拆出为 SPEC-DES-002 / 003；§6 端口分配已被 SPEC-DES-004 取代） · 优先级 P1 · 规模 [L] · 领域 infra/design
 >
 > 上游已实现：✗ —— 本 spec 全部为 Design 侧新增；参考实现是 ICT 的 `ict-component-creator` skill（外部，React + 自制 mini bundler），**其管道分层可借鉴、具体实现不可照搬**（理由见 §1.3）
 >
@@ -11,6 +11,15 @@
 > ## 修订记录
 >
 > 本节是历史。决策的权威版本在正文对应章节，二者冲突以正文为准——修订记录不得被当作依据反向引用。
+>
+> **2026-10-15：v21(skill 发布版本号与 CHANGELOG 定型)**——skill 要上架技能库，而技能库**没有版本概念、只做文件覆盖**,出问题时要能从"用户装的是哪一版"反查当时的外网代码、组件 skill 版本和 template 改动。
+>
+> - ① **对外只有一个版本号：`SKILL.md` frontmatter 的 `version`**,只在外网发号、只从一处上架(§5.2.4)。`env.manifest.json` 里重复的 `skillVersion` 删掉，`doctor` 改读 frontmatter —— 两处存同一个号，第一次涨号就会分叉;
+> - ② **考虑过、没采用的两种**:内网组装另起修订号(Debian `1.2.3-4` 式)—— 只在内网也能自主上架时才需要，现约束为单点上架;`doctor` 输出 template / vendor 的内容 hash 当指纹 —— 要在内网组装后跑脚本再抄回外网，现行手工复制流程里没有这一步，加了也没人执行。改为组件 skill 记它自己的 package 版本号、template(无仓库)记文字改动;
+> - ③ **按上架涨号、不按提交涨号**,未上架的改动攒在 CHANGELOG 的「未发布」段;判断标准写进 §5.2.4,每次仍具体分析;
+> - ④ **CHANGELOG 放 [docs/releases/skills/](../../releases/skills/),不放 spec 也不放 skill 包**:spec 记"为什么这样设计"、CHANGELOG 记"哪版带了什么",两套编号混在一起正是 v14「首装修复批次不单列修订条目」那种纠结的来源;包内放版本历史会进模型上下文(chart-vue-creator 的 `design/CHANGELOG.md` 已经逼出过一句"版本历史不参与当前规则裁决");
+> - ⑤ 顺手清掉过期的 `requiredEnvVersion`(v9 已删字段，§5.2.2 / §5.2.3 / §8 目录树仍在写)与从未落地的「env CHANGELOG」,环境升级只由 `lockfileHash` 判，与版本号无关。
+> - 首次上架定为 **1.0.0**(此前的 0.1.0 是从未分发过的占位号;从 1.0.0 起 major / minor / patch 三档语义完整，chart-vue-creator 上架时照此起号，也不会与它上游的 0.6.x 混看)。
 >
 > **2026-10-14：v20(macOS 安装脚本去掉 `python3`,修空白 Mac 首装必挂)**——内网一台 Intel Mac(没装 node、也没装 Xcode 命令行工具)首装时 `install.sh` 报 `MANIFEST_NOT_JSON`,agent 转而让用户 `xcode-select --install`。**与 Intel 无关**,arm64 同条件同样必挂:
 >
@@ -1054,15 +1063,13 @@ ERRORS_END
 // <envDir>/env.lock.json —— v7:由本机 setup-env.mjs 在安装/升级末尾产出
 // (不再是"打包机产出随环境包分发",因为 v7 的依赖是本机 yarn install 装的)
 {
-  "envVersion":  "2026.09.02-1",       // 环境构建号,来自 template 里的声明
+  "envVersion":  "0.1.0",              // 抄自 template/package.json 的 octoTemplateVersion,诊断用;缺省 "unknown"
   "lockfileHash": "sha256:…",          // 装这棵树时用的 yarn.lock 的 hash —— 见 §5.2.1 的比对方式
   "platform": "win32", "arch": "x64",
   "nodeVersion": "v22.19.0",          // 实际装依赖时用的那个 node,精确到小版本;判据只比大版本
   "nodeSource": "system",             // pool | system —— 这台机器当时用的是池子里的还是系统的
   "nodePath": "C:\\Program Files\\nodejs\\node.exe",
   "yarnVersion": "1.22.5",
-  "templateVersion": "2026.09.02",     // 脚手架模板版本(我们从他们脚手架裁剪来的那份)
-  "fastuiRelease": "…",                // fastui 团队的发布标识,用于对账(若他们有)
   "installedAt": "2026-09-03T10:22:31Z",
   "keyPackages": {                     // 仅供诊断展示,不作判据
     "vue": "3.5.13",
@@ -1107,7 +1114,7 @@ sha256(<envDir>/deps/yarn.lock)           ← 实际值:只有跑过 install/upg
 
 **`yarn.lock` 是权威判据**：它唯一决定整棵依赖树，比列举 `keyPackages` 更严格且零维护。`keyPackages` 只在诊断输出里展示给人看。
 
-`templateVersion` 是脚手架模板的版本（不是组件库版本，组件库版本在 `keyPackages` 里）—— 原字段名 `scaffoldVersion` 语义含糊，改掉。
+`envVersion` 抄自 `template/package.json` 的 `octoTemplateVersion`（v11 起 `templateVersion` 并入它，不再单列），**只作诊断展示**；它不是组件库版本（那在 `keyPackages` 里），也不是 skill 的发布版本号（§5.2.4）。
 
 ### 5.2.2 升级机制：lockfile 驱动的增量升级
 
@@ -1123,10 +1130,9 @@ sha256(<envDir>/deps/yarn.lock)           ← 实际值:只有跑过 install/upg
 ```
 fastui 发新版
   ① 内网维护机:更新 template 的 package.json → 跑 yarn install → 得到新 yarn.lock
-     → 产出新 env.lock.json(新 envVersion + 新 lockfileHash) + 写 env CHANGELOG
-  ② assemble.mjs 带上新 template → 上架新版 skill 包(几 MB,走技能库)  ← v7:template 随 skill 走
+  ② 外网涨 skill 版本号、CHANGELOG 记下 template 改了什么(§5.2.4)
+  ③ 按 §8.3 重新组装,带上新 template → 上架新版 skill 包(几 MB,走技能库)  ← v7:template 随 skill 走
      nginx 上什么都不用改
-  ③ 外网仓只改 skill 的 requiredEnvVersion,走 GitHub
   ④ 设计师端 ensure-env 检出 lockfileHash 不匹配
      → agent 自动跑 install --upgrade
      → 把新 template 的依赖清单覆盖到 <envDir>/deps/ → cwd=deps 跑 yarn install(按新 lock 增量装差异)
@@ -1146,7 +1152,7 @@ fastui 发新版
 | 情况 | 行为 |
 |---|---|
 | `lockfileHash` 不匹配（依赖树不是期望的那棵） | `RESULT: FAIL \| ENV_OUTDATED` + `HINT:` 升级命令 |
-| 机器上的 `envVersion` ≥ `requiredEnvVersion` 且 hash 匹配 | **通过** —— skill 更新远比环境频繁，必须向后兼容 |
+| hash 匹配 | **通过** —— 版本号不参与判断(§5.2.4),skill 涨号永远不会触发环境重装 |
 
 > §4.2 的整包分发在这个机制下降级为**首次安装的可选优化**，与升级路径无关。
 
@@ -1154,38 +1160,63 @@ fastui 发新版
 
 | 字段 | 在哪个文件 | 承载什么 | 谁改 |
 |---|---|---|---|
-| `skillVersion` | skill 的 `SKILL.md` frontmatter | 提示词、脚本、`vendor/` 组件 skill 的版本 | 外网仓，走 GitHub |
-| `requiredEnvVersion` | skill 的 `references/env.manifest.json` | **skill 要求的最低环境版本**（同 `package.json` 的 `engines`） | 外网仓，走 GitHub |
-| `envVersion` | 环境的 `env.lock.json` | 环境构建号，**模板 + 依赖 + 组件库版本 + node 全部包含在内**；声明在 template 里，安装时抄进 `env.lock.json` | template（内网维护），本机 `install` 写入 |
+| `version` | skill 的 `SKILL.md` frontmatter | **skill 唯一的发布版本号**，覆盖整个上架包（提示词、脚本、`vendor/`、`template/`），定义见 §5.2.4；`doctor` 输出为 `SKILL_VERSION` | 外网仓，每次上架涨一次 |
+| `envVersion` | 环境的 `env.lock.json` | 抄自 `template/package.json` 的 `octoTemplateVersion`，**仅诊断展示，不作判据，也不是发布版本号** | template（内网维护），本机 `install` 写入 |
 | `lockfileHash` | 环境的 `env.lock.json` | 上次安装时装的是哪棵树，**诊断与对账用；判据是 §5.2.1 的跨边界比对** | 本机 `install`（随 `deps/yarn.lock` 派生） |
-| `templateVersion` | 环境的 `env.lock.json` | 脚手架模板自身的版本 | template（内网维护），本机 `install` 写入 |
 | `keyPackages` | 环境的 `env.lock.json` | 组件库等关键包的版本，**仅供诊断展示，不作判据** | 本机 `install` 从实际装好的包里读出 |
 
-**组件库版本不单独立字段** —— 它已经被 `envVersion` 涵盖（组件库变了就是环境变了），精确值在 `keyPackages` 里可查、在 `lockfileHash` 里被严格约束。
+**组件库版本不单独立字段** —— 精确值在 `keyPackages` 里可查、在 `lockfileHash` 里被严格约束。
 
-### 5.2.4 版本号分两个，不要合并
-
-| | 跟什么走 | 怎么分发 | 变更频率 |
-|---|---|---|---|
-| `skillVersion` | 提示词、脚本、`vendor/` 里的组件 skill | GitHub，秒级 | 高 |
-| `envVersion` | 模板、依赖、portable node | 内网托管，数百 MB | 低 |
-
-**合并成一个会出事**：每改一次提示词都让版本号变，环境就会被判定"过期"而触发重新下载几百 MB。
-
-做法同 `package.json` 的 `engines` 字段：skill 的 `env.manifest.json` 里写 `requiredEnvVersion`，`ensure-env` 拿它跟机器上的 `env.lock.json` 比。
-
-**两份 CHANGELOG 分开记**（skill 的 / env 的），改动来源不同：前者是提示词、脚本调优，后者是模板、依赖升级。env 那份顺带承接 §10-Q4 的「fastui 版本 ↔ envVersion」对应关系。
+**环境要不要升级只看 `lockfileHash`，任何版本号都不参与判断** —— 所以 skill 涨号永远不会触发环境重装，反过来依赖变了也不需要谁记得去改某个版本字段。（v4 起草过 `requiredEnvVersion`，同 `package.json` 的 `engines`，v9 之后成了死字段、已删。）
 
 **对外契约（v1/v2 换实现时保持不变）**：
 
 ```
 RESULT: OK
 ENV_DIR: C:\Users\xxx\AppData\Local\OctoAgent\fastui-env
-ENV_VERSION: 2026.09.02-1
+ENV_VERSION: 0.1.0
 ---
 RESULT: FAIL | <一句话原因>
 LOG: <日志绝对路径>
 ```
+
+### 5.2.4 发布版本号与 CHANGELOG
+
+> skill 版本号的**唯一定义处**（v21）。CHANGELOG、[排障手册](../../fastui-debugging.md)、[SPEC-DES-006](chart-vue-creator-integration.md) 只引用本节，不复述。
+
+**一个号，一处发**
+
+- 版本号只存在于 `SKILL.md` frontmatter 的 `version`。技能库没有版本概念、只做文件覆盖，版本号只能随包自带；`doctor` 读它输出 `SKILL_VERSION`。**别往其它文件再抄一份**（v21 之前 `env.manifest.json` 里就存过重复的 `skillVersion`）。
+- 只在外网仓发号，上架技能库只由 skill 负责人一人进行。内网的组件 skill / template 有改动时，先回外网涨号、记 CHANGELOG，再组装上架 —— **不允许"内容变了、号没变"的上架**，那比没有版本号更误导。
+- **按上架涨号，不按提交涨号**：两次上架之间的改动攒在 CHANGELOG 的「未发布」段，上架时切成一个版本；攒了多条的按其中最高一档涨。定位问题时只有用户装过的版本有意义，按提交涨号只会多出一堆没发出去过的号。
+- 首次上架为 `1.0.0`。
+
+**涨哪一档**（判断基准；每次仍具体分析，拿不准时往高一档靠）
+
+| 档 | 什么时候 | 例子 |
+|---|---|---|
+| major | 用户要做额外动作，或旧的东西不能再用 | 需重装环境 / 共享池；旧会话工程跑不起来；交付物结构变了 |
+| minor | 新能力或流程变化 | 新增脚本 / 命令；SKILL.md 流程调整；组件 skill 或 template 同步了新内容 |
+| patch | 修复，行为基本不变 | 修 bug；改文案、报错提示 |
+
+**包里三部分各记什么**
+
+| 部分 | 来源 | CHANGELOG 记什么 |
+|---|---|---|
+| `SKILL.md` / `scripts/` / `references/` | 本仓 | 改动条目（要解释原因的链到本 spec 对应章节）；对应代码用 git tag `fastui-vue-creator/v<版本号>` 定位 |
+| `vendor/` 组件 skill | 内网组件团队的仓库（三份同仓） | **他们的 package 版本号**（如 `1.0.7`）+ 改动要点。改动要点由 skill 负责人转述，以对方为准 —— 我们只集成、不维护 |
+| `template/` | 内网脚手架，**无仓库** | 文字说明改了什么 |
+
+这张对照表的用途是**反查**：拿用户机器上的 `SKILL_VERSION` 对 CHANGELOG，就知道当时装的是哪版组件 skill、哪版 template。生成效果类问题归组件 skill 维护方排查，这条映射就是交给他们的线索。
+
+**上架流程**
+
+1. 内网有改动时，skill 负责人带回：组件 skill 的版本号与改动要点 / template 的改动说明
+2. 外网：把「未发布」段切成新版本，改 `SKILL.md` 的 `version`，提交并打 tag `fastui-vue-creator/v<版本号>`
+3. 内网：拉取该 tag，按 [§8.3](#83-外网仓只放外网能维护的部分内网资产留占位) 组装 —— 复制组件 skill 前确认其工作区干净、版本号与第 1 步一致；装好后 `doctor` 的 `SKILL_VERSION` 应为新版本号
+4. 上架技能库
+
+**CHANGELOG 放 [docs/releases/skills/fastui-vue-creator.md](../../releases/skills/fastui-vue-creator.md)**，不放 spec，也不放 skill 包：spec 记"为什么这样设计"，CHANGELOG 记"哪个版本带了什么"，两套编号混在一起只会互相干扰；包里的东西会进模型上下文，版本历史会被模型当成当前规则来读（[§8.3](#83-外网仓只放外网能维护的部分内网资产留占位)：生产包只放设计师使用场景要用的东西）。
 
 ### 5.3 `new-session.mjs` — 创建会话工程
 
@@ -1633,7 +1664,7 @@ fastui-vue-creator/                    ← skill 包，几 MB（体积几乎都�
 │   ├─ install/install.ps1  install/install.sh
 │   └─ lib/                            ← result / paths / hash / port / link / compile
 ├─ references/
-│   └─ env.manifest.json               ← requiredEnvVersion + manifestUrl（不含环境本体）
+│   └─ env.manifest.json               ← manifestUrl 等运行参数（不含环境本体，也不含版本号 —— 见 §5.2.4）
 ├─ template/                           ← ★ 内网资产：脚手架模板（外网仓是 PLACEHOLDER.md）
 └─ vendor/                             ← ★ 内网资产：原样嵌入,我们不改内容
     ├─ fastui-vue-skill/
@@ -1655,7 +1686,7 @@ fastui-vue-creator/                    ← skill 包，几 MB（体积几乎都�
 <文档仓>/skills/fastui-vue-creator/
 ├─ SKILL.md                          ← 外网维护 ✅
 ├─ scripts/                          ← 外网维护 ✅（第一版：ensure-env / new-session / verify / setup-env + 两版安装脚本）
-├─ references/env.manifest.json      ← 外网维护 ✅（requiredEnvVersion + manifestUrl）
+├─ references/env.manifest.json      ← 外网维护 ✅（manifestUrl 等运行参数）
 ├─ template/
 │   └─ PLACEHOLDER.md                ← 占位：说明从内网哪里取、放什么、怎么校验
 ├─ vendor/
@@ -1693,6 +1724,7 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
 
 **② 填 `vendor/`** —— 三份组件 skill 整目录拷进去，内容不改：
 `vendor/fastui-vue-skill/`、`vendor/lake-code-example/`、`vendor/lake-style-skill/`
+（三份同在组件团队一个仓库里；拷之前确认那边工作区干净，版本号与本次 CHANGELOG 记的一致 —— 有未提交改动时版本号就对不上内容，[§5.2.4](#524-发布版本号与-changelog)）
 
 **③ 删掉两个 `PLACEHOLDER.md`**
 
@@ -1707,6 +1739,8 @@ robocopy $src $dst /E /XD "$src\node_modules" "$src\packages\portal\dist" ".git"
 **什么时候要重新组装**：`scripts/` 或 `SKILL.md` 变了 → ①不用做，重新上架即可；模板变了 → 重做①；
 三份组件 skill 变了 → 重做②。依赖版本变了（`yarn.lock` 变）→ 重做① + 上架，设计师端 `ensure-env`
 会检出 `ENV_OUTDATED` 并自动走 `install --upgrade`（§5.2.2）。
+
+**以上任何一种重新组装，上架前都先回外网涨号、记 CHANGELOG**（[§5.2.4](#524-发布版本号与-changelog)），内网只拉对应 tag 来组装。
 
 ### 8.4 内网同步：单向
 

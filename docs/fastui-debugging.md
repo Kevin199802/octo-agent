@@ -343,7 +343,7 @@ HTTP 码这边：`504` / `502` 基本可断定是**代理或网关自己发的**
 3. 失败那步的**子进程原文尾部**或 `[body]` 段
 4. `doctor` 整段（尤其 `PROXY*` / `POOL_*` / `SKILL_ASSEMBLED`）
 5. 若与网络有关：`--check` 整段
-6. **`SKILL_VERSION`**（`doctor` 那行；取不到就发 `references/env.manifest.json`）—— 行号和错误码都随版本变，见 §5.4
+6. **`SKILL_VERSION`**（`doctor` 那行；取不到就发已装 skill 目录里 `SKILL.md` 开头的 `version:` 行）—— 行号和错误码都随版本变，见 §5.4
 
 ### 5.2 可直接粘的提示词模板
 
@@ -377,6 +377,7 @@ HTTP 码这边：`504` / `502` 基本可断定是**代理或网关自己发的**
 
 > ⚠️ **先对齐版本再用行号。** 内网跑的 skill 未必是外网 `dev` 的最新版：拿 `doctor` 的
 > `SKILL_VERSION` 对上再翻，否则行号会指到别处，那种误导比没有线索更贵。
+> 对法：`git checkout fastui-vue-creator/v<SKILL_VERSION>`；同版本带的组件 skill / template 是哪一份，查 [版本记录](releases/skills/fastui-vue-creator.md)。
 
 ---
 
