@@ -14,6 +14,7 @@
 
 | 组成 | 本版 |
 |---|---|
+| 外网代码 | tag `fastui-vue-creator/v1.0.0`(`6a60237`) |
 | 组件 skill(`vendor/`) | 1.0.7 |
 | template | 首次组装：内网 portal-web 脚手架，按 [SPEC-DES-001 §8.3](../../specs/design/fastui-vue-codegen-pipeline.md#83-外网仓只放外网能维护的部分内网资产留占位) 组装 |
 

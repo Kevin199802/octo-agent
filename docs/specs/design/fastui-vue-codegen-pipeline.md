@@ -1203,7 +1203,7 @@ LOG: <日志绝对路径>
 
 | 部分 | 来源 | CHANGELOG 记什么 |
 |---|---|---|
-| `SKILL.md` / `scripts/` / `references/` | 本仓 | 改动条目（要解释原因的链到本 spec 对应章节）；对应代码用 git tag `fastui-vue-creator/v<版本号>` 定位 |
+| `SKILL.md` / `scripts/` / `references/` | 本仓 | 改动条目（要解释原因的链到本 spec 对应章节）+ **本版的 git tag `fastui-vue-creator/v<版本号>` 与 commit 短号**，定位问题时直接 checkout |
 | `vendor/` 组件 skill | 内网组件团队的仓库（三份同仓） | **他们的 package 版本号**（如 `1.0.7`）+ 改动要点。改动要点由 skill 负责人转述，以对方为准 —— 我们只集成、不维护 |
 | `template/` | 内网脚手架，**无仓库** | 文字说明改了什么 |
 
@@ -1212,8 +1212,8 @@ LOG: <日志绝对路径>
 **上架流程**
 
 1. 内网有改动时，skill 负责人带回：组件 skill 的版本号与改动要点 / template 的改动说明
-2. 外网：把「未发布」段切成新版本，改 `SKILL.md` 的 `version`，提交并打 tag `fastui-vue-creator/v<版本号>`
-3. 内网：拉取该 tag，按 [§8.3](#83-外网仓只放外网能维护的部分内网资产留占位) 组装 —— 复制组件 skill 前确认其工作区干净、版本号与第 1 步一致；装好后 `doctor` 的 `SKILL_VERSION` 应为新版本号
+2. 外网：把「未发布」段切成新版本，改 `SKILL.md` 的 `version`，提交并打 tag `fastui-vue-creator/v<版本号>`（skill 代码走 PR 的，合入后打在合入 commit 上），tag 与 commit 短号补进该版本条目
+3. 内网：拉取该 tag（tag 之后 dev 没再进 skill 改动时，直接拉 dev 等价），按 [§8.3](#83-外网仓只放外网能维护的部分内网资产留占位) 组装 —— 复制组件 skill 前确认其工作区干净、版本号与第 1 步一致；装好后 `doctor` 的 `SKILL_VERSION` 应为新版本号
 4. 上架技能库
 
 **CHANGELOG 放 [docs/releases/skills/fastui-vue-creator.md](../../releases/skills/fastui-vue-creator.md)**，不放 spec，也不放 skill 包：spec 记"为什么这样设计"，CHANGELOG 记"哪个版本带了什么"，两套编号混在一起只会互相干扰；包里的东西会进模型上下文，版本历史会被模型当成当前规则来读（[§8.3](#83-外网仓只放外网能维护的部分内网资产留占位)：生产包只放设计师使用场景要用的东西）。
