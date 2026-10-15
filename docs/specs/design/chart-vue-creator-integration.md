@@ -17,6 +17,7 @@
 | 内网组装 + 端到端跑通 | ✅ 2026-10-13，柱状图，`verify` 返回 OK、预览出图 |
 | echarts 在老 webpack 上可用 | ✅ 内网实测（产物带 `_echarts_instance` attr） |
 | 外网自动验证 | ✅ 链接 0 死链、`lint.test` 31/31、`verify.test` 5/5 |
+| 样式写法约束 | ✅ 同步自组件 skill 1.0.7（SKILL.md 硬约束 3.2，golden example 同步改写；只取写法、不取视觉值，§4.4）。内网待验 N8 |
 
 ### 待办
 
@@ -119,6 +120,25 @@
 1. 「验证与限制只写 `verify` 的实际结果」**过严** —— `verify` 只管编译，用它卡住所有验证项，等于把视觉、导出、业务接入这些该记的全堵死。改为**四层分别记录**：编译门禁以 `verify` 输出为准 / 视觉与交互照实写看过什么 / 导出分工程代码包与图片导出两项 / 业务图表组件一律记待接入。
 2. element-plus 与半导体规范"不额外引入外部 UI 库"**表面冲突** —— 区分"使用承载工程已有依赖"（遵从既有约定）与"自行新增 UI 库"（受限）；并补明**用了 element-plus 不等于视觉合规**，字体/间距/颜色仍按所选规范逐项核对。
 
+### 4.4 样式写法：同步自组件 skill，只取"怎么写"，不取"取什么值"
+
+**来源**：组件 skill（`fastui-vue-creator` 的 `vendor/`）**1.0.7** 的「7.1 样式编写优先级」。fastui 组装后天然带着这一段；chart 刻意不带 vendor（§5.1），不会自动同步，所以抄进来。**组件 skill 以后改这一段，按这里的版本号判断 chart 要不要跟。**
+
+**落点**：SKILL.md 下半段硬约束 **3.2**（约 15 行，直接内联 —— 写样式是每次都会发生的事，放 `references/` 靠指针去读，大概率读不到），golden example 同步改成示范写法（Tailwind `w-full` + `<style lang="less">` 引入 `mixin.less` + 一处 `// 待整改`），否则示例与规则矛盾 —— 那正是 §5.3 排第一的质量嫌疑。
+
+**只取写法三条**（Tailwind 优先 → Less 引用 `mixin.less` → 没有的值标「待整改」），这是纯工程约束，与上半段不冲突。**原文的视觉取值部分（颜色 / 尺寸速查表 + 强制要求 1~7）没有同步**：视觉取值归设计师的图表规范管（§4 隔离边界），而且放进下半段会因"冲突以下半段为准"反过来盖掉已确认的图表视觉数值。3.2 因此写明只管页面 CSS，ECharts option 里的取值按上半段规范；取自图表规范、`mixin.less` 里又没有的值，照规则标「待整改」并写明来源。
+
+**交给设计师决定的冲突**（视觉速查表 vs 图表规范；是否、如何合入由他们定）：
+
+| 速查表 / 强制要求 | 图表规范 |
+|---|---|
+| 次要文本 `#676767`、说明文本 `#939393`、占位 `#BBBBBB` | 标题说明 / 轴单位 / 图例文字 `#777777`，刻度文字 `#AEAEAE`（[visual-basics](../../../skills/chart-vue-creator/design/04-references/chart-spec/common/visual-basics.md)） |
+| "颜色必须从规范色值中选取" | 系列色板 `#2070F3` 等均不在速查表内（[color](../../../skills/chart-vue-creator/design/04-references/chart-spec/common/color.md)） |
+| "所有尺寸数值必须为 4 的倍数" | 标题旁下拉图标 10×10px（visual-basics「图标」） |
+| "所有组件参数必须遵循 tokens.md" | chart 包内没有 `tokens.md`，引了即死链 |
+
+**对 template 的要求**：工程里要有 `tailwind.config.js` 与 `src/assets/styles/mixin.less`（`~@/assets/styles/mixin.less` 解析到它）。这两样是 2026-10 手工加进内网脚手架的 —— 若源脚手架本身没有，**重新复制 `template/` 时要补回**（§7.1）。
+
 ---
 
 ## 5. 技术栈：裸 ECharts + element-plus
@@ -205,7 +225,7 @@
 
 `design/` 自 v0.6.8 起是**实体内容**，跟着 git 走，不需要手工平移。所以组装只做两件事：
 
-**① 填 `template/`** —— 按 SPEC-DES-001 §8.3 把内网脚手架复制进来（排除根目录 `node_modules/`，但 `packages/portal/node_modules/` 那 735 字节要保留）。
+**① 填 `template/`** —— 按 SPEC-DES-001 §8.3 把内网脚手架复制进来（排除根目录 `node_modules/`，但 `packages/portal/node_modules/` 那 735 字节要保留）。复制后确认工程里有 `tailwind.config.js` 与 `src/assets/styles/mixin.less`（硬约束 3.2 与 golden example 依赖它们，见 §4.4）。
 
 **② 替换 golden example** —— 把 `SKILL.md` 硬约束 4 里那份 ECharts golden example 写进
 `template/packages/portal/src/views/_example/index.vue`，**逐字一致**。这是本 template 与
@@ -278,6 +298,7 @@ shasum -a 256 <文档仓>/skills/fastui-vue-creator/template/yarn.lock \
 | N5 | 导出包干净可跑 | `export-zip` 产物解压后无 `node_modules`、`yarn install && yarn serve` 能起 | ⏸ 待做 |
 | N6 | `echarts` 提直接依赖不波及 fastui（T7） | 改 `package.json` 后 `yarn install --frozen-lockfile` 通过且 `git diff --stat yarn.lock` 零变化；两份 lock 的 sha256 相同 | ⏸ 待做 |
 | N7 | python3 弹窗来源（T6） | 用 v20 的 skill 在没装 CLT 的 Mac 上首装 + 出图，全程不再弹窗；仍弹则记下弹窗时 agent 正在执行的命令 | ⏸ 待做 |
+| N8 | 样式写法（§4.4） | 重新组装后 golden example 编译通过（Less 与 `mixin.less` 引入可用）、画布宽度撑满（`w-full` 生效 = Tailwind 已配好）；生成一张图表页，样式优先用 Tailwind、写死的值都带「待整改」标注 | ⏸ 待做 |
 
 ---
 

@@ -408,6 +408,19 @@ import { ElSelect, ElOption, ElDatePicker } from 'element-plus'
 > (`ElMessage` / `ElMessageBox` / `ElNotification` / `ElLoading`)同样得 import,但**门禁查不到**
 > —— 漏了 `echarts` 就是 `echarts is not defined`、整页白屏。写的时候就把 import 补全,别指望门禁。
 
+### 3.2 样式写法:Tailwind 优先,其次 Less + `mixin.less`
+
+本条只管**页面上的 CSS 怎么写**(`<style>` 与 class)。ECharts option 里的颜色、字号、间距按上半段选中的图表规范取值,不受本条约束 —— option 里也引用不了 Less 变量。
+
+按顺序选,**不许越级**:
+
+1. **先用 Tailwind 原子类** —— 布局、宽高、间距、对齐、背景等。工程里的 `tailwind.config.js` 有项目自定义的类(如 `mr-4x`、`flex-center`、`bg-container-secondary`),**用自定义类之前先去里面确认有这个名字**
+2. **Tailwind 表达不了,才写 `<style lang="less">`**,先 `@import url('~@/assets/styles/mixin.less');`,颜色、间距、阴影用它里面的变量和方法(如 `@margin-2x`、`.shadow-level2-style('bottom')`),**不要写死值**
+3. **`mixin.less` 里没有的值,行尾标 `// 待整改:<现状与来源>`** —— 取自上半段图表规范的值同样要标,例如 `color: #777777; // 待整改:图表规范轴单位色,mixin.less 无对应变量`。**不允许不加标注直接写死**
+
+> ⚠️ **Tailwind 类名写错或不存在,编译不报错、`verify` 也查不出,样式静默失效。** 这和漏 import 白屏是同一类
+> "门禁全绿但页面不对"的坑。反过来,`mixin.less` 里的变量名写错是 Less 编译错误,`verify` 会拦下来。
+
 ### 4. golden example —— 写第一个图表前先读
 
 `<WRITE_DIR>/_example/index.vue` 是一个**真实编译通过**的最小图表,内容与下面这份一致:
@@ -452,20 +465,19 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="chart-example">
-    <div ref="chartEl" class="chart-example__canvas" />
+  <!-- 样式写法见硬约束 3.2:能用 Tailwind 原子类的先用它 -->
+  <div class="w-full">
+    <div ref="chartEl" class="chart-canvas w-full" />
   </div>
 </template>
 
-<style scoped>
-.chart-example {
-  padding: 16px;
-}
-/* ⚠️ 容器必须有确定高度。高度塌成 0 时 echarts.init 不报错、编译也全绿,
-   画出来是一片空白 —— 和"没做"长得一模一样,最难排查的一种。 */
-.chart-example__canvas {
-  width: 100%;
-  height: 360px;
+<style scoped lang="less">
+@import url('~@/assets/styles/mixin.less');
+
+// ⚠️ 容器必须有确定高度。高度塌成 0 时 echarts.init 不报错、编译也全绿,
+//    画出来是一片空白 —— 和"没做"长得一模一样,最难排查的一种。
+.chart-canvas {
+  height: 360px; // 待整改:图表画布高度按任务取值,mixin.less 无对应变量
 }
 </style>
 ```
