@@ -21,7 +21,7 @@ import { execFileSync } from "node:child_process"
 import { readdirSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, emit, log, parseArgs } from "./lib/result.mjs"
-import { SKILL_DIR, TEMPLATE_DIR, VENDOR_DIR, envDir, envPaths, readManifest, readJson, exists, resolveYarnJs, resolveRuntime } from "./lib/paths.mjs"
+import { SKILL_DIR, TEMPLATE_DIR, VENDOR_DIR, envDir, envPaths, readManifest, readSkillVersion, readJson, exists, resolveYarnJs, resolveRuntime } from "./lib/paths.mjs"
 import { sha256File } from "./lib/hash.mjs"
 
 const args = parseArgs()
@@ -39,9 +39,9 @@ put("ENV_DIR", P.root)
 // 版本要打出来:外网排查时手里有整个仓库,`UNEXPECTED` 给的行号、错误码字典都随版本变,
 // 对错版本会指到别处。读不到不阻塞 —— doctor 的职责是"把看得见的都说出来",不是拦人。
 try {
-  put("SKILL_VERSION", readManifest().skillVersion ?? "unknown")
+  put("SKILL_VERSION", readSkillVersion() ?? "unknown(SKILL.md frontmatter 里没有 version)")
 } catch {
-  put("SKILL_VERSION", "读不到 references/env.manifest.json")
+  put("SKILL_VERSION", "读不到 SKILL.md")
 }
 
 // ── skill 组装状态 ───────────────────────────────────────────────
