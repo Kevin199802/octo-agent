@@ -21,6 +21,17 @@ export function readManifest() {
 }
 
 /**
+ * skill 版本号只有一处:SKILL.md frontmatter 的 `version`(SPEC-DES-001 §5.2.4)。
+ * 技能库没有版本概念、只做文件覆盖,版本号只能随包自带 —— 别再往别的文件里抄一份。
+ */
+export function readSkillVersion() {
+  const text = readFileSync(path.join(SKILL_DIR, "SKILL.md"), "utf8")
+  const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  const v = fm && fm[1].match(/^version:\s*["']?([^"'\r\n]+?)["']?\s*$/m)
+  return v ? v[1] : undefined
+}
+
+/**
  * 共享池目录。OCTO_FASTUI_ENV_DIR 可覆盖(本地 V0 验证必需)。
  *
  * Windows 必须用 LOCALAPPDATA 而非 APPDATA —— 后者是 Roaming,

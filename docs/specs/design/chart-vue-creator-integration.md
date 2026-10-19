@@ -18,6 +18,7 @@
 | echarts 在老 webpack 上可用 | ✅ 内网实测（产物带 `_echarts_instance` attr） |
 | 外网自动验证 | ✅ 链接 0 死链、`lint.test` 31/31、`verify.test` 5/5 |
 | 样式写法约束 | ✅ 同步自组件 skill 1.0.7（SKILL.md 硬约束 3.2，golden example 同步改写；只取写法、不取视觉值，§4.4）。内网待验 N8 |
+| 版本管理 / 首次上架 | ✅ 2026-10-19 定 `1.0.0`(design/ = 上游 v0.6.8 @ `1629ba8`),按 [SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog):`doctor` 改读 frontmatter、删 `env.manifest.json` 的 `skillVersion`(两份 `scripts/` 重新只差 `ensure-env.mjs` 一行 hint)。版本记录见 [docs/releases/skills/chart-vue-creator.md](../../releases/skills/chart-vue-creator.md) |
 
 ### 待办
 
@@ -33,7 +34,6 @@
 | T8 | 漏 import 门禁覆盖 `echarts` 与 element-plus 命令式 API（SPEC-DES-001 的 L1） | 不阻塞 |
 | T9 | `export-zip` 不检查本次代码是否通过 `verify`（上游 codex 评审指出） | 不阻塞 |
 | T10 | `verify` 偶现卡死 —— 与本次集成无关，`verify.mjs` 两份代码相同，fastui 侧同样存在 | 独立排查 |
-| T11 | **版本管理**：上架前照搬 [SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog)（`doctor` 改读 frontmatter、删 `env.manifest.json` 的 `skillVersion`、建 `docs/releases/skills/chart-vue-creator.md`、从 `1.0.0` 起号）。上游 `design/` 当作依赖记"上游版本@commit"（上游会不涨号改内容）。fastui 侧 v21 已改，两份 `doctor.mjs` / `lib/paths.mjs` 目前因此不同 | 上架前 |
 
 ---
 
@@ -267,6 +267,7 @@ shasum -a 256 <文档仓>/skills/fastui-vue-creator/template/yarn.lock \
 3. **diff 上游 `SKILL.md` 与本 skill SKILL.md 的上半段** —— 上游改了设计规则 / 按需读取表 / 新增入口文件，要同步抄进上半段并加 `design/` 前缀；下半段是我们的地盘，不受上游影响
 4. 更新本节的「当前同步版本」，**必须连 commit 一起记** —— 上游会不涨版本号就改内容（`1629ba8` 即是）
 5. 检查新增文件有没有与下半段重复或冲突的规则，判据见 §4.2 的分工
+6. **在版本记录的「未发布」段记一笔"design/ 同步至上游 v<版本> @ <commit>"**,上架时按 [SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog) 涨号(同步上游新内容一般为 minor)
 
 已向上游反馈两处会进生产包的 `python3` 可执行命令（`delivery-gates.md` 的 `check_prototype.py`、`README.md` 的 `check_package.py`），建议把限定说明挪到命令前面。**上游 `1629ba8` 已采纳**：限定说明前置，并改为"确认有可用解释器才执行、不试运行系统 `python3` 探测、不为此装 Python 或 CLT"，`vue-echarts-delivery.md` 与回归用例同步。该提交的 `VALIDATION.md` 另记了一条跟进项「creator 的 `install.sh` 存在 `require_py`」—— 那是 v20 之前的代码，已由 [SPEC-DES-001 v20](fastui-vue-codegen-pipeline.md) 去掉，可回告上游关闭。
 
