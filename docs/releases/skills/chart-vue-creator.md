@@ -17,7 +17,7 @@
 
 | 组成 | 本版 |
 |---|---|
-| 外网代码 | tag `chart-vue-creator/v1.0.0` |
+| 外网代码 | tag `chart-vue-creator/v1.0.0`(`bf1c832`) |
 | 设计师上游(`design/`) | v0.6.8 @ `1629ba8`(上游该 commit 未涨版本号) |
 | template | 内网 portal-web 脚手架 + ECharts golden example(样式写法版),含手工加入的 `tailwind.config.js` 与 `src/assets/styles/mixin.less`,按 [SPEC-DES-006 §7.1](../../specs/design/chart-vue-creator-integration.md#71-组装只剩填-template-一步) 组装 |
 
