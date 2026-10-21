@@ -17,7 +17,7 @@
 
 | 组成 | 本版 |
 |---|---|
-| 外网代码 | tag `chart-vue-creator/v1.2.0` |
+| 外网代码 | tag `chart-vue-creator/v1.2.0`(`4d158f3`) |
 | 设计师上游(`design/`) | 同 1.1.0:v0.6.9 分发修订 r9 @ `1d7ae38`,未变 |
 | template | 同 1.0.0,未变 |
 
