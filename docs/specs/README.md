@@ -52,7 +52,7 @@
 
 ---
 
-## 已编号 · Design / octo_make（SPEC-DES-001 ~ 006）
+## 已编号 · Design / octo_make（SPEC-DES-001 ~ 007）
 
 | 编号 | 标题 | 状态 | 领域 | 文件 |
 |---|---|---|---|---|
@@ -62,6 +62,7 @@
 | 004 | fastui 预览：卡片不记端口，点击时当场取服务 —— 修「多对话时预览卡片串台」（前一个对话的卡片点进去显示后一个对话的页面）。根因是端口被写死进卡片、而端口会被回收复用。**v2 推翻 v1 的「端口治理」**（登记表 + 归属判定 + 自愈，补丁会制造新的错误显示），改为卡片只记产物（`fastui://<产物名>`），点击时由宿主按「会话目录 + 产物名」当场给地址：服务活着且应答就复用，否则当场挑端口起服务；端口在 spawn 那一刻由主进程挑，不写卡片、不写状态文件、不要登记表；去掉 `MAX_SERVERS` 淘汰；同对话多产物可同时预览；`verify` 在 Octo 里不自己起服务而是请求宿主；退出杀整棵进程树 + 崩溃后下次启动清理。含否决记录（反向代理、升级 webpack-dev-server v4、每次点击重启）与内网 N1–N10 验证清单 | v2 已实现待内网验证（2026-09-17） | infra/design | [fastui-preview-identity.md](design/fastui-preview-identity.md) |
 | 005 | fastui 预览卡片独立 subtype，接上分辨率切换 —— 预览卡片原来是 `subtype: "url"`、与所有 http(s) 外链共用能力开关，分辨率切换是关的。注册独立 subtype **`fastui`**（`subtype-registry` + `SUBTYPE_CONFIG`），能力表 = url 原样 + 打开 viewport；「导出代码包」从通用外链 handler 搬进 fastui handler、只认 `fastui://`，外链 handler 回归干净。含逐项能力开关理由（归档对外部 URL 是响亮失败而非空图）、切换行为（CSS 缩放不改 src；自适应↔固定尺寸会重载，既有逻辑保留）与 Mac 上的 Electron 手工验证 | 已实现待验证（2026-09-18） | infra/design | [fastui-subtype.md](design/fastui-subtype.md) |
 | 006 | 图表设计 skill 接入 fastui 编译交付管道 —— 把设计师团队维护的图表设计方法论（上游 [chart-design-advisor](https://github.com/peterbobidu/chart-design-advisor)）与 001 的「环境 → 编译门禁 → 预览 → 导出」管道组合成 skill `chart-vue-creator`，让图表原型产出**开发可直接跑的工程**而非自述"已验证"的源码。隔离边界：`SKILL.md` 两段式由我们全量维护（冲突以下半段为准）、`design/` 是上游实体内容我们不改、`template/` 仍为内网占位；技术栈裸 ECharts + element-plus，**不带 lake 组件文档**（实测会把模型带偏）；与 001 共用依赖池，两份 `yarn.lock` 必须逐字相同。含三种复用形态对比与四项否决记录、我们向上游提的四条建议（已全部采纳）及上游反向指出的两处修正 | 内网端到端已跑通（2026-10-13 柱状图）；上游同步至 v0.6.8（commit `1629ba8`）；**待效果基线盲评与复杂图表实测** | infra/design | [chart-vue-creator-integration.md](design/chart-vue-creator-integration.md) |
+| 007 | fastui 产物对齐 Design 通用能力（局部修改 / 历史 / 标注 / 归档）—— 梳理结果面板全部功能并逐项判定 fastui 做 / 不做 / 延后；核心卡点是 bridge 进不了跨域 dev server 页面，选定**主进程 `webFrameMain.executeJavaScript` 注入子 frame**（否决反向代理与改脚手架），注入后局部修改与标注直接复用；局部修改用 Prompt 模式 + 即时预览，靠 Vue 3 开发构建的 `__file` **确定性判定元素属于哪个 `src/views/` 下的 `.vue`**（内网实测可用；脚手架框架区域不让选中）；历史用「锚点文件」把 `fastui://` 接入通用 history 层；归档复用选目录弹窗，经新增可选钩子 `archiveUpload` 只上传源码 zip（普通文件交付件）；画布编辑延后、热更新不修（调研结论保留）。含外网 S1–S11 与内网 N1–N5 | 草案 v3（2026-10-21）；**待 Q1 内网确认生成页面命中 `src/views/`** | infra/design | [fastui-design-capabilities.md](design/fastui-design-capabilities.md) |
 
 ---
 
