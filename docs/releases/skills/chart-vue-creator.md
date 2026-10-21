@@ -11,13 +11,24 @@
 
 ## 未发布
 
+(无)
+
+## 1.2.0 ｜ 2026-10-21 ｜ 工程与会话目录解耦,兼容代码工作区
+
+| 组成 | 本版 |
+|---|---|
+| 外网代码 | tag `chart-vue-creator/v1.2.0` |
+| 设计师上游(`design/`) | 同 1.1.0:v0.6.9 分发修订 r9 @ `1d7ae38`,未变 |
+| template | 同 1.0.0,未变 |
+
 - **工程与会话目录解耦,兼容代码工作区**([SPEC-DES-008](../../specs/design/fastui-workspace-layout.md))。修「新建工作区(默认代码工作区)里 verify 卡住、没有预览卡片」:
   - 工程根写标记 `.octo-fastui.json`,运行时文件(dev server 记录与日志、脚本日志、交付包)移到 `<工程>/.octo-fastui/`;各脚本只认工程目录,不再从它往上推会话目录
   - `new-session`:`--artifact-dir` 取 `[Artifact Folder]`,没有就取 `[Workspace]`;新增 `--list` / `--title` / `--reuse`;`--name` 改为必填(去掉默认 `fastui-app`);同名目录不是本 skill 的工程、是别的对话或别的 skill 的工程时报 `NAME_TAKEN`;工作区外报 `OUTSIDE_WORKSPACE`;原子创建(临时目录 + 改名);删除护栏改为「本 skill 的工程或临时目录」
-  - `verify` / `export-zip`:主参数改为 `--project-dir`,`--session-dir` 仍可用;都不传时用本对话恰好一个的工程;交付包排除 `.octo-fastui/` 与标记
+  - `verify` / `export-zip`:主参数改为 `--project-dir`;旧参数 `--session-dir` 仍可用(先读会话级状态,再找 `outputs/` 下恰好一个工程,再按本对话恰好一个工程,并提示改用 `--project-dir`);都不传时用本对话恰好一个的工程;有工作区上下文时定位结果必须在工作区内;交付包排除 `.octo-fastui/` 与标记
   - 旧版 Octo(心跳里没有 `layout: 2`)下 `new-session` 报 `HOST_OUTDATED` —— **本版必须在含 SPEC-DES-008 的 Octo 发布之后再上架**
-  - SKILL.md:②「选定工程」整段重写(什么时候用 question 工具问用户、固定提问模板);装环境与 verify 要求给 shell 工具传 `timeout: 600000`
-  - 上架时涨号为 1.2.0
+  - SKILL.md:②「选定工程」整段重写(什么时候用 question 工具问用户、固定提问模板);`--project-dir` 取 `PROJECT_DIR` 原值;装环境与 verify 要求给 shell 工具传 `timeout: 600000`
+- 配套 Octo 改动(UXAI `feat/fastui-workspace-layout`):宿主按(工作区, 会话, 产物名)查找工程;注入根会话 id 与工作区目录;本轮改过工程内文件时自动补一张预览卡片(SPEC-DES-008 §3.8)
+- 内网验证(2026-10-21):SPEC-DES-008 §7.3 C1–C3 通过,预览卡片补位已验证;C4(提问)起的其余用例待测试同学跑
 
 ## 1.1.0 ｜ 2026-10-21 ｜ design/ 同步上游 v0.6.9
 

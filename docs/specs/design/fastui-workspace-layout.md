@@ -1,6 +1,6 @@
 # SPEC-DES-008 — fastui 工程与会话目录解耦：兼容代码工作区
 
-> 状态：v1 已实现待内网验证（2026-10-21；skill 改动在文档仓 `skills/`，UXAI 改动见 §6） · 优先级 P0（内网实撞：代码工作区下 verify 卡住、没有预览卡片） · 规模 [M] · 领域 infra/design
+> 状态：v1 已合入（2026-10-21）；内网 §7.3 C1–C3 通过、预览卡片补位已验证，C4（提问）起的其余用例待测试同学验证。skill 随 fastui-vue-creator 1.1.0 / chart-vue-creator 1.2.0 发布，UXAI 改动见 §6 · 优先级 P0（内网实撞：代码工作区下 verify 卡住、没有预览卡片） · 规模 [M] · 领域 infra/design
 >
 > 上游已实现：✗ —— 工作区分类（普通 / 代码）、`[Artifact Folder]` / `[Workspace]` 注入、fastui 预览宿主都是 Design 侧自建。用到的上游能力只有插件钩子 `shell.env` 与 `question` 工具
 >

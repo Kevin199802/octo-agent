@@ -1,7 +1,7 @@
 ---
 name: chart-vue-creator
 description: 面向 B 端数据分析的图表设计与实现。用 ECharts 生成 Vue 页面,在真实脚手架里编译渲染并交付可运行的工程。当用户要做图表、看板、数据可视化,或要改图表、看效果、拿代码时使用。
-version: 1.1.0
+version: 1.2.0
 ---
 
 # chart-vue-creator
