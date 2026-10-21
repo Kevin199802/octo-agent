@@ -6,46 +6,43 @@
  * 为的是产物目录里 `yarn serve` 直接可用),整目录压缩会跟随链接把 1GB 依赖打进去。
  * 干净交付包只能由这里产出。
  *
- * 用法: node export-zip.mjs --session-dir=<.octo/<sid>> [--project-dir=] [--out=<路径>]
+ * 用法: node export-zip.mjs --project-dir=<new-session 返回的 PROJECT_DIR> [--out=<路径>]
+ *       (--session-dir=<.octo/<sid>> 是旧参数,仍可用)
  */
-import { readFileSync, readdirSync, lstatSync, statSync } from "node:fs"
+import { mkdirSync, readFileSync, readdirSync, lstatSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, usage, log, parseArgs } from "./lib/result.mjs"
-import { envDir, readJson, sessionPaths } from "./lib/paths.mjs"
+import { MARKER_FILE, RUNTIME_DIR, envDir, projectPaths, readSkillName, sessionContext } from "./lib/paths.mjs"
+import { locateProject } from "./lib/project.mjs"
 import { writeZip } from "./lib/zip.mjs"
 
 const args = parseArgs()
 // 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查。
-// 有会话上下文的脚本一律写**会话目录**,和 devserver.log 放在一起 ——
-// 排查时只需要看一个目录,不用在共享池和会话目录之间来回找(§5.1.1)。
-// 会话目录此刻可能还没解析出来,先挂共享池,解析出来后再改指向。
+// 工程此刻还没定位出来,先挂共享池,定位后改写工程内(§5.1.1)。
 setLogSink(path.join(envDir(args["env-dir"]), "octo-fastui.log"))
 
-let sessionRoot = args["session-dir"] ? path.resolve(String(args["session-dir"])) : null
-if (!sessionRoot && args["project-dir"]) {
-  sessionRoot = path.dirname(path.dirname(path.resolve(String(args["project-dir"]))))
-}
-if (!sessionRoot) usage("缺少 --session-dir=<.octo/<sessionId>> 或 --project-dir=")
+// 定位规则与 verify 相同(SPEC-DES-008 §3.5)
+const loc = locateProject(
+  { projectDir: args["project-dir"], sessionDir: args["session-dir"] },
+  { ...sessionContext(), skillName: readSkillName() },
+)
+if (!loc.ok && loc.usage) usage(loc.reason)
+if (!loc.ok) fail(loc.code, loc.reason, { hint: loc.hint, blocks: loc.blocks })
 
-const S = sessionPaths(path.join(sessionRoot, "outputs"))
-// 会话目录已知,日志改写这里 —— 与 devserver.log 同目录,一处就能看全
-setLogSink(path.join(S.sessionRoot, "octo-fastui.log"))
-const state = readJson(S.state)
-const projectDir = args["project-dir"] ? path.resolve(String(args["project-dir"])) : state?.projectDir
-// HINT 同 verify.mjs:这个失败更常见的原因是 --session-dir 给了会话 ID 而不是绝对路径
-if (!projectDir)
-  fail("NO_SESSION", `找不到会话状态 ${S.state}`, {
-    hint: "--session-dir 要给 .octo/<sessionId> 的**绝对路径**(不是会话 ID 本身);路径没错的话再跑 new-session.mjs",
-  })
-
+const projectDir = loc.projectDir
+const PP = projectPaths(projectDir)
+setLogSink(PP.log)
 const name = path.basename(projectDir)
-const outPath = args.out ? path.resolve(String(args.out)) : path.join(S.outputs, `${name}.zip`)
+// 交付包放工程的运行时目录里,不放工程旁边 —— 代码工作区下工程就在工作区根,放旁边会越积越多
+const outPath = args.out ? path.resolve(String(args.out)) : path.join(PP.exportDir, `${name}.zip`)
+mkdirSync(path.dirname(outPath), { recursive: true })
 
 // 排除清单。node_modules 全量排除、不设例外:开发拿到包必然要 yarn install,
 // 那会重新生成 .bin,带不带它行为完全一样;而"排除 node_modules 但放行某个子路径"
 // 是排除规则里最容易写错的一类逻辑。
-const EXCLUDE_DIRS = new Set(["node_modules", ".git", "dist", ".cache", ".turbo", ".history"])
-const EXCLUDE_FILES = [/\.log$/i, /^\.DS_Store$/, /^Thumbs\.db$/i, /^yarn-error\.log$/i]
+// 运行时目录与工程标记含本机路径(共享池、node、skill 位置),不该交给开发(SPEC-DES-008 §3.5)
+const EXCLUDE_DIRS = new Set(["node_modules", ".git", "dist", ".cache", ".turbo", ".history", RUNTIME_DIR])
+const EXCLUDE_FILES = [/\.log$/i, /^\.DS_Store$/, /^Thumbs\.db$/i, /^yarn-error\.log$/i, /^\.octo-fastui\.json$/]
 
 const entries = []
 let skippedLinks = 0
@@ -86,8 +83,8 @@ const bytes = await writeZip(outPath, entries)
 
 // 自检:交付包里绝不能出现 node_modules。这条不是防御脚本自己写错,
 // 是防御以后有人加排除规则时手滑 —— 打出一个带 1GB 依赖的包比不打包更糟。
-const bad = entries.find((e) => e.name.split("/").includes("node_modules"))
-if (bad) fail("EXPORT_CONTAMINATED", `打包结果里混进了 node_modules: ${bad.name}`)
+const bad = entries.find((e) => e.name.split("/").some((seg) => seg === "node_modules" || seg === RUNTIME_DIR || seg === MARKER_FILE))
+if (bad) fail("EXPORT_CONTAMINATED", `打包结果里混进了不该交付的内容: ${bad.name}`)
 
 ok({
   ZIP_PATH: outPath,

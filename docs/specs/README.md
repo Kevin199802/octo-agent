@@ -18,6 +18,7 @@
 | 005 | 对接 opencode 原生数据层（Data Layer Reuse） | ✅ 已落地（保留设计记录） | ui/insight | [insight-data-layer-reuse.md](ui/insight-data-layer-reuse.md) |
 | 006 | insight/ 自建组件轻审计 | 草案（诊断报告，非实现 spec） | ui/insight | [insight-component-audit.md](ui/insight-component-audit.md) |
 | 007 | 产品流程改版：预置提示词 + promptAsync + 输入区整改 | ✅ 主体已落地 | ui/insight | [insight-prompt-redesign.md](ui/insight-prompt-redesign.md) |
+| 008 | fastui 工程与会话目录解耦，兼容代码工作区 —— 修「新建工作区（默认代码工作区）里 verify 卡住、没有预览卡片」：代码工作区不注入 `[Artifact Folder]`，而 skill 脚本、宿主、前端都写死了「工程 = `.octo/<sid>/outputs/<产物名>`」。改为**工程根放标记文件 `.octo-fastui.json`**，建好后各环节只认工程目录；插件经 `shell.env` 注入根会话 ID 与工作区目录；代码工作区下工程在 `<工作区>/<产物名>`，宿主按（工作区, 会话, 产物名）先查会话范围再查工作区范围。`new-session` 的 `--list` / `--reuse` / `NAME_TAKEN` 与「工作区已有工程且需求模糊时用 question 问一次」防止改错工程；旧布局与老对话、老卡片全兼容。含业界做法对比、兼容矩阵、外网 A/V/E 自动化与**给测试同学的内网 C1–C11 / L1–L5 / R1–R3 用例** | v1 已实现待内网验证（2026-10-21） | infra/design | [fastui-workspace-layout.md](design/fastui-workspace-layout.md) |
 | 008 | 引用型 MCP 工具的设计 | 草案 | ui + agent contract | [insight-references.md](ui/insight-references.md) |
 | 009 | 任务面板按需弹出（ResultViewer reveal） | 草案 | ui/insight | [insight-result-panel-reveal.md](ui/insight-result-panel-reveal.md) |
 | 010 | Insight 独立化：放弃 cowork 接线层，自包含可挂载模块 | ✅ 主体已落地（PR1/PR2 + D10/D11） | ui/insight | [insight-standalone-extraction.md](ui/insight-standalone-extraction.md) |
@@ -52,7 +53,7 @@
 
 ---
 
-## 已编号 · Design / octo_make（SPEC-DES-001 ~ 007）
+## 已编号 · Design / octo_make（SPEC-DES-001 ~ 008）
 
 | 编号 | 标题 | 状态 | 领域 | 文件 |
 |---|---|---|---|---|

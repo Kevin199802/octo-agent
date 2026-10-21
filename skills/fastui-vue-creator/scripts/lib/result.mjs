@@ -93,8 +93,13 @@ const stamp = () => new Date().toTimeString().slice(0, 8)
  */
 const oneLine = (v) => String(v).replace(/\s+/g, " ").trim()
 
-/** @param {Record<string, string|number|undefined>} fields */
-export function ok(fields = {}) {
+/**
+ * @param {Record<string, string|number|undefined>} fields
+ * @param {{blocks?: Array<{name: string, text: string}>}} [opts]
+ *   `blocks`:跟在契约行**之后**的多行块(如 `PROJECTS_BEGIN…END`)。放在 RESULT 之后,
+ *   人从 `RESULT:` 那行往下截一段贴出去时,块才在截出来的范围里。
+ */
+export function ok(fields = {}, opts = {}) {
   const lines = ["RESULT: OK"]
   for (const [k, v] of Object.entries(fields)) {
     if (v === undefined || v === null) continue
@@ -103,13 +108,15 @@ export function ok(fields = {}) {
   const text = lines.join("\n") + "\n"
   persist(text)
   process.stdout.write(text)
+  for (const b of opts.blocks ?? []) block(b.name, b.text)
   process.exit(0)
 }
 
 /**
  * @param {string} code  英文错误码,如 ENV_MISSING
  * @param {string} reason 中文一句话说明
- * @param {{hint?: string, log?: string, extra?: Record<string, string|number|undefined>}} [opts]
+ * @param {{hint?: string, log?: string, extra?: Record<string, string|number|undefined>, blocks?: Array<{name: string, text: string}>}} [opts]
+ *   `blocks` 同 ok()
  */
 export function fail(code, reason, opts = {}) {
   const lines = [`RESULT: FAIL | ${code}: ${oneLine(reason)}`]
@@ -125,6 +132,7 @@ export function fail(code, reason, opts = {}) {
   const text = lines.join("\n") + "\n"
   persist(text)
   process.stdout.write(text)
+  for (const b of opts.blocks ?? []) block(b.name, b.text)
   process.exit(1)
 }
 

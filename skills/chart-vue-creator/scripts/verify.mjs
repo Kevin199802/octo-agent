@@ -7,14 +7,16 @@
  *
  * **没有这一步,模型会一直说「我改好了」——这是整套东西可靠性的分水岭。**
  *
- * 用法: node verify.mjs --session-dir=<.octo/<sid>> [--project-dir=] [--restart] [--timeout=300]
+ * 用法: node verify.mjs --project-dir=<new-session 返回的 PROJECT_DIR> [--restart] [--timeout=300]
+ *       (--session-dir=<.octo/<sid>> 是旧参数,仍可用)
  */
 // execFileSync:Windows 分支用它跑 PowerShell 的 Start-Process(v15 改走 -EncodedCommand 时引入)
 import { execFileSync, spawn } from "node:child_process"
 import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { setLogSink, ok, fail, usage, warn, log, block, emit, logPath, parseArgs } from "./lib/result.mjs"
-import { devserverPaths, envDir, envPaths, readManifest, readJson, sessionPaths, resolveRuntime } from "./lib/paths.mjs"
+import { devserverPaths, envDir, envPaths, projectPaths, readManifest, readJson, readSkillName, resolveRuntime, sessionContext } from "./lib/paths.mjs"
+import { locateProject } from "./lib/project.mjs"
 import { findFreePort, isServing } from "./lib/port.mjs"
 import { START_MARK, hostPresent, killTree, postRequest, registerPid } from "./lib/host.mjs"
 import { parseRounds, extractErrors } from "./lib/compile.mjs"
@@ -22,41 +24,32 @@ import { lintMissingImports, lintMissingVueApis } from "./lib/lint.mjs"
 
 const args = parseArgs()
 // 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查。
-// 有会话上下文的脚本一律写**会话目录**,和 devserver.log 放在一起 ——
-// 排查时只需要看一个目录,不用在共享池和会话目录之间来回找(§5.1.1)。
-// 会话目录此刻可能还没解析出来,先挂共享池,解析出来后再改指向。
+// 有工程上下文的脚本一律写**工程内**,和 dev server 日志放在一起 ——
+// 排查时只需要看一个目录(§5.1.1)。工程此刻还没定位出来,先挂共享池,定位后再改指向。
 setLogSink(path.join(envDir(args["env-dir"]), "octo-fastui.log"))
 const manifest = readManifest()
 const timeoutMs = (Number(args.timeout) || 300) * 1000
 const settleMs = Number(manifest.compileSettleMs) || 800
 
-// ── 定位会话 ─────────────────────────────────────────────────────
-let sessionRoot = args["session-dir"] ? path.resolve(String(args["session-dir"])) : null
-if (!sessionRoot && args["project-dir"]) {
-  // outputs/<产物名> → 上两级
-  sessionRoot = path.dirname(path.dirname(path.resolve(String(args["project-dir"]))))
-}
-if (!sessionRoot) usage("缺少 --session-dir=<.octo/<sessionId>> 或 --project-dir=")
+// ── 定位工程(SPEC-DES-008 §3.5)────────────────────────────────────
+// 顺序:--project-dir(new-session 返回的 PROJECT_DIR)→ --session-dir(旧参数,老对话的
+// 历史里有这种命令)→ 都没传时本会话恰好一个工程。不再从工程目录往上推会话目录。
+const loc = locateProject(
+  { projectDir: args["project-dir"], sessionDir: args["session-dir"] },
+  { ...sessionContext(), skillName: readSkillName() },
+)
+if (!loc.ok && loc.usage) usage(loc.reason)
+if (!loc.ok) fail(loc.code, loc.reason, { hint: loc.hint, blocks: loc.blocks })
 
-const S = sessionPaths(path.join(sessionRoot, "outputs"))
-// 会话目录已知,日志改写这里 —— 与 devserver.log 同目录,一处就能看全
-setLogSink(path.join(S.sessionRoot, "octo-fastui.log"))
-const state = readJson(S.state)
-// HINT 里**先说传参**:实测这个失败更多是 --session-dir 给了会话 ID 而不是绝对路径
-// (给 ID 时 path.resolve 会把它当相对路径接到 cwd 后面,于是状态文件自然找不到),
-// 而不是真的没跑过 new-session.mjs。
-if (!state)
-  fail("NO_SESSION", `找不到会话状态 ${S.state}`, {
-    hint: "--session-dir 要给 .octo/<sessionId> 的**绝对路径**(不是会话 ID 本身);路径没错的话再跑 new-session.mjs",
-  })
-
-const projectDir = args["project-dir"] ? path.resolve(String(args["project-dir"])) : state.projectDir
+const projectDir = loc.projectDir
 const portalDir = path.join(projectDir, "packages", "portal")
 const writeDir = path.join(portalDir, "src", "views")
 if (!existsSync(portalDir)) fail("NO_PROJECT", `工程目录不存在: ${portalDir}`, { hint: "先跑 new-session.mjs" })
-// 服务记录与日志按产物工程分(SPEC-DES-004 §3.9):同一对话的两个工程要能同时预览
+// 工程目录已知,日志改写工程内 —— 与 dev server 日志同目录,一处就能看全
+setLogSink(projectPaths(projectDir).log)
+// 服务记录与日志按工程分(SPEC-DES-004 §3.9):两个工程要能同时预览,多个对话共用一个工程时共用同一个服务
 const name = path.basename(projectDir)
-const D = devserverPaths(S.sessionRoot, name)
+const D = devserverPaths(projectDir)
 
 const P = envPaths(envDir())
 // 起 dev server 用哪个 node:共享池里有就用池子的,没有就用跑着本脚本的这个 ——
@@ -195,7 +188,7 @@ function failHostStart(r) {
 /** 请宿主起服务并等它;宿主报失败就立即失败,等不到返回 null */
 async function requestHostAndWait(waitMs) {
   const requestedAt = Date.now()
-  postRequest(P.root, { sessionDir: S.sessionRoot, projectDir, name })
+  postRequest(P.root, { projectDir, name })
   log(`[host] 已请求宿主起 dev server,等待中(最多 ${waitMs / 1000} 秒)…`)
   const deadline = requestedAt + waitMs
   while (Date.now() < deadline) {

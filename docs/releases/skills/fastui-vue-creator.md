@@ -8,7 +8,13 @@
 
 ## 未发布
 
-(无)
+- **工程与会话目录解耦,兼容代码工作区**([SPEC-DES-008](../../specs/design/fastui-workspace-layout.md))。修「新建工作区(默认代码工作区)里 verify 卡住、没有预览卡片」:
+  - 工程根写标记 `.octo-fastui.json`,运行时文件(dev server 记录与日志、脚本日志、交付包)移到 `<工程>/.octo-fastui/`;各脚本只认工程目录,不再从它往上推会话目录
+  - `new-session`:`--artifact-dir` 取 `[Artifact Folder]`,没有就取 `[Workspace]`;新增 `--list` / `--title` / `--reuse`;`--name` 改为必填(去掉默认 `fastui-app`);同名目录不是本 skill 的工程、是别的对话或别的 skill 的工程时报 `NAME_TAKEN`;工作区外报 `OUTSIDE_WORKSPACE`;原子创建(临时目录 + 改名);删除护栏改为「本 skill 的工程或临时目录」
+  - `verify` / `export-zip`:主参数改为 `--project-dir`,`--session-dir` 仍可用;都不传时用本对话恰好一个的工程;交付包排除 `.octo-fastui/` 与标记
+  - 旧版 Octo(心跳里没有 `layout: 2`)下 `new-session` 报 `HOST_OUTDATED` —— **本版必须在含 SPEC-DES-008 的 Octo 发布之后再上架**
+  - SKILL.md:②「选定工程」整段重写(什么时候用 question 工具问用户、固定提问模板);装环境与 verify 要求给 shell 工具传 `timeout: 600000`
+  - 上架时涨号为 1.1.0
 
 ## 1.0.0 ｜ 2026-10-15 ｜ 首次上架
 

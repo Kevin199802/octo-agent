@@ -593,6 +593,8 @@ fastui-env/
 
 ### 3.2 会话布局（沿用 Design 现有约定）
 
+> ⚠️ **路径约定已被 [SPEC-DES-008](fastui-workspace-layout.md) 修订**（2026-10-21）：代码工作区下工程在 `<工作区>/<产物名>`，工程根带标记文件 `.octo-fastui.json`，运行时文件在 `<工程目录>/.octo-fastui/`；宿主按（工作区, 会话, 产物名）查找工程。本节描述的布局作为「旧布局」继续兼容。
+
 查证（UXAI `pages/make/index.tsx:2511-2518`）：Design 传给 skill 的 `[Artifact Folder]` 就是 `<projectDir>/.octo/<sessionId>/outputs`。**沿用，不另起一套。**
 
 ```
@@ -1220,6 +1222,8 @@ LOG: <日志绝对路径>
 
 ### 5.3 `new-session.mjs` — 创建会话工程
 
+> ⚠️ **路径约定已被 [SPEC-DES-008](fastui-workspace-layout.md) 修订**（2026-10-21）：代码工作区下工程在 `<工作区>/<产物名>`，工程根带标记文件 `.octo-fastui.json`，运行时文件在 `<工程目录>/.octo-fastui/`；宿主按（工作区, 会话, 产物名）查找工程。本节描述的布局作为「旧布局」继续兼容。
+
 ```
 入参  --artifact-dir=<绝对路径>   必填,Design 传的 [Artifact Folder](= .octo/<sid>/outputs)
       --name=<产物名>            可选,默认 fastui-app;即工程目录名
@@ -1243,6 +1247,8 @@ LOG: <日志绝对路径>
 聚合入口 `views/index.vue` 交回模型自己改，理由与失败面分析见 §3.3。约束写进 SKILL.md 即可，不需要脚本。
 
 ### 5.5 `verify.mjs` — 编译门禁
+
+> ⚠️ **路径约定已被 [SPEC-DES-008](fastui-workspace-layout.md) 修订**（2026-10-21）：代码工作区下工程在 `<工作区>/<产物名>`，工程根带标记文件 `.octo-fastui.json`，运行时文件在 `<工程目录>/.octo-fastui/`；宿主按（工作区, 会话, 产物名）查找工程。本节描述的布局作为「旧布局」继续兼容。
 
 ```
 入参  --session-dir=<.octo/<sid>>   与 --project-dir 二选一
@@ -1330,6 +1336,8 @@ dev server 是常驻 watch 的，模型写文件的过程中 webpack 就会被�
 **不能用"调小默认 timeout"代替**：首次编译确实要 1–3 分钟，调小就是把正常情况判死。
 
 ### 5.6 `export-zip.mjs` — 打交付包（**v12：提为第一版，正确性需求**）
+
+> ⚠️ **路径约定已被 [SPEC-DES-008](fastui-workspace-layout.md) 修订**（2026-10-21）：代码工作区下工程在 `<工作区>/<产物名>`，工程根带标记文件 `.octo-fastui.json`，运行时文件在 `<工程目录>/.octo-fastui/`；宿主按（工作区, 会话, 产物名）查找工程。本节描述的布局作为「旧布局」继续兼容。
 
 > **v9 曾判它为"便利性"而延后**，前提是"产物目录零链接、随手压缩就安全"。v12 把链接改回工程根之后（§2.5），
 > 这个前提没了：**整目录压缩会跟随链接把 1GB 依赖打进去，干净交付包只能由这个脚本产出**。于是它从便利性变成正确性，提进第一版。

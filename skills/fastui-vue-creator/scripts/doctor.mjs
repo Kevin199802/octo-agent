@@ -134,7 +134,7 @@ put("NET_CHECK_CMD", checkCmd)
 
 // 日志在哪 —— 找不到日志是最常见的二次求助,直接打出来
 put("LOG_INSTALL", LOG)
-put("LOG_PER_SESSION", "<项目目录>/.octo/<会话id>/ 下的 octo-fastui.log,以及 devservers/<产物名>.log")
+put("LOG_PER_PROJECT", "<工程目录>/.octo-fastui/ 下的 octo-fastui.log 与 devserver.log(旧工程在 <工作目录>/.octo/<会话id>/ 下)")
 put("LOG_HINT", "两类日志:octo-fastui.log(脚本输出,含子进程原文)、devservers/<产物名>.log(该产物 dev server 与编译报错原文)")
 
 emit("OCTO_FASTUI_DOCTOR\n" + lines.join("\n") + "\n")

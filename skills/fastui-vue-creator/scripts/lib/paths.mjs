@@ -25,9 +25,21 @@ export function readManifest() {
  * 技能库没有版本概念、只做文件覆盖,版本号只能随包自带 —— 别再往别的文件里抄一份。
  */
 export function readSkillVersion() {
+  return readFrontmatter("version")
+}
+
+/**
+ * skill 名(工程标记里的 `skill` 字段,用来区分 fastui / chart 的工程,SPEC-DES-008 §3.4)。
+ * 取 frontmatter 的 `name`,不取目录名 —— 目录名可能被分发链路带进尾部空格(SPEC-DES-003 §8.6.2)。
+ */
+export function readSkillName() {
+  return readFrontmatter("name") ?? path.basename(SKILL_DIR).trim()
+}
+
+function readFrontmatter(key) {
   const text = readFileSync(path.join(SKILL_DIR, "SKILL.md"), "utf8")
   const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
-  const v = fm && fm[1].match(/^version:\s*["']?([^"'\r\n]+?)["']?\s*$/m)
+  const v = fm && fm[1].match(new RegExp(`^${key}:\\s*["']?([^"'\\r\\n]+?)["']?\\s*$`, "m"))
   return v ? v[1] : undefined
 }
 
@@ -151,37 +163,62 @@ export function platformKey() {
 }
 
 /**
- * 会话布局(§3.2)。[Artifact Folder] 就是 .octo/<sid>/outputs。
+ * 宿主经 `shell.env` 注入的会话上下文(SPEC-DES-008 §3.3)。
  *
- * v12:依赖链接建在**工程根**(`outputs/<产物名>/node_modules`),即标准布局。
- * v6~v11 建在会话根(outputs 的父级),为的是"产物目录零链接、随手压缩安全",
- * 代价是产物目录里 `yarn serve` 跑不起来(yarn 只从工程根的 node_modules/.bin 找命令)。
- * 那个代价会落到最不该承担它的人身上 —— 设计师拉产线开发对接时,对方第一件事就是
- * `yarn serve`,跑不起来会被直接判定成"生成的代码有问题"。压缩体积是小事,交付信任不是。
- * 干净交付包改由 export-zip 产出(排除 node_modules),那才是设计师拿走代码的主路径。
+ * `OCTO_SESSION_ID` 是**根会话** id,用来判断「这个工程是不是本对话的」;
+ * `OCTO_WORKSPACE_DIR` 是工作区,用来拒绝把工程建到工作区外。
+ * 终端直接跑(外网 V0)时两者都没有,调用方按「无会话上下文」处理,不去猜。
  */
-export function sessionPaths(artifactDir) {
-  const outputs = path.resolve(artifactDir)
-  const sessionRoot = path.dirname(outputs)
+export function sessionContext() {
+  const sessionId = process.env.OCTO_SESSION_ID || undefined
+  const ws = process.env.OCTO_WORKSPACE_DIR
+  return { sessionId, workspaceDir: ws ? path.resolve(ws) : undefined }
+}
+
+/** `child` 是否在 `parent` 之内(含等于)。win32 的 path.relative 本身大小写不敏感 */
+export function within(child, parent) {
+  const rel = path.relative(path.resolve(parent), path.resolve(child))
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))
+}
+
+/** 工程标记的文件名;旧布局的会话级状态文件与它同名,靠所在位置与 `schema` 字段区分 */
+export const MARKER_FILE = ".octo-fastui.json"
+/** 工程根下的运行时目录:dev server 记录与日志、脚本日志、交付包。不进交付包 */
+export const RUNTIME_DIR = ".octo-fastui"
+
+/**
+ * 一个工程的全部路径(SPEC-DES-008 §3.2 / §3.7)。**只从工程目录推,不经过会话目录** ——
+ * 工程放在哪由注入给模型的 [Artifact Folder] / [Workspace] 决定,这里不关心。
+ *
+ * v12 起依赖链接建在**工程根**(`<工程>/node_modules`),即标准布局:设计师拉产线开发对接时,
+ * 对方第一件事就是 `yarn serve`,链接建在别处会跑不起来、被直接判定成"生成的代码有问题"。
+ * 干净交付包由 export-zip 产出(排除 node_modules)。
+ *
+ * 运行时文件**按工程分,不按会话分**:多个对话共用一个工程时,共用的也是同一个服务。
+ */
+export function projectPaths(projectDir) {
+  const root = path.resolve(projectDir)
+  const runtime = path.join(root, RUNTIME_DIR)
+  const portal = path.join(root, "packages", "portal")
   return {
-    outputs,
-    sessionRoot,
-    state: path.join(sessionRoot, ".octo-fastui.json"),
+    root,
+    name: path.basename(root),
+    marker: path.join(root, MARKER_FILE),
+    runtime,
+    log: path.join(runtime, "octo-fastui.log"),
+    exportDir: path.join(runtime, "export"),
+    portal,
+    writeDir: path.join(portal, "src", "views"),
   }
 }
 
-/**
- * 某个产物工程的 dev server 运行时文件(SPEC-DES-004 §3.9)。
- *
- * **按产物名分,不按会话分**:一个对话里 `new-session --name` 换个值就是另一个工程,
- * 两个工程要能同时预览,服务记录和日志就不能共用一份。
- */
-export function devserverPaths(sessionRoot, name) {
-  const dir = path.join(sessionRoot, "devservers")
+/** dev server 的服务记录与日志(SPEC-DES-004 §3.9 的内容,位置按 SPEC-DES-008 §3.7 移到工程内) */
+export function devserverPaths(projectDir) {
+  const dir = projectPaths(projectDir).runtime
   return {
     dir,
-    record: path.join(dir, `${name}.json`),
-    log: path.join(dir, `${name}.log`),
+    record: path.join(dir, "devserver.json"),
+    log: path.join(dir, "devserver.log"),
   }
 }
 

@@ -78,6 +78,8 @@ verify.mjs --port=<port>
 
 #### 文件契约（skill 侧已固定，宿主按这个读写）
 
+> ⚠️ **路径约定已被 [SPEC-DES-008](fastui-workspace-layout.md) 修订**（2026-10-21）：代码工作区下工程在 `<工作区>/<产物名>`，工程根带标记文件 `.octo-fastui.json`，运行时文件在 `<工程目录>/.octo-fastui/`；宿主按（工作区, 会话, 产物名）查找工程。本节描述的布局作为「旧布局」继续兼容。
+
 | 文件 | 谁写 | 谁读 | 内容 |
 |---|---|---|---|
 | `.octo/<sid>/.octo-fastui.json` | `new-session` | **宿主** | `{name, projectDir, writeDir, port, envDir, depsDir, skillDir, createdAt, updatedAt}` |
@@ -211,6 +213,8 @@ const urlHandler: SubtypeHandler = {
 第 2 条是异步的（走 `fileExists`），结果进一个 signal，`visible` 读它 —— action bar 的自定义按钮渲染本来就是响应式的（`prototype` / `components` 两个 subtype 的主题切换按钮就靠这个让 label 在"深色/浅色"之间变），signal 一更新按钮就出现。否定结果不永久缓存（3 秒后可重探），会话先建、稍后才跑 skill 的情况能自愈。
 
 #### 会话目录怎么来 —— `action-bar.tsx` 的唯一改动
+
+> ⚠️ **路径约定已被 [SPEC-DES-008](fastui-workspace-layout.md) 修订**（2026-10-21）：代码工作区下工程在 `<工作区>/<产物名>`，工程根带标记文件 `.octo-fastui.json`，运行时文件在 `<工程目录>/.octo-fastui/`；宿主按（工作区, 会话, 产物名）查找工程。本节描述的布局作为「旧布局」继续兼容。
 
 自定义按钮拿到的 `ctx` 里原本没有会话信息（`renderCustomButton` 构造的 ctx 只有 tab / toast / tracker / postMessageToIframe 那几项），而导出要定位 `<projectDir>/.octo/<sessionId>`。所以**给那个 ctx 补两个字段**，与同文件 `handleDownload` 的 ctx 取法一致：
 

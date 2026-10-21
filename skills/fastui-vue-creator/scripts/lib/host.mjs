@@ -49,15 +49,34 @@ export function hostPresent(envRoot) {
 }
 
 /**
+ * 宿主支持的工程布局版本(心跳里的 `layout`,SPEC-DES-008 §3.4)。
+ *
+ * `2` = 认工程标记、按工程目录放运行时文件。没有这个字段的是旧宿主:它只认
+ * `.octo/<sid>/outputs/<产物名>`,新版脚本建的工程它找不到 —— 调用方据此响亮失败,
+ * 而不是让用户看到「卡片打不开」这种离根因很远的现象。
+ */
+export const HOST_LAYOUT = 2
+
+export function hostLayout(envRoot) {
+  try {
+    return Number(JSON.parse(readFileSync(heartbeatFile(envRoot), "utf8"))?.layout) || 1
+  } catch {
+    return null
+  }
+}
+
+/**
  * 请宿主为某个产物工程起服务(已在跑的话宿主会直接复用,重复投递无害)。
  * 先写临时名再改名 —— 宿主只读 `.json`,不会读到写了一半的文件。
+ *
+ * 只带工程目录(SPEC-DES-008 §3.5):工程自带标记,宿主不需要再从会话目录推。
  */
-export function postRequest(envRoot, { sessionDir, projectDir, name }) {
+export function postRequest(envRoot, { projectDir, name }) {
   const dir = requestDir(envRoot)
   mkdirSync(dir, { recursive: true })
   const id = `${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
   const tmp = path.join(dir, `${id}.json.tmp`)
-  writeFileSync(tmp, JSON.stringify({ sessionDir, projectDir, name, at: Date.now() }))
+  writeFileSync(tmp, JSON.stringify({ projectDir, name, at: Date.now() }))
   renameSync(tmp, path.join(dir, `${id}.json`))
 }
 

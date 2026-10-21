@@ -73,6 +73,9 @@ version: 1.1.0
 脚本都在本 skill 的 `scripts/` 下,**除 ⓪ 的安装脚本外都要 node 才能跑**。
 环境就绪后直接 `node scripts/xxx.mjs`;共享池 node 的路径由 `ensure-env` 的 `ENV_DIR` 给出。
 
+**会超过 2 分钟的命令要显式给 shell 工具传 `timeout: 600000`**:⓪ 的安装脚本、① 里 `HINT:` 给出的安装 / 升级命令、④ 的 `verify`。
+shell 工具默认 2 分钟就掐断,而装环境要几分钟、首次编译要 1–3 分钟 —— 被掐断就拿不到 `RESULT:` 那一行。
+
 所有脚本的输出都是固定格式,**先读 `RESULT:` 那一行再决定下一步**:
 
 ```
@@ -121,7 +124,7 @@ portable node 到共享池。这是整套流程里唯一能在裸机上跑起来
 
 装环境要几分钟,告诉用户正在装。装完回到 ①。
 
-### ① `ensure-env.mjs` —— 每个会话开头跑一次
+### ① `ensure-env.mjs` —— 每个对话开头跑一次
 
 ```bash
 node scripts/ensure-env.mjs
@@ -156,18 +159,83 @@ powershell -ExecutionPolicy Bypass -File "<skillDir>\scripts\install\install.ps1
 > 只存在于 agent 宿主进程的环境里:2026-09-08 内网实测,人在终端跑得到"一切正常",
 > 而 agent 在同一台机器上同时报 504。**诊断跑错环境,比不跑更糟。**
 
-### ② `new-session.mjs` —— 每个会话建一次工程(幂等)
+### ② `new-session.mjs` —— 选定工程:新建,或者接着改已有的
+
+**`--artifact-dir` 的取值只有两条规则,都取原值,不要自己拼、不要取上一级:**
+
+- 上下文里有 **[Artifact Folder]** → 用它
+- 没有 [Artifact Folder]、有 **[Workspace]** → 用它
+
+**先列出已有工程:**
 
 ```bash
-node scripts/new-session.mjs --artifact-dir="<[Artifact Folder] 绝对路径>" --name="<产物名>"
+node scripts/new-session.mjs --artifact-dir="<按上面规则取值>" --list
 ```
 
-`--artifact-dir` 用系统给的 **[Artifact Folder]** 原值。`--name` 用一个简短的英文/拼音工程名。
+`PROJECTS_BEGIN`…`PROJECTS_END` 之间每行一个工程:`产物名 | 标题 | 最后修改时间 | this-session: yes/no`。
+`this-session: yes` 是本对话用过的工程。
 
-记住返回的两个值,后面都要用:
+**再决定用哪个:**
 
+| 情况 | 做法 |
+|---|---|
+| 列表为空 | 直接新建,不问 |
+| 本对话已经用过某个工程(`this-session: yes`) | 沿用它,不问。用户明确说「新做一个」才新建 |
+| 用户明确指向已有工程(「接着改那个看板」「在审批系统里加个页面」) | 用它的产物名加 `--reuse`,不问 |
+| 用户明确要新建(「新建一个工程」「另做一个和之前无关的」) | 起一个列表里没有的产物名,不问 |
+| 其余情况(「做个新页面」「加个功能」这类说法)且列表不为空 | **用 question 工具问一次** |
+
+**拿不准就问。** 两种判断错误的代价不一样:误判成新建只是多一个工程,用户看得出来、说一句就能纠正;
+误判成接着改会改动已有的代码,而这些工程没有版本管理,改坏了很难恢复。
+**接着改别的对话建的工程,前提必须是用户明确提过,或者在提问里选了它。**
+
+提问固定用这个格式,每个已有工程一个选项,最后加「新建工程」:
+
+```
+question({ questions: [{
+  header: "选择工程",
+  question: "当前工作区已有以下工程。这次的需求要基于哪个继续开发,还是新建一个?",
+  multiple: false,
+  options: [
+    { label: "继续开发「月度销量看板」", description: "sales-monthly" },
+    { label: "新建工程", description: "单独建一个新工程" }
+  ]
+}]})
+```
+
+- 选了「继续开发」→ 用对应 `description` 里的产物名,加 `--reuse`
+- 选了「新建工程」→ 起一个列表里没有的产物名
+- 用户自己填了内容 → 按字面意思理解
+- 没有 question 工具时 → 在对话里列出同样的选项,然后**结束本轮**,等用户回复再继续
+
+**除了这里,不要因为别的事用 question 工具问用户。**
+
+**然后建工程,或者打开已有工程:**
+
+```bash
+# 新建,或者打开本对话的工程
+node scripts/new-session.mjs --artifact-dir="<同上>" --name="<产物名>" --title="<一句话中文描述>"
+# 接着改别的对话建的工程
+node scripts/new-session.mjs --artifact-dir="<同上>" --name="<已有产物名>" --reuse
+```
+
+- `--name`:简短的英文/拼音工程名,新建时不能和列表里已有的重名
+- `--title`:一句话中文描述(如「月度销量看板」),会显示在列表和提问里
+
+记住返回的三个值,后面都要用:
+
+- `PROJECT_DIR` —— 工程目录,④ `verify` 和 ⑥ `export-zip` 都传它
 - `WRITE_DIR` —— **你唯一可以新建文件的目录**
 - `ENTRY_FILE` —— 聚合入口,**唯一允许你修改的既有文件**
+
+返回里有 `REUSED_FROM: other-session` 时,在回复里告诉用户「正在修改已有工程 <TITLE>」。
+
+| `RESULT: FAIL` 的 CODE | 怎么办 |
+|---|---|
+| `NAME_TAKEN` | 这个产物名被占用了(别的对话的工程、别的 skill 的工程,或者用户自己的文件夹)。按上表判断:该问就问,要新建就换一个名字。**那个目录不要动** |
+| `OUTSIDE_WORKSPACE` | `--artifact-dir` 取错了,按上面两条规则重新取值 |
+| `HOST_OUTDATED` | 环境问题,不是你的问题。把 `RESULT:` 与 `HINT:` 原样告诉用户(需要先升级 Octo),不要自己绕 |
+| `PROJECT_INCOMPLETE` | 见硬约束 0 末尾 |
 
 这一步**不分配端口**。预览地址由 Octo 在用户点开预览时当场给出,你不需要、也不应该记任何端口号。
 
@@ -176,14 +244,16 @@ node scripts/new-session.mjs --artifact-dir="<[Artifact Folder] 绝对路径>" -
 ### ④ `verify.mjs` —— 编译门禁
 
 ```bash
-node scripts/verify.mjs --session-dir="<[Artifact Folder] 的上一级>"
+node scripts/verify.mjs --project-dir="<new-session 返回的 PROJECT_DIR>"
 ```
+
+记得给 shell 工具传 `timeout: 600000`(见「工作流」开头)。老对话的历史里如果用的是 `--session-dir=…`,那条命令照样能跑,但新命令一律用 `--project-dir`。
 
 dev server 起不来时(比如宿主环境不允许后台进程存活),可以让用户手工起一个,再用 `--port` 接管:
 
 ```bash
 # 用户在 <PROJECT_DIR>/packages/portal 下跑 yarn serve,记下端口
-node scripts/verify.mjs --session-dir="…" --port=8081
+node scripts/verify.mjs --project-dir="<PROJECT_DIR>" --port=8081
 ```
 
 - `RESULT: OK` → 拿 `PREVIEW_CARD` 走第 ⑤ 步
@@ -247,10 +317,10 @@ Design 靠这个标签渲染预览面板。**只有这个标签会被识别** �
 ### ⑥ `export-zip.mjs` —— 用户要代码包时
 
 ```bash
-node scripts/export-zip.mjs --session-dir="<[Artifact Folder] 的上一级>"
+node scripts/export-zip.mjs --project-dir="<new-session 返回的 PROJECT_DIR>"
 ```
 
-用户说「导出代码」「打个包」「把代码给我」之类的话时跑,产出 `outputs/<产物名>.zip`,
+用户说「导出代码」「打个包」「把代码给我」之类的话时跑,产出 `<PROJECT_DIR>/.octo-fastui/export/<产物名>.zip`,
 把 `ZIP_PATH` 告诉用户。
 
 **只有这个脚本产出的包是干净的。** 产物目录里的 `node_modules` 是指向共享池的链接,
@@ -263,7 +333,7 @@ node scripts/export-zip.mjs --session-dir="<[Artifact Folder] 的上一级>"
 ### 0. 绝不删除用户磁盘上的任何东西 —— 这条没有例外
 
 **禁止执行任何删除命令**:`Remove-Item` / `rm` / `rmdir` / `del` / `git clean`,不论加什么参数、
-不论那个目录看起来多像垃圾残留。清理由 skill 脚本在共享池和会话目录内自己做,那是脚本的职责,不是你的。
+不论那个目录看起来多像垃圾残留。清理由 skill 脚本在共享池和工程目录内自己做,那是脚本的职责,不是你的。
 
 2026-09-07 内网真实发生过:Windows 上中文路径建链接失败,PowerShell 把中文目录名显示成乱码,
 agent 把用户的正常目录当成"失败操作留下的残留",执行 `Remove-Item -Recurse -Force` 永久删除 ——
@@ -282,7 +352,7 @@ agent 把用户的正常目录当成"失败操作留下的残留",执行 `Remove
 —— 脚本自己的开关(如 `--env-dir` / `--proxy` / `OCTO_FASTUI_ENV_DIR`)不在此列,该传就传。
 
 **需要清理时,脚本会给你合法出口。** 目前只有一处:`new-session.mjs` 报 `PROJECT_INCOMPLETE`
-时,按 `HINT:` 加 `--reset` 重跑,由脚本自己删掉残骸并重建。
+时,按 `HINT:` 加 `--reset` 重跑,由脚本自己删掉残骸并重建(它会先校验目标是本 skill 建的工程)。
 除此之外,任何"清理"都是报给用户、由人决定。
 
 ### 0.1 不要绕过脚本

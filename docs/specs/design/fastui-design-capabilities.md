@@ -5,6 +5,8 @@
 > 上游已实现：✗ —— 上游 opencode（`packages/ui`、`packages/app`）没有 artifact 编辑面板；本 spec 复用的是 octoapp Design 页自建的 subtype 体系（`SUBTYPE_CONFIG` + subtype handler + bridge 脚本），以及仓内两份开发指南 `subtype-handlers/ModelEdit.md`、`subtype-handlers/history.md`
 >
 > 前置：[SPEC-DES-004](fastui-preview-identity.md)（`fastui://<产物名>` 预览身份，点击时由主进程当场给地址）、[SPEC-DES-005](fastui-subtype.md)（独立 subtype `fastui`）。**本 spec 不改 004 的预览身份逻辑和 005 的分辨率切换。**
+>
+> 路径：本 spec 中 `.octo/<sid>/outputs/<产物名>` 形式的工程路径（§3.6 示例、§11 验证步骤）是普通工作区的布局；代码工作区下工程在 `<工作区>/<产物名>`，导出接口改为按（工作区, 会话, 产物名）定位，见 [SPEC-DES-008](fastui-workspace-layout.md)。
 
 ---
 

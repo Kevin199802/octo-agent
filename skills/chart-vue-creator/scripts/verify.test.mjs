@@ -6,13 +6,15 @@
  * 用法: node scripts/verify.test.mjs
  */
 import { spawn } from "node:child_process"
-import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import net from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { START_MARK } from "./lib/host.mjs"
+import { readSkillName } from "./lib/paths.mjs"
+import { writeMarker } from "./lib/project.mjs"
 import { probe } from "./lib/port.mjs"
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -44,35 +46,49 @@ function fakeServer({ cwd, port, log, compile }) {
   return child
 }
 
-function sandbox() {
+const SKILL_NAME = readSkillName()
+
+/**
+ * 新布局沙箱(SPEC-DES-008):工程在 `<工作区>/alpha`,工程根带标记,运行时文件在 `alpha/.octo-fastui/`。
+ * `legacy: true` 时搭旧布局:`<工作区>/.octo/s1/outputs/alpha`,状态文件在会话目录。
+ */
+function sandbox({ legacy = false } = {}) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "fastui-verify-")))
   const env = path.join(root, "env")
   const cli = path.join(env, "deps", "node_modules", "@turboui", "turbo-ui-cli-service")
   mkdirSync(path.join(cli, "bin"), { recursive: true })
   writeFileSync(path.join(cli, "package.json"), JSON.stringify({ name: "fake", bin: { "turbo-ui-cli-service": "bin/cli.js" } }))
   writeFileSync(path.join(cli, "bin", "cli.js"), FAKE_SERVER.replace('process.env.FAKE_COMPILE === "ok"', "true"))
-  const session = path.join(root, "work", ".octo", "s1")
-  const projectDir = path.join(session, "outputs", "alpha")
+  const ws = path.join(root, "work")
+  const session = path.join(ws, ".octo", "s1")
+  const projectDir = legacy ? path.join(session, "outputs", "alpha") : path.join(ws, "alpha")
   mkdirSync(path.join(projectDir, "packages", "portal", "src", "views"), { recursive: true })
   writeFileSync(path.join(projectDir, "packages", "portal", "src", "views", "index.vue"), "<template><div/></template>")
-  writeFileSync(path.join(session, ".octo-fastui.json"), JSON.stringify({ name: "alpha", projectDir }))
-  const dev = path.join(session, "devservers")
+  if (legacy) {
+    mkdirSync(session, { recursive: true })
+    writeFileSync(path.join(session, ".octo-fastui.json"), JSON.stringify({ name: "alpha", projectDir }))
+  } else {
+    writeMarker(projectDir, { schema: 1, skill: SKILL_NAME, name: "alpha", sessions: ["s1"] })
+  }
+  const dev = path.join(projectDir, ".octo-fastui")
   mkdirSync(dev, { recursive: true })
   return {
     root,
     env,
+    ws,
     session,
     projectDir,
     portal: path.join(projectDir, "packages", "portal"),
-    record: path.join(dev, "alpha.json"),
-    log: path.join(dev, "alpha.log"),
+    record: path.join(dev, "devserver.json"),
+    log: path.join(dev, "devserver.log"),
   }
 }
 
-function runVerify(sb, extra = []) {
+/** 默认按 --project-dir 调;`target` 传数组就用它替换定位参数(空数组 = 不传) */
+function runVerify(sb, extra = [], { target, env = {} } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [VERIFY, `--session-dir=${sb.session}`, ...extra], {
-      env: { ...process.env, OCTO_FASTUI_ENV_DIR: sb.env },
+    const child = spawn(process.execPath, [VERIFY, ...(target ?? [`--project-dir=${sb.projectDir}`]), ...extra], {
+      env: { ...process.env, OCTO_FASTUI_ENV_DIR: sb.env, OCTO_SESSION_ID: "", OCTO_WORKSPACE_DIR: "", ...env },
     })
     let out = ""
     child.stdout.on("data", (b) => (out += b))
@@ -81,6 +97,12 @@ function runVerify(sb, extra = []) {
     child.on("exit", (code) => resolve({ code, out, ms: Date.now() - started, result: (out.match(/^RESULT: .*$/m) || [""])[0] }))
     children.push(child)
   })
+}
+
+/** verify 自己起的服务在测试结束时收掉 */
+function reap(out) {
+  const pid = Number(field(out, "PID"))
+  if (pid) children.push({ kill: () => { try { process.kill(-pid, "SIGKILL") } catch { try { process.kill(pid) } catch {} } } })
 }
 
 const field = (out, key) => (out.match(new RegExp(`^${key}: (.*)$`, "m")) || [])[1]
@@ -115,6 +137,7 @@ test("宿主报告起服务失败 —— verify 立即失败(HOST_START_FAILED),
   writeFileSync(path.join(sb.env, ".octo-host.json"), JSON.stringify({ pid: process.pid }))
   // 模拟宿主:收到请求就写一份 error 记录
   const reqDir = path.join(sb.env, ".devserver-requests")
+  const requests = []
   let stop = false
   const host = (async () => {
     while (!stop) {
@@ -123,6 +146,7 @@ test("宿主报告起服务失败 —— verify 立即失败(HOST_START_FAILED),
         files = readdirSync(reqDir).filter((f) => f.endsWith(".json"))
       } catch {}
       for (const f of files) {
+        requests.push(JSON.parse(readFileSync(path.join(reqDir, f), "utf8")))
         rmSync(path.join(reqDir, f), { force: true })
         writeFileSync(sb.record, JSON.stringify({ projectDir: sb.projectDir, status: "error", error: "找不到用于启动预览服务的 node", at: Date.now() }))
       }
@@ -135,6 +159,11 @@ test("宿主报告起服务失败 —— verify 立即失败(HOST_START_FAILED),
   if (!r.result.includes("HOST_START_FAILED")) throw new Error(`期望 HOST_START_FAILED,实际 ${r.result}\n${r.out.slice(-800)}`)
   if (r.ms > 10_000) throw new Error(`应当立即失败,实际用了 ${r.ms}ms`)
   if (/\[fallback\]/.test(r.out)) throw new Error("宿主在时不应自己起服务")
+  // V4:请求只带工程目录(SPEC-DES-008 §3.5),宿主不再从会话目录推
+  const req = requests[0]
+  if (!req || req.projectDir !== sb.projectDir || req.name !== "alpha" || "sessionDir" in req) {
+    throw new Error(`请求格式不对:${JSON.stringify(req)}`)
+  }
 })
 
 test("以前留下的 error 记录不作数 —— 不在 Octo 里时照常自己起", async () => {
@@ -142,8 +171,7 @@ test("以前留下的 error 记录不作数 —— 不在 Octo 里时照常自�
   writeFileSync(sb.record, JSON.stringify({ projectDir: sb.projectDir, status: "error", error: "old", at: Date.now() - 60_000 }))
   const r = await runVerify(sb, ["--timeout=40"])
   if (!r.result.startsWith("RESULT: OK")) throw new Error(`期望 OK,实际 ${r.result}\n${r.out.slice(-800)}`)
-  const pid = Number(field(r.out, "PID"))
-  if (pid) children.push({ kill: () => { try { process.kill(-pid, "SIGKILL") } catch { try { process.kill(pid) } catch {} } } })
+  reap(r.out)
 })
 
 test("记录里的 pid 活着但端口不应答(pid 被复用)—— 不在它上面干等", async () => {
@@ -155,8 +183,7 @@ test("记录里的 pid 活着但端口不应答(pid 被复用)—— 不在它�
   if (!r.result.startsWith("RESULT: OK")) throw new Error(`期望 OK,实际 ${r.result}\n${r.out.slice(-800)}`)
   if (field(r.out, "PORT") === "18299") throw new Error("不应复用不应答的旧记录")
   if (r.ms > 15_000) throw new Error(`应当很快自己起好,实际 ${r.ms}ms`)
-  const pid = Number(field(r.out, "PID"))
-  if (pid) children.push({ kill: () => { try { process.kill(-pid, "SIGKILL") } catch { try { process.kill(pid) } catch {} } } })
+  reap(r.out)
 })
 
 test("端口探测:别人监听在 0.0.0.0 上时判为被占(只试绑 127.0.0.1 看不到)", async () => {
@@ -189,6 +216,47 @@ test("等待期间要周期性吐进度行 —— 被 agent 的 bash 超时掐�
   if (!/LOG_VS_EDIT: -/.test(waits[waits.length - 1])) throw new Error(`进度行里没有负的 LOG_VS_EDIT:\n${waits.join("\n")}`)
   if (!r.result.includes("COMPILE_TIMEOUT")) throw new Error(`期望 COMPILE_TIMEOUT,实际 ${r.result}\n${r.out.slice(-800)}`)
   if (!/^LOG_VS_EDIT: -/m.test(r.out)) throw new Error("超时契约块里也该带 LOG_VS_EDIT")
+})
+
+test("V1:新布局 —— 运行时文件落在工程内,PREVIEW_CARD 用产物名", async () => {
+  const sb = sandbox()
+  const r = await runVerify(sb, ["--timeout=40"])
+  reap(r.out)
+  if (!r.result.startsWith("RESULT: OK")) throw new Error(`期望 OK,实际 ${r.result}\n${r.out.slice(-800)}`)
+  if (!existsSync(sb.record)) throw new Error(`服务记录应在 ${sb.record}`)
+  if (!/fastui:\/\/alpha</.test(r.out)) throw new Error("PREVIEW_CARD 不对")
+  if (existsSync(path.join(sb.session, "devservers"))) throw new Error("不应再写会话级 devservers/")
+})
+
+test("V2:旧布局 + 旧参数 --session-dir —— 照样定位到旧工程", async () => {
+  const sb = sandbox({ legacy: true })
+  const r = await runVerify(sb, ["--timeout=40"], { target: [`--session-dir=${sb.session}`] })
+  reap(r.out)
+  if (!r.result.startsWith("RESULT: OK")) throw new Error(`期望 OK,实际 ${r.result}\n${r.out.slice(-800)}`)
+  if (field(r.out, "PROJECT_DIR") !== sb.projectDir) throw new Error(`定位错了:${field(r.out, "PROJECT_DIR")}`)
+})
+
+test("V3:不传定位参数 —— 本会话恰好一个工程就用它,两个就报错列出候选", async () => {
+  const sb = sandbox()
+  const env = { OCTO_SESSION_ID: "s1", OCTO_WORKSPACE_DIR: sb.ws }
+  const one = await runVerify(sb, ["--timeout=40"], { target: [], env })
+  reap(one.out)
+  if (!one.result.startsWith("RESULT: OK")) throw new Error(`一个工程时期望 OK,实际 ${one.result}\n${one.out.slice(-800)}`)
+
+  const beta = path.join(sb.ws, "beta")
+  mkdirSync(path.join(beta, "packages", "portal"), { recursive: true })
+  writeMarker(beta, { schema: 1, skill: SKILL_NAME, name: "beta", sessions: ["s1"] })
+  const two = await runVerify(sb, ["--timeout=40"], { target: [], env })
+  if (!two.result.includes("NO_PROJECT")) throw new Error(`两个工程时期望 NO_PROJECT,实际 ${two.result}`)
+  if (!/PROJECTS_BEGIN[\s\S]*alpha[\s\S]*PROJECTS_END/.test(two.out) || !/beta \|/.test(two.out)) {
+    throw new Error(`应列出两个候选:\n${two.out.slice(-600)}`)
+  }
+})
+
+test("--project-dir 指向不是工程的目录 —— NO_PROJECT,不往上猜", async () => {
+  const sb = sandbox()
+  const r = await runVerify(sb, [], { target: [`--project-dir=${sb.ws}`] })
+  if (!r.result.includes("NO_PROJECT")) throw new Error(`期望 NO_PROJECT,实际 ${r.result}`)
 })
 
 let passed = 0
