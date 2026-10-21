@@ -210,7 +210,7 @@ node scripts/new-session.mjs --artifact-dir="<同上>" --name="<已有产物名>
 node scripts/verify.mjs --project-dir="<new-session 返回的 PROJECT_DIR>"
 ```
 
-记得给 shell 工具传 `timeout: 600000`(见「工作流」开头)。老对话的历史里如果用的是 `--session-dir=…`,那条命令照样能跑,但新命令一律用 `--project-dir`。
+记得给 shell 工具传 `timeout: 600000`(见「工作流」开头)。`--project-dir` **取 ② 里 `new-session` 返回的 `PROJECT_DIR` 原值**,不要从 [Artifact Folder] 或 [Workspace] 自己推路径。
 
 dev server 起不来时(比如宿主环境不允许后台进程存活),可以让用户手工起一个,再用 `--port` 接管:
 

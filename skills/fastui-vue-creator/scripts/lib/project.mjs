@@ -124,16 +124,28 @@ export function formatProjects(list) {
 /**
  * verify / export-zip 定位工程(SPEC-DES-008 §3.5),命中就停:
  *   1. `--project-dir`(主参数)
- *   2. `--session-dir`(旧参数:老对话历史里有这种命令,模型会照着跑)
+ *   2. `--session-dir`(旧参数:老对话历史里有这种命令,模型会照着跑):先读会话级状态,
+ *      再到它的 outputs 里找恰好一个工程,还没有就按 3 的规则;用到旧参数时带一条 `warn`
  *   3. 都没传:本会话**恰好一个**工程才用它,零个或多个就报错列出候选 —— 不猜
  *
- * @returns {{ok: true, projectDir: string, id: NonNullable<ReturnType<typeof identify>>}
+ * @returns {{ok: true, projectDir: string, id: NonNullable<ReturnType<typeof identify>>, warn?: string}
  *   | {ok: false, usage?: true, code?: string, reason: string, hint?: string, blocks?: Array<{name: string, text: string}>}}
  */
 export function locateProject({ projectDir, sessionDir }, { sessionId, workspaceDir, skillName }) {
+  // 有工作区上下文时,定位出来的工程必须在工作区内(内网 2026-10-21:旧版脚本在工作区**上一级**
+  // 留下过会话级状态文件,`--session-dir` 指过去就可能把 verify 引到别的工程上)
+  const inWorkspace = (dir) => !workspaceDir || within(dir, workspaceDir)
   if (projectDir && projectDir !== true) {
     const dir = path.resolve(String(projectDir))
     const id = identify(dir)
+    if (id && !inWorkspace(dir)) {
+      return {
+        ok: false,
+        code: "OUTSIDE_WORKSPACE",
+        reason: `--project-dir 不在当前工作区内: ${dir}`,
+        hint: `工作区是 ${workspaceDir}。--project-dir 取 new-session 返回的 PROJECT_DIR 原值`,
+      }
+    }
     if (id) return { ok: true, projectDir: dir, id }
     return {
       ok: false,
@@ -142,32 +154,49 @@ export function locateProject({ projectDir, sessionDir }, { sessionId, workspace
       hint: "--project-dir 取 new-session 返回的 PROJECT_DIR 原值;还没建过工程就先跑 new-session.mjs",
     }
   }
+  const fromSession = sessionId && workspaceDir ? () => locateInSession({ sessionId, workspaceDir, skillName }) : null
   if (sessionDir && sessionDir !== true) {
     const sd = path.resolve(String(sessionDir))
+    // 旧布局:会话级状态文件记着工程目录
     const state = readJson(path.join(sd, MARKER_FILE))
     const dir = state?.projectDir ? path.resolve(String(state.projectDir)) : null
     const id = dir ? identify(dir) : null
-    if (dir && id) return { ok: true, projectDir: dir, id }
+    if (dir && id && inWorkspace(dir)) return { ok: true, projectDir: dir, id }
+    // 新版在普通工作区建的工程不写会话级状态,只在工程根有标记 —— 模型照旧习惯传了
+    // 「[Artifact Folder] 的上一级」时,到它的 outputs 里找,恰好一个才用(内网 2026-10-21 实撞)
+    const inOutputs = listProjects(path.join(sd, "outputs"), { skillName }).filter((p) => inWorkspace(p.dir))
+    if (inOutputs.length === 1) {
+      return { ok: true, projectDir: inOutputs[0].dir, id: identify(inOutputs[0].dir), warn: SESSION_DIR_WARN }
+    }
+    // 传错的 --session-dir(比如代码工作区下自己拼的 .octo 路径):按本会话恰好一个工程定位
+    const viaSession = inOutputs.length === 0 && fromSession ? fromSession() : null
+    if (viaSession?.ok) return { ...viaSession, warn: SESSION_DIR_WARN }
     return {
       ok: false,
-      code: "NO_SESSION",
-      reason: `找不到会话状态 ${path.join(sd, MARKER_FILE)}`,
+      code: inOutputs.length ? "NO_PROJECT" : "NO_SESSION",
+      reason: inOutputs.length ? `${sd} 下有 ${inOutputs.length} 个工程,无法确定是哪一个` : `${sd} 下找不到 fastui 工程`,
       hint: "改用 --project-dir=<new-session 返回的 PROJECT_DIR>",
+      blocks: inOutputs.length ? [{ name: "PROJECTS", text: formatProjects(inOutputs) }] : viaSession?.blocks,
     }
   }
-  if (sessionId && workspaceDir) {
-    const scopes = [workspaceDir, path.join(workspaceDir, ".octo", sessionId, "outputs")]
-    const mine = scopes.flatMap((s) => listProjects(s, { skillName, sessionId })).filter((p) => p.thisSession)
-    if (mine.length === 1) return { ok: true, projectDir: mine[0].dir, id: identify(mine[0].dir) }
-    return {
-      ok: false,
-      code: "NO_PROJECT",
-      reason: mine.length ? `本对话有 ${mine.length} 个工程,无法确定是哪一个` : "本对话还没有工程",
-      hint: "传 --project-dir=<new-session 返回的 PROJECT_DIR>;还没建过工程就先跑 new-session.mjs",
-      blocks: mine.length ? [{ name: "PROJECTS", text: formatProjects(mine) }] : undefined,
-    }
-  }
+  if (fromSession) return fromSession()
   return { ok: false, usage: true, reason: "缺少 --project-dir=<new-session 返回的 PROJECT_DIR>" }
+}
+
+const SESSION_DIR_WARN = "--session-dir 是旧参数,下次 verify / export-zip 直接传 --project-dir=<new-session 返回的 PROJECT_DIR>"
+
+/** 本会话恰好一个工程就用它,零个或多个就报错列出候选 —— 不猜 */
+function locateInSession({ sessionId, workspaceDir, skillName }) {
+  const scopes = [workspaceDir, path.join(workspaceDir, ".octo", sessionId, "outputs")]
+  const mine = scopes.flatMap((s) => listProjects(s, { skillName, sessionId })).filter((p) => p.thisSession)
+  if (mine.length === 1) return { ok: true, projectDir: mine[0].dir, id: identify(mine[0].dir) }
+  return {
+    ok: false,
+    code: "NO_PROJECT",
+    reason: mine.length ? `本对话有 ${mine.length} 个工程,无法确定是哪一个` : "本对话还没有工程",
+    hint: "传 --project-dir=<new-session 返回的 PROJECT_DIR>;还没建过工程就先跑 new-session.mjs",
+    blocks: mine.length ? [{ name: "PROJECTS", text: formatProjects(mine) }] : undefined,
+  }
 }
 
 /**

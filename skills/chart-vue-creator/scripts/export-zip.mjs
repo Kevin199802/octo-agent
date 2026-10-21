@@ -11,7 +11,7 @@
  */
 import { mkdirSync, readFileSync, readdirSync, lstatSync } from "node:fs"
 import path from "node:path"
-import { setLogSink, ok, fail, usage, log, parseArgs } from "./lib/result.mjs"
+import { setLogSink, ok, fail, usage, log, warn, parseArgs } from "./lib/result.mjs"
 import { MARKER_FILE, RUNTIME_DIR, envDir, projectPaths, readSkillName, sessionContext } from "./lib/paths.mjs"
 import { locateProject } from "./lib/project.mjs"
 import { writeZip } from "./lib/zip.mjs"
@@ -28,6 +28,7 @@ const loc = locateProject(
 )
 if (!loc.ok && loc.usage) usage(loc.reason)
 if (!loc.ok) fail(loc.code, loc.reason, { hint: loc.hint, blocks: loc.blocks })
+if (loc.warn) warn(loc.warn)
 
 const projectDir = loc.projectDir
 const PP = projectPaths(projectDir)

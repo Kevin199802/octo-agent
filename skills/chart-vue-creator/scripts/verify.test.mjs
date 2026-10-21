@@ -236,6 +236,46 @@ test("V2:旧布局 + 旧参数 --session-dir —— 照样定位到旧工程", a
   if (field(r.out, "PROJECT_DIR") !== sb.projectDir) throw new Error(`定位错了:${field(r.out, "PROJECT_DIR")}`)
 })
 
+test("V2b:普通工作区的新工程 + 模型照旧习惯传 --session-dir —— 到 outputs 里找到它,并提示改用 --project-dir(内网 2026-10-21)", async () => {
+  const sb = sandbox({ legacy: true })
+  // 新版 new-session 在普通工作区不写会话级状态,只在工程根写标记
+  rmSync(path.join(sb.session, ".octo-fastui.json"))
+  writeMarker(sb.projectDir, { schema: 1, skill: SKILL_NAME, name: "alpha", sessions: ["s1"] })
+  const r = await runVerify(sb, ["--timeout=40"], { target: [`--session-dir=${sb.session}`] })
+  reap(r.out)
+  if (!r.result.startsWith("RESULT: OK")) throw new Error(`期望 OK,实际 ${r.result}\n${r.out.slice(-800)}`)
+  if (field(r.out, "PROJECT_DIR") !== sb.projectDir) throw new Error(`定位错了:${field(r.out, "PROJECT_DIR")}`)
+  if (!/^WARN: --session-dir 是旧参数/m.test(r.out)) throw new Error("应提示改用 --project-dir")
+})
+
+test("V2c:代码工作区下自己拼了不存在的 --session-dir —— 按本会话恰好一个工程定位", async () => {
+  const sb = sandbox()
+  const env = { OCTO_SESSION_ID: "s1", OCTO_WORKSPACE_DIR: sb.ws }
+  const r = await runVerify(sb, ["--timeout=40"], { target: [`--session-dir=${path.join(sb.ws, ".octo", "s1")}`], env })
+  reap(r.out)
+  if (!r.result.startsWith("RESULT: OK")) throw new Error(`期望 OK,实际 ${r.result}\n${r.out.slice(-800)}`)
+  if (field(r.out, "PROJECT_DIR") !== sb.projectDir) throw new Error(`定位错了:${field(r.out, "PROJECT_DIR")}`)
+})
+
+test("V2d:工作区上一级残留着旧版状态文件,指向别处的旧工程 —— 不被它带偏(内网 2026-10-21)", async () => {
+  const sb = sandbox()
+  // 别处一个还认得出来的旧布局工程
+  const oldSession = path.join(sb.root, "old-ws", ".octo", "s9")
+  const oldProject = path.join(oldSession, "outputs", "beta")
+  mkdirSync(path.join(oldProject, "packages", "portal", "src", "views"), { recursive: true })
+  writeFileSync(path.join(oldSession, ".octo-fastui.json"), JSON.stringify({ name: "beta", projectDir: oldProject }))
+  // 旧版 new-session 写在「artifact-dir 上一级」的残留,正好指向它
+  writeFileSync(path.join(sb.root, ".octo-fastui.json"), JSON.stringify({ name: "beta", projectDir: oldProject }))
+  const env = { OCTO_SESSION_ID: "s1", OCTO_WORKSPACE_DIR: sb.ws }
+  const r = await runVerify(sb, ["--timeout=40"], { target: [`--session-dir=${sb.root}`], env })
+  reap(r.out)
+  if (!r.result.startsWith("RESULT: OK")) throw new Error(`期望 OK,实际 ${r.result}\n${r.out.slice(-800)}`)
+  if (field(r.out, "PROJECT_DIR") !== sb.projectDir) throw new Error(`被残留带偏了:${field(r.out, "PROJECT_DIR")}`)
+
+  const outside = await runVerify(sb, [], { target: [`--project-dir=${oldProject}`], env })
+  if (!outside.result.includes("OUTSIDE_WORKSPACE")) throw new Error(`工作区外的 --project-dir 应拒绝,实际 ${outside.result}`)
+})
+
 test("V3:不传定位参数 —— 本会话恰好一个工程就用它,两个就报错列出候选", async () => {
   const sb = sandbox()
   const env = { OCTO_SESSION_ID: "s1", OCTO_WORKSPACE_DIR: sb.ws }

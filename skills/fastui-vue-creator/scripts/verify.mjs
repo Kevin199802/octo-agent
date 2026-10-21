@@ -40,6 +40,7 @@ const loc = locateProject(
 )
 if (!loc.ok && loc.usage) usage(loc.reason)
 if (!loc.ok) fail(loc.code, loc.reason, { hint: loc.hint, blocks: loc.blocks })
+if (loc.warn) warn(loc.warn)
 
 const projectDir = loc.projectDir
 const portalDir = path.join(projectDir, "packages", "portal")

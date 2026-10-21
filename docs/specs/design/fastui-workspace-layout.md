@@ -165,8 +165,11 @@ PROJECTS_END
 按以下顺序取工程目录，命中就停：
 
 1. `--project-dir`（主参数，取 `new-session` 返回的 `PROJECT_DIR` 原值）：必须带标记或是旧布局，否则报 `NO_PROJECT`
-2. `--session-dir`（**旧参数，保留**：老对话的历史里有这种命令，模型会照着跑）：读 `<session-dir>/.octo-fastui.json` 里的 `projectDir`
+2. `--session-dir`（**旧参数，保留**：老对话的历史里有这种命令，模型会照着跑）：先读 `<session-dir>/.octo-fastui.json` 里的 `projectDir`（旧布局）；没有就在 `<session-dir>/outputs/` 下找本 skill 的工程，**恰好一个**就用它；还没有就按第 3 条定位。用到旧参数时输出一条 `WARN`，提示改用 `--project-dir`
+   - 第二步是内网 2026-10-21 实测补上的：普通工作区里新建的工程不写会话级状态文件，模型照旧习惯传「[Artifact Folder] 的上一级」时，只读状态文件必然 `NO_SESSION`。SKILL.md 也不再提 `--session-dir`（提了反而诱导模型去用），只写「`--project-dir` 取 `PROJECT_DIR` 原值」
 3. 都没传：有 `OCTO_SESSION_ID` 和 `OCTO_WORKSPACE_DIR` 时，找 `sessions` 含本会话的工程，范围是 `<W>/*` 与 `<W>/.octo/<sid>/outputs/*`，再加本会话的旧布局工程。**恰好一个**就用它；零个或多个就报 `NO_PROJECT` 并列出候选。「恰好一个才用」与宿主对旧卡片的处理一致，结果是确定的，不靠猜
+
+**有工作区上下文时，定位出来的工程必须在工作区内**：`--session-dir` 找到的工作区外候选直接跳过、继续往下找；`--project-dir` 指向工作区外报 `OUTSIDE_WORKSPACE`。来由：旧版 `new-session` 把状态文件写在 `--artifact-dir` 的上一级，代码工作区下就落在工作区**外面**（如 `Desktop\.octo-fastui.json`）。这些残留不会自己消失，`--session-dir` 指过去就可能把 verify 引到别的工程上（内网 2026-10-21 实测）。
 
 运行时文件一律放在 `<工程目录>/.octo-fastui/`（§3.7），旧布局工程也一样。会话级 `devservers/` 从此不读。
 
@@ -250,6 +253,23 @@ question({ questions: [{
 
 **卡片格式不变**：`fastui://<产物名>`。代码工作区下多个对话的同名卡片指向同一个工程，与「代码工作区的对话不隔离产物」一致。
 
+### 3.8 兜底：文件卡片指向工程内文件时，另补一张预览卡片
+
+**问题**（内网 2026-10-21，C3）：代码工作区下，新对话里接着改已有工程时，模型即使加载了 skill，也可能跳过 `verify`，直接用 edit 改 `.vue`，然后按 octo_make 的 edit 规则只输出一张**指向被改文件**的 text/link 卡片，没有 `fastui://` 预览卡片。提示词里本来就写了「每一轮都要输出卡片」，模型照样跳过，靠提示词保证不了。
+
+**做法**：文件卡片照旧（点开看源码），两张卡片各有用处，互不替代。对话里的链接卡片是磁盘路径时，前端渲染这一轮的卡片列表时问主进程「这个文件属于哪个 fastui 工程」（`fastuiProjectOf`）：
+
+1. 从文件所在目录逐级往上找工程标记（§3.2，旧布局同样认），不出工作区
+2. 找到后，按卡片的正常查找顺序（§3.7）用（工作区, 当前会话, 产物名）反查一次，**必须落回同一个目录**才算数。对不上（比如文件在另一个对话的 outputs 里）就不转
+3. 算数就在这一轮的卡片列表里**另补一张** `fastui://<产物名>` 预览卡片（标题是工程名；这一轮已经有同名预览卡片就不补）；不算就什么都不补
+
+补出来的卡片只用于展示，不进自动保存与产物打点；点开走 `fastui://` 的原有逻辑。
+
+- **不会挂错、不会重复起服务**：沿用 SPEC-DES-004 的机制。卡片只带产物名，点开时主进程当场查工程、按工程目录复用正在运行的服务
+- **模型没跑 verify 时**：预览面板显示的就是真实编译结果，编译失败会进错误态，并显示日志和「重新编译」按钮
+- **影响范围**：只在「对话里的磁盘路径卡片，且文件位于带标记的工程内」时生效。文件面板、附件、外链、Design 原生的 HTML / SVG / 文档产物都不经过这里，其他 skill 的产物不会有这个标记
+- **已知边界**：补卡片要等一次主进程查询，生成结束后才出现，会比文件卡片晚一点
+
 ## 4. 兼容性
 
 | 场景 | 结果 | 靠什么 |
@@ -296,11 +316,12 @@ question({ questions: [{
 | `packages/opencode/src/agent/octo-shell-context.ts`（新）、`plugin/index.ts` | §3.3 插件与注册；测试放 `test/plugin/` |
 | `packages/desktop/src/main/fastui-devserver.ts` | 查找函数（§3.7）、`validRequest`、运行时路径、心跳 `layout: 2` |
 | `packages/desktop/src/main/fastui-export.ts` | 走查找函数、`--project-dir`、skill 候选路径 |
-| `packages/desktop/src/main/ipc.ts`、`src/preload/*` | IPC 参数改为 `{ workspaceDir, sessionId, name }`，新增「查找工程」IPC |
+| `packages/desktop/src/main/ipc.ts`、`src/preload/*` | IPC 参数改为 `{ workspaceDir, sessionId, name }`，新增「查找工程」IPC，以及「文件属于哪个工程」IPC（`fastui-project-of`，§3.8） |
 | `packages/app/octoapp/pages/make/lib/electron-api.ts` | `FastuiTarget` 类型；三个 fastui 接口改收目标对象，新增 `fastuiResolve` |
 | `packages/app/octoapp/pages/make/utils/fastui-export.ts` | 删 `sessionDirOf` / `isFastuiSession` / `sessionHasFastuiState`，改为 `fastuiTargetOf` / `isFastuiProject` / `hasFastuiProject`（走 `fastuiResolve`） |
 | `packages/app/octoapp/pages/make/utils/fastui-preview.ts` | 请求参数改为 `workspaceDir` + `sessionId` |
 | `html-renderer.tsx`、`index.tsx`（旧卡片转换）、`subtype-handlers/fastui.tsx`（导出按钮） | 改用上面的新函数 |
+| `components/insight-turn.tsx` 卡片列表、`utils/fastui-export.ts` `fastuiProjectOfFile` / `absoluteLinkPath` | 文件卡片指向工程内文件时另补一张预览卡片（§3.8） |
 
 ## 7. 验证
 
@@ -325,6 +346,9 @@ question({ questions: [{
 | A13 | `<W>/alpha` 的标记 `skill` 为 `fastui-vue-creator`，用 chart 的 `new-session --name=alpha --reuse`；再跑 chart 的 `--list` | 前者 `NAME_TAKEN`，目录不变；后者不列出 alpha |
 | V1 | `verify --project-dir=<W>/alpha`，非 Octo 环境 | 自起服务；运行时文件在 `<W>/alpha/.octo-fastui/`；`PREVIEW_CARD: fastui://alpha` |
 | V2 | `verify --session-dir=<旧会话目录>`（旧布局） | 正常定位到旧工程 |
+| V2b | 普通工作区的新工程（工程根有标记、会话目录没有状态文件），`verify --session-dir=<W>/.octo/s1` | 定位到 `outputs` 下的工程，并输出提示改用 `--project-dir` 的 WARN |
+| V2c | 代码工作区，`--session-dir` 指向不存在的 `<W>/.octo/s1`，带会话上下文 | 按本会话恰好一个工程定位 |
+| V2d | 工作区上一级残留旧版状态文件，指向工作区外一个仍认得出来的旧工程；`--session-dir=<上一级>`；另用 `--project-dir=<那个旧工程>` | 前者不被带偏，定位到工作区内本会话的工程；后者 `OUTSIDE_WORKSPACE` |
 | V3 | 不传参，本会话恰好一个工程 / 两个工程 | 前者用它；后者 `NO_PROJECT` 并列出两个 |
 | V4 | 宿主在：检查投递的请求文件 | 内容是 `{ projectDir, name, at }` |
 | V5 | 现有 verify 用例（宿主换进程、宿主报错立即失败、旧错误记录不作数等） | 全部照旧通过 |
@@ -335,7 +359,7 @@ question({ questions: [{
 | 位置 | 命令 | 覆盖 |
 |---|---|---|
 | `packages/opencode` | `bun test test/plugin/octo-shell-context.test.ts` | 根会话直接调用、子会话调用时 `OCTO_SESSION_ID` 都是根会话 ID；`OCTO_WORKSPACE_DIR` 是根会话目录 |
-| `packages/desktop` | `bun test src/main/fastui-devserver.test.ts src/main/fastui-export.test.ts` | 查找三步各命中一次；会话范围与工作区范围同名时取会话范围；都没有时报错；产物名为空的旧卡片；`validRequest` 接受新旧两种请求、拒绝无标记目录；心跳含 `layout: 2`；导出以 `--project-dir` 调脚本；现有用例照旧通过 |
+| `packages/desktop` | `bun test src/main/fastui-devserver.test.ts src/main/fastui-export.test.ts` | 查找三步各命中一次；会话范围与工作区范围同名时取会话范围；都没有时报错；产物名为空的旧卡片；`validRequest` 接受新旧两种请求、拒绝无标记目录；心跳含 `layout: 2`；导出以 `--project-dir` 调脚本；`projectOfFile`：代码 / 普通工作区工程内文件命中，另一个对话 outputs 里的文件因反查对不上而不转，工程外 / 工作区外 / 相对路径不转；现有用例照旧通过 |
 | `packages/app` | `bun test --preload ./happydom.ts ./octoapp/pages/make/utils/fastui-preview.test.ts ./octoapp/pages/make/utils/fastui-subtype.test.ts` | 请求参数改为 `{ workspaceDir, sessionId, name }` 后状态机用例照旧通过；导出按钮的判据改为 `fastuiResolve` |
 | 三个包 | `bun run typecheck` | 通过 |
 
@@ -353,18 +377,19 @@ question({ questions: [{
 
 #### 准备
 
-1. **版本**：Octo 为包含本 spec 改动的版本。skill 版本让助手跑一次环境诊断，或者直接看 `SKILL.md` 开头的 `version`：`fastui-vue-creator` 为 1.1.0，`chart-vue-creator` 为 1.2.0
-2. **普通工作区（老数据）**：**升级 Octo 之前**，在旧版本上用一个工作区（例如 `D:\fastui-legacy`）完成：
+1. **版本**：Octo 用 UXAI 分支 `feat/fastui-workspace-layout` 打包；skill 用文档仓同名分支，两个 skill 都只覆盖 `SKILL.md` 与 `scripts/`（内网组装的 `template/`、`vendor/`、`design/` 不动）。验证阶段版本号还没涨，**不能靠 `version` 判断装的是不是新版**
+2. **换完 skill 必须重启 Octo**（或在技能库页面操作一次触发刷新）：server 把 `SKILL.md` 内容解析后缓存在内存里，手工覆盖文件不会刷新；脚本则是每次现读磁盘。不重启就会出现「脚本是新的、模型读到的 SKILL.md 还是旧的」—— 2026-10-21 内网首轮就是这样，模型照旧版写法传 `--session-dir="<上一级>"`。**确认方法**：在第一条测试对话里展开「调用技能 fastui-vue-creator」，内容里有「选定工程」「`--list`」才是新版；是「每个会话建一次工程(幂等)」就是旧版
+3. **普通工作区（老数据）**：**升级 Octo 之前**，在旧版本上用一个工作区（例如 `D:\fastui-legacy`）完成：
    - 对话 L-A：生成一个页面，页面顶部写「这是 L-A」，留下能点开的预览卡片
    - 对话 L-B：同一个对话里先后生成两个不同的工程（页面分别写「这是 L-B1」「这是 L-B2」）
 
    升级后打开「设置 → 工作区升级」：这个工作区出现在列表里，说明它是普通工作区。**不要点升级**
-3. **代码工作区**：升级后在 Octo 里新建两个工作区（新版本新建的默认就是代码工作区）：
+4. **代码工作区**：升级后在 Octo 里新建两个工作区（新版本新建的默认就是代码工作区）：
    - `D:\fastui-code`（纯英文路径）
    - `D:\设计稿\fastui测试`（中文路径，只用于 C10）
 
    在 `D:\fastui-code` 里手工建一个普通文件夹 `dashboard`，里面放一张图片（用于 C7）
-4. **每个生成的页面顶部都写一行自述文字**（「这是 A」「这是 B」…），用来判断卡片打开的是哪个工程，比看端口号可靠
+5. **每个生成的页面顶部都写一行自述文字**（「这是 A」「这是 B」…），用来判断卡片打开的是哪个工程，比看端口号可靠
 
 #### 用例
 
@@ -372,7 +397,8 @@ question({ questions: [{
 |---|---|---|---|
 | **C1** | 代码工作区首次生成 | 在 `D:\fastui-code` 新建对话：「用 fastui 做一个用户列表页，页面顶部写『这是 A』」 | ① 没有弹出选择工程的问题（工作区里还没有工程）；② 工作区下出现一个新的工程文件夹，里面有 `.octo-fastui.json`；③ 回复里有预览卡片，点开显示「这是 A」；④ `D:\` 根目录下**没有**新出现 `.octo-fastui.json` 或 `octo-fastui.log`；⑤ 整个过程没有出现命令超时 |
 | **C2** | 同一对话继续改 | 在 C1 的对话里：「把顶部文字改成『这是 A2』」 | 不弹问题；没有新建工程文件夹；卡片显示「这是 A2」 |
-| **C3** | 新对话明确接着改 | 新建对话：「接着改刚才那个用户列表工程，加一个搜索框」 | 不弹问题；回复里说明在修改已有工程；没有新建文件夹；C1 和本对话的卡片打开都是同一个页面（带搜索框） |
+| **C3** | 新对话明确接着改 | 新建对话：「接着改刚才那个用户列表工程，加一个搜索框」 | 不弹问题；没有新建文件夹；本对话里**一定有一张标题为工程名的预览卡片**，点开是预览页面（带搜索框）；如果模型同时输出了文件卡片（如「index」），它照旧打开 `.vue` 源码；C1 和本对话的卡片打开是同一个页面 |
+| **C3b** | 不重复起服务 | C3 之后在任务管理器 / 端口检查命令里看 dev server | 同一个工程只有一个 dev server 在监听 |
 | **C4** | 新对话模糊需求 · 选新建 | 新建对话：「再做一个订单页，顶部写『这是 B』」 | 弹出选择：列出 C1 的工程和「新建工程」。选「新建工程」→ 出现新的工程文件夹，卡片显示「这是 B」；回到 C1 的对话点卡片，仍是「这是 A2」 |
 | **C5** | 新对话模糊需求 · 选已有 | 新建对话：「再做一个设置页，顶部写『这是 A3』」，在弹出的选择里选 C1 的工程 | 没有新建工程文件夹；C1 工程的 `packages\portal\src\views\` 下多了一个页面目录；卡片里能看到设置页 |
 | **C6** | 新对话明确新建 | 新建对话：「新建一个独立的工程，做一个审批页，顶部写『这是 C』」 | 不弹问题；新的工程文件夹；卡片显示「这是 C」 |
