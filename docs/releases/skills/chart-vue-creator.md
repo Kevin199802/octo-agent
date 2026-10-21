@@ -13,6 +13,17 @@
 
 (无)
 
+## 1.1.0 ｜ 2026-10-21 ｜ design/ 同步上游 v0.6.9
+
+| 组成 | 本版 |
+|---|---|
+| 外网代码 | tag `chart-vue-creator/v1.1.0` |
+| 设计师上游(`design/`) | v0.6.9 分发修订 r9 @ `1d7ae38`(上游 0.6.9 内改了 r1–r9 九轮，版本号未变) |
+| template | 同 1.0.0,未变 |
+
+- design/ 同步至上游 v0.6.9(分发修订 r9)@ `1d7ae38`(2026-10-21;上一版 v0.6.8 @ `1629ba8`)。设计师的改动见上游 [CHANGELOG](../../../skills/chart-vue-creator/design/CHANGELOG.md) 的 0.6.9 各条目([逐文件 diff](https://github.com/peterbobidu/chart-design-advisor/compare/1629ba8...1d7ae38))。
+- SKILL.md 上半段随之调整:`design/` 路径按上游新目录编号改写;按需读取表补 Tooltip 入口、删去指向已不存在文件的「维护、评测或发布」行。下半段与 `scripts/` 未动。
+
 ## 1.0.0 ｜ 2026-10-19 ｜ 首次上架
 
 | 组成 | 本版 |

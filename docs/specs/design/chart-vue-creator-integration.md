@@ -13,10 +13,10 @@
 | | 状态 |
 |---|---|
 | skill 骨架（SKILL.md 两段式、scripts、design 实体化） | ✅ 已合入 dev |
-| 上游 v0.6.8 同步 | ✅ `design/` = 上游 commit `1629ba8`（2026-10-14，版本号未涨） |
+| 上游 v0.6.9 同步 | ✅ `design/` = 上游 v0.6.9 分发修订 r9 @ `1d7ae38`（2026-10-21；上一次 v0.6.8 @ `1629ba8`）。上游目录重新编号（`01-router` `02-methods` `03-references` `04-assets`），交付仓不再含 `05-tests/` 与 `VALIDATION.md`，详见 §7.2。随 skill `1.1.0` 发布 |
 | 内网组装 + 端到端跑通 | ✅ 2026-10-13，柱状图，`verify` 返回 OK、预览出图 |
 | echarts 在老 webpack 上可用 | ✅ 内网实测（产物带 `_echarts_instance` attr） |
-| 外网自动验证 | ✅ 链接 0 死链、`lint.test` 31/31、`verify.test` 5/5 |
+| 外网自动验证 | ✅ 链接 0 死链、`lint.test` 31/31、`verify.test` 6/6（2026-10-21，v0.6.9 同步后重跑） |
 | 样式写法约束 | ✅ 同步自组件 skill 1.0.7（SKILL.md 硬约束 3.2，golden example 同步改写；只取写法、不取视觉值，§4.4）。内网待验 N8 |
 | 版本管理 / 首次上架 | ✅ 2026-10-19 定 `1.0.0`(design/ = 上游 v0.6.8 @ `1629ba8`),按 [SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog):`doctor` 改读 frontmatter、删 `env.manifest.json` 的 `skillVersion`(两份 `scripts/` 重新只差 `ensure-env.mjs` 一行 hint)。版本记录见 [docs/releases/skills/chart-vue-creator.md](../../releases/skills/chart-vue-creator.md) |
 
@@ -84,7 +84,7 @@
 
 | 我们维护 | 上游维护（`design/`，我们不改） |
 |---|---|
-| `SKILL.md`（全量） | `02-router/` `03-methods/` `04-references/` `05-tests/` `06-assets/` `VALIDATION.md` |
+| `SKILL.md`（全量） | `01-router/` `02-methods/` `03-references/` `04-assets/` `CHANGELOG.md` `description.md` |
 | `scripts/` `references/` | |
 | `template/`（内网脚手架 + ECharts golden example） | |
 
@@ -100,7 +100,7 @@
 
 ### 4.2 与上游 `hosted-project.md` 的分工
 
-上游 v0.6.8 主动新增了 `04-references/prototype/hosted-project.md`，专讲"接入既有工程与管道"，内容与我们下半段高度对应（不覆盖工程根文件、遵从承载环境的 ECharts 导入方式、不另起构建进程替代门禁、预览入口按宿主要求给出、不自行压缩含链接的工程目录）。
+上游 v0.6.8 主动新增了 `03-references/prototype/hosted-project.md`（v0.6.9 前位于 `04-references/`），专讲"接入既有工程与管道"，内容与我们下半段高度对应（不覆盖工程根文件、遵从承载环境的 ECharts 导入方式、不另起构建进程替代门禁、预览入口按宿主要求给出、不自行压缩含链接的工程目录）。
 
 **分工定死：上游写通用原则，我们写本环境的具体命令、路径与失败码。** 同一件事两边都写会互相冲突并白占上下文。升级时按这条判断新内容该不该同步进上半段。
 
@@ -132,8 +132,8 @@
 
 | 速查表 / 强制要求 | 图表规范 |
 |---|---|
-| 次要文本 `#676767`、说明文本 `#939393`、占位 `#BBBBBB` | 标题说明 / 轴单位 / 图例文字 `#777777`，刻度文字 `#AEAEAE`（[visual-basics](../../../skills/chart-vue-creator/design/04-references/chart-spec/common/visual-basics.md)） |
-| "颜色必须从规范色值中选取" | 系列色板 `#2070F3` 等均不在速查表内（[color](../../../skills/chart-vue-creator/design/04-references/chart-spec/common/color.md)） |
+| 次要文本 `#676767`、说明文本 `#939393`、占位 `#BBBBBB` | 标题说明 / 轴单位 / 图例文字 `#777777`，刻度文字 `#AEAEAE`（[visual-basics](../../../skills/chart-vue-creator/design/03-references/chart-spec/common/visual-basics.md)） |
+| "颜色必须从规范色值中选取" | 系列色板 `#2070F3` 等均不在速查表内（[color](../../../skills/chart-vue-creator/design/03-references/chart-spec/common/color.md)） |
 | "所有尺寸数值必须为 4 的倍数" | 标题旁下拉图标 10×10px（visual-basics「图标」） |
 | "所有组件参数必须遵循 tokens.md" | chart 包内没有 `tokens.md`，引了即死链 |
 
@@ -247,27 +247,27 @@ shasum -a 256 <文档仓>/skills/fastui-vue-creator/template/yarn.lock \
 
 | | |
 |---|---|
-| 当前同步版本 | **v0.6.8**（上游 commit `1629ba8`，同步于 2026-10-14；上一次 `dc562a3`，2026-10-13） |
+| 当前同步版本 | **v0.6.9 分发修订 r9**（上游 commit `1d7ae38`，同步于 2026-10-21；上一次 v0.6.8 @ `1629ba8`，2026-10-14） |
 
-**搬进来时做了什么**：整目录平移，相对关系不变 —— 上游文件之间的 `../03-methods/`、`../VALIDATION.md` 这类链接全部仍然成立。只改了一行：`description.md` 里指向包根的 SKILL.md 链接改成 `../SKILL.md`。
+**搬进来时做了什么**：整目录平移，相对关系不变 —— 上游文件之间的 `../02-methods/`、`../chart-spec/index.md` 这类链接全部仍然成立。只改了一行：`description.md` 里指向包根的 SKILL.md 链接改成 `../SKILL.md`。
 
 **没搬进来的**：
 
 | 不搬 | 为什么 |
 |---|---|
-| `SKILL.md` | 本 skill 的 SKILL.md 由我们维护（§4.1）。上半段已把上游的设计规则抄进来并加了 `design/` 前缀 |
-| `scripts/`（`check_package.py` / `check_prototype.py`） | 上游包自用的检查工具，本环境唯一门禁是 `verify.mjs`。**macOS 未装 Command Line Tools 时执行 `python3` 会弹系统安装窗**（T6 的嫌疑来源），不搬就少一个诱惑源。代价是 `delivery-gates.md` 里那条 `python3 .../check_prototype.py` 成为死链 —— 它属于"新建独立 Vite 工程"分支，本环境永不走到，SKILL.md 另有硬约束禁止执行 `design/` 下任何脚本 |
-| `README.md` | 上游 README 引用了 `AGENTS.md` / `CONTRIBUTING.md` / `.github/workflows/`，搬进来只会制造死链 |
-| `.github/` `.githooks/` `.gitignore` `AGENTS.md` `CONTRIBUTING.md` | 上游的仓库治理文件，生产包用不到 |
+| `SKILL.md` | 本 skill 的 SKILL.md 由我们维护（§4.1）。上半段已把上游的设计规则抄进来并加了 `design/` 前缀。另有一条硬理由：宿主会把 `octoConfig` 也当配置目录，用 `{skill,skills}/**/SKILL.md` **递归**扫描（UXAI `packages/opencode/src/skill/index.ts`、`config/paths.ts`），`design/SKILL.md` 会被注册成第二个 skill `chart-design-advisor`，与本 skill 抢触发 —— 正是 §3 否决 B 的那个问题 |
+| `scripts/`（v0.6.9 交付仓只剩 `check_prototype.py`） | 上游包自用的检查工具，本环境唯一门禁是 `verify.mjs`。**macOS 未装 Command Line Tools 时执行 `python3` 会弹系统安装窗**（T6 的嫌疑来源），不搬就少一个诱惑源。代价是 `delivery-gates.md` 里那条 `python3 .../check_prototype.py` 成为死链 —— 它属于"新建独立 Vite 工程"分支，本环境永不走到，SKILL.md 另有硬约束禁止执行 `design/` 下任何脚本 |
+| 根目录 `README.md` | 给设计师看的使用说明，agent 用不到。v0.6.9 起它链向 `SKILL.md`（我们不搬，会成死链），「下游工程集成」一节又建议下游加载 `design/SKILL.md` —— 与本 skill 的做法相反，搬进来只会误导。**子目录里的 README（`chart-spec/README.md`、四箱体骨架的 README）照常搬** |
+| `.github/` `.githooks/` `.gitignore` `AGENTS.md` `CONTRIBUTING.md` | 上游的仓库治理文件，生产包用不到。v0.6.9 r9 起上游交付仓已不含这些（连同 `05-tests/` `VALIDATION.md`，改为只放运行包内容），整目录覆盖时自然消失 |
 
 **升级到上游新版本**：
 
 1. `git clone` 或 `git pull` 上游仓，看一眼 `CHANGELOG.md` 与 `git log`
-2. **整目录覆盖** `design/`（按上表排除），重做那一行链接修正，**不做任何 merge**
+2. **整目录覆盖** `design/`（按上表排除），重做那一行链接修正，**不做任何 merge**。排除项要**锚定到根目录** —— 例如 `rsync -a --delete --exclude /.git --exclude /SKILL.md --exclude /README.md --exclude /scripts/ <上游>/ design/`；不加 `/` 会连子目录的 `README.md` 一起排除，`--delete` 还会因此删不掉旧目录（v0.6.9 同步时踩过）。覆盖后 `diff -rq <上游> design/` 应只剩排除项与 `description.md`
 3. **diff 上游 `SKILL.md` 与本 skill SKILL.md 的上半段** —— 上游改了设计规则 / 按需读取表 / 新增入口文件，要同步抄进上半段并加 `design/` 前缀；下半段是我们的地盘，不受上游影响
 4. 更新本节的「当前同步版本」，**必须连 commit 一起记** —— 上游会不涨版本号就改内容（`1629ba8` 即是）
 5. 检查新增文件有没有与下半段重复或冲突的规则，判据见 §4.2 的分工
-6. **在版本记录的「未发布」段记一笔"design/ 同步至上游 v<版本> @ <commit>"**,上架时按 [SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog) 涨号(同步上游新内容一般为 minor)
+6. **在版本记录的「未发布」段记一笔"design/ 同步至上游 v<版本> @ <commit>"**:设计师改了什么**不复述**,链到 `design/CHANGELOG.md`(随包同步、与本次内容同版)与上游 `compare/<上一 commit>...<本次 commit>`;只写**我们自己**因此改了什么(上半段、排除项、链接修正等)。上架时按 [SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog) 涨号(同步上游新内容一般为 minor)
 
 已向上游反馈两处会进生产包的 `python3` 可执行命令（`delivery-gates.md` 的 `check_prototype.py`、`README.md` 的 `check_package.py`），建议把限定说明挪到命令前面。**上游 `1629ba8` 已采纳**：限定说明前置，并改为"确认有可用解释器才执行、不试运行系统 `python3` 探测、不为此装 Python 或 CLT"，`vue-echarts-delivery.md` 与回归用例同步。该提交的 `VALIDATION.md` 另记了一条跟进项「creator 的 `install.sh` 存在 `require_py`」—— 那是 v20 之前的代码，已由 [SPEC-DES-001 v20](fastui-vue-codegen-pipeline.md) 去掉，可回告上游关闭。
 

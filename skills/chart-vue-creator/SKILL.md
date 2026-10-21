@@ -1,7 +1,7 @@
 ---
 name: chart-vue-creator
 description: 面向 B 端数据分析的图表设计与实现。用 ECharts 生成 Vue 页面,在真实脚手架里编译渲染并交付可运行的工程。当用户要做图表、看板、数据可视化,或要改图表、看效果、拿代码时使用。
-version: 1.0.0
+version: 1.1.0
 ---
 
 # chart-vue-creator
@@ -27,16 +27,16 @@ version: 1.0.0
 ## 设计流程
 
 1. 确定分析目标、对象/指标、数据与输出媒介;仅缺少关键业务信息时澄清。单指标排序、明确图表请求和规范咨询可直接处理。
-2. 需要方法匹配时读取[路由表](design/02-router/route-map.md),选一个主方法,必要时最多两个辅助方法;状态以[方法索引](design/03-methods/index.md)为准。读取选中的短卡及其按需引用;待实现方法按路由表回退。相邻任务难区分再读[路由详解](design/02-router/method-router.md),旧编号请求读[编号迁移](design/02-router/id-migration.md)。
+2. 需要方法匹配时读取[路由表](design/01-router/route-map.md),选一个主方法,必要时最多两个辅助方法;状态以[方法索引](design/02-methods/index.md)为准。读取选中的短卡及其按需引用;待实现方法按路由表回退。相邻任务难区分再读[路由详解](design/01-router/method-router.md),旧编号请求读[编号迁移](design/01-router/id-migration.md)。
 3. 按下表加载实现所需资料,完成方案或原型。使用 ECharts 时先核对所需能力;无法实现或需要其他技术配合的部分,按能力边界规则主动告知用户。只检查本次需要及已承诺的能力,分别记录实际验证与未验证部分。
 4. 先说明"要判断什么 → 推荐方案 → 关键交互";**要出原型就走下半段的工程流程**,交付以 `verify` 通过的工程为准,并简述示例数据、处理口径和适用边界。内部路由、规范清单不默认放进产品界面。
 
 ## 原型交付硬门槛
 
 - **本 skill 的承载环境固定是既有 Vue 工程**(下半段那套脚手架 + 管道),遵从它的目录、依赖、编译门禁、预览和导出机制。上游规则里"无承载工程时默认 Vite"那条分支在这里**永远不适用** —— 不要另建第二个 Vite 工程。`index.html` 只是工程入口,单独一个 `.html` 不能当成完成产物;用户明确要求单文件/离线 HTML 时才走那条路。
-- 接入既有工程的通用原则见[承载工程规则](design/04-references/prototype/hosted-project.md);**本环境的具体命令、路径与失败码全部在下半段**,两处冲突时以下半段为准。
-- 「半导体四箱体、640→420px、散点/密度短线、截图窗口」这一匹配案例可从[四箱体骨架](design/06-assets/semiconductor-four-box-vue/)取逻辑与组件,**但只取适用部分**:它是独立 Vite 工程,`echarts/core` 按需注册的写法、`vite.config.ts`、测试依赖、目录结构**一概不要照搬**(本环境要求全量引入,见硬约束 3)。其他任务不要套用这个案例。
-- [产物门槛](design/04-references/prototype/delivery-gates.md)里"新建独立默认工程"那节及其 `check_prototype.py` **不适用本环境**,不要执行;既有工程那节的验收要求(目标尺寸、交互、图片导出分别记录实际证据)照常适用。
+- 接入既有工程的通用原则见[承载工程规则](design/03-references/prototype/hosted-project.md);**本环境的具体命令、路径与失败码全部在下半段**,两处冲突时以下半段为准。
+- 「半导体四箱体、640→420px、散点/密度短线、截图窗口」这一匹配案例可从[四箱体骨架](design/04-assets/semiconductor-four-box-vue/)取逻辑与组件,**但只取适用部分**:它是独立 Vite 工程,`echarts/core` 按需注册的写法、`vite.config.ts`、测试依赖、目录结构**一概不要照搬**(本环境要求全量引入,见硬约束 3)。其他任务不要套用这个案例。
+- [产物门槛](design/03-references/prototype/delivery-gates.md)里"新建独立默认工程"那节及其 `check_prototype.py` **不适用本环境**,不要执行;既有工程那节的验收要求(目标尺寸、交互、图片导出分别记录实际证据)照常适用。
 
 > ⚠️ **不要执行 `design/` 下的任何脚本。** 那些是上游包自用的检查工具(维护期跑的),在本环境里既不适用、也不是验证手段;本环境唯一的门禁是下半段的 `verify.mjs`。
 
@@ -44,16 +44,15 @@ version: 1.0.0
 
 | 任务 | 入口 |
 | --- | --- |
-| 生成任何图表原型 | 先按[规范索引](design/04-references/chart-spec/index.md)选择规范:用户指定优先,明确半导体项目用半导体,其余默认 HD;仅加载所选规范及适用专项;[生成与验收](design/04-references/prototype/generation-review.md) |
-| 交互网页原型 | **走下半段的工程流程** —— 技术栈固定 Vue 3 + TypeScript + ECharts,在真实脚手架里编译,不另起 Vite 工程;通用原则见[承载工程规则](design/04-references/prototype/hosted-project.md) |
-| 目标尺寸 / 交互 / 图片导出的验收要求 | [产物门槛](design/04-references/prototype/delivery-gates.md)的「目标尺寸和交互」与「最终状态」两节(跳过"新建独立默认工程") |
-| 工程交接说明 | [Handoff 交付](design/04-references/prototype/handoff.md):内容要求照它写,但文件落在 `<WRITE_DIR>/<页面名>/HANDOFF.md`,"验证与限制"按硬约束 2 的分层写法记录 |
-| 使用 ECharts 实现 | [能力边界与告知](design/04-references/prototype/echarts-capabilities.md) |
-| 明确要求单文件或离线 HTML | [HTML 交付](design/04-references/prototype/html-prototype.md) |
-| 平滑、聚合、拟合、采样、归一化、排名或评分 | [数据语义](design/04-references/data-semantics.md)中与处理相符的部分 |
-| 单项规范咨询 / 整理新增规范 | 分别通过[规范索引](design/04-references/chart-spec/index.md)读取相关文件 / [规范结构](design/04-references/chart-spec/schema.md) |
-| 维护、评测或发布 | [测试索引](design/05-tests/README.md)、[验证记录](design/VALIDATION.md);不作为日常生成前置读取 |
-
+| 生成任何图表原型 | 先按[规范索引](design/03-references/chart-spec/index.md)选择规范:用户指定优先,明确半导体项目用半导体,其余默认 HD;仅加载所选规范及适用专项;[生成与验收](design/03-references/prototype/generation-review.md) |
+| 交互网页原型 | **走下半段的工程流程** —— 技术栈固定 Vue 3 + TypeScript + ECharts,在真实脚手架里编译,不另起 Vite 工程;通用原则见[承载工程规则](design/03-references/prototype/hosted-project.md) |
+| 目标尺寸 / 交互 / 图片导出的验收要求 | [产物门槛](design/03-references/prototype/delivery-gates.md)的「目标尺寸和交互」与「最终状态」两节(跳过"新建独立默认工程") |
+| 工程交接说明 | [Handoff 交付](design/03-references/prototype/handoff.md):内容要求照它写,但文件落在 `<WRITE_DIR>/<页面名>/HANDOFF.md`,"验证与限制"按硬约束 2 的分层写法记录 |
+| 桌面端图表有 Hover 提示 | [通用 Tooltip 组件](design/03-references/chart-spec/components/tooltip.md):按任务/数据结构选择触发与布局 |
+| 使用 ECharts 实现 | [能力边界与告知](design/03-references/prototype/echarts-capabilities.md) |
+| 明确要求单文件或离线 HTML | [HTML 交付](design/03-references/prototype/html-prototype.md) |
+| 平滑、聚合、拟合、采样、归一化、排名或评分 | [数据语义](design/03-references/data-semantics.md)中与处理相符的部分 |
+| 单项规范咨询 / 整理新增规范 | 分别通过[规范索引](design/03-references/chart-spec/index.md)读取相关文件 / [规范结构](design/03-references/chart-spec/schema.md) |
 方法分支、案例和历史兼容由对应短卡维护。仅半导体快照参考复现或复用其算法时按 Method 03 读取源 HTML;普通概览不加载该资产。版本历史不参与当前规则裁决。
 
 ---
@@ -336,7 +335,7 @@ agent 把用户的正常目录当成"失败操作留下的残留",执行 `Remove
 那些是脚手架的壳,改了会让整个工程起不来,而且它们和交付给开发的结构强相关。
 
 **工程根已经有一份 `HANDOFF.md`**,讲的是这个工程怎么跑(`OCTO_DEPS` / `OCTO_PORT` 那些),**不要动它**。
-设计交接写成 `<WRITE_DIR>/<页面名>/HANDOFF.md`,内容按[上半段的 Handoff 交付](design/04-references/prototype/handoff.md)来。
+设计交接写成 `<WRITE_DIR>/<页面名>/HANDOFF.md`,内容按[上半段的 Handoff 交付](design/03-references/prototype/handoff.md)来。
 
 "验证与限制"一节**分层记录,不要把编译通过扩写成别的验证也通过**:
 
