@@ -28,7 +28,6 @@
   - 旧版 Octo(心跳里没有 `layout: 2`)下 `new-session` 报 `HOST_OUTDATED` —— **本版必须在含 SPEC-DES-008 的 Octo 发布之后再上架**
   - SKILL.md:②「选定工程」整段重写(什么时候用 question 工具问用户、固定提问模板);`--project-dir` 取 `PROJECT_DIR` 原值;装环境与 verify 要求给 shell 工具传 `timeout: 600000`
 - 配套 Octo 改动(UXAI `feat/fastui-workspace-layout`):宿主按(工作区, 会话, 产物名)查找工程;注入根会话 id 与工作区目录;本轮改过工程内文件时自动补一张预览卡片(SPEC-DES-008 §3.8)
-- 内网验证(2026-10-21):SPEC-DES-008 §7.3 C1–C3 通过,预览卡片补位已验证;C4(提问)起的其余用例待测试同学跑
 
 ## 1.1.0 ｜ 2026-10-21 ｜ design/ 同步上游 v0.6.9
 

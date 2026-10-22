@@ -10,6 +10,17 @@
 
 (无)
 
+## 1.1.1 ｜ 2026-10-22 ｜ template 去掉预览容器 padding 白边
+
+| 组成 | 本版 |
+|---|---|
+| 外网代码 | tag `fastui-vue-creator/v1.1.1`(commit 待补) |
+| 组件 skill(`vendor/`) | 1.0.7(同 1.0.0,未变) |
+| template | 基于 1.0.0 改样式模板：去掉容器 padding 产生的白边 |
+
+- **template**:样式模板去掉容器 padding,预览页面四周不再留白边。内网手工修改，按 [SPEC-DES-001 §8.3](../../specs/design/fastui-vue-codegen-pipeline.md#83-外网仓只放外网能维护的部分内网资产留占位) 重做 ① 组装
+- 外网代码(`SKILL.md` / `scripts/` / `references/`)与 1.1.0 相同，只涨了版本号
+
 ## 1.1.0 ｜ 2026-10-21 ｜ 工程与会话目录解耦,兼容代码工作区
 
 | 组成 | 本版 |
@@ -25,7 +36,6 @@
   - 旧版 Octo(心跳里没有 `layout: 2`)下 `new-session` 报 `HOST_OUTDATED` —— **本版必须在含 SPEC-DES-008 的 Octo 发布之后再上架**
   - SKILL.md:②「选定工程」整段重写(什么时候用 question 工具问用户、固定提问模板);`--project-dir` 取 `PROJECT_DIR` 原值;装环境与 verify 要求给 shell 工具传 `timeout: 600000`
 - 配套 Octo 改动(UXAI `feat/fastui-workspace-layout`):宿主按(工作区, 会话, 产物名)查找工程;注入根会话 id 与工作区目录;本轮改过工程内文件时自动补一张预览卡片(SPEC-DES-008 §3.8)
-- 内网验证(2026-10-21):SPEC-DES-008 §7.3 C1–C3 通过,预览卡片补位已验证;C4(提问)起的其余用例待测试同学跑
 
 ## 1.0.0 ｜ 2026-10-15 ｜ 首次上架
 
