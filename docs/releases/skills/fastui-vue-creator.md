@@ -14,7 +14,7 @@
 
 | 组成 | 本版 |
 |---|---|
-| 外网代码 | tag `fastui-vue-creator/v1.1.1`(commit 待补) |
+| 外网代码 | tag `fastui-vue-creator/v1.1.1`(`ac9c95e`) |
 | 组件 skill(`vendor/`) | 1.0.7(同 1.0.0,未变) |
 | template | 基于 1.0.0 改样式模板：去掉容器 padding 产生的白边 |
 
