@@ -267,7 +267,7 @@ shasum -a 256 <文档仓>/skills/fastui-vue-creator/template/yarn.lock \
 3. **diff 上游 `SKILL.md` 与本 skill SKILL.md 的上半段** —— 上游改了设计规则 / 按需读取表 / 新增入口文件，要同步抄进上半段并加 `design/` 前缀；下半段是我们的地盘，不受上游影响
 4. 更新本节的「当前同步版本」，**必须连 commit 一起记** —— 上游会不涨版本号就改内容（`1629ba8` 即是）
 5. 检查新增文件有没有与下半段重复或冲突的规则，判据见 §4.2 的分工
-6. **在版本记录的「未发布」段记一笔"design/ 同步至上游 v<版本> @ <commit>"**:设计师改了什么**不复述**,链到 `design/CHANGELOG.md`(随包同步、与本次内容同版)与上游 `compare/<上一 commit>...<本次 commit>`;只写**我们自己**因此改了什么(上半段、排除项、链接修正等)。上架时按 [SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog) 涨号(同步上游新内容一般为 minor)
+6. **在版本记录的「未发布」段记一笔"design/ 同步至上游 v<版本> @ <commit>"**:设计师改了什么**不复述**,链到 `design/CHANGELOG.md`(随包同步、与本次内容同版)与上游 `compare/<上一 commit>...<本次 commit>`;只写**我们自己**因此改了什么(上半段、排除项、链接修正等)。进内网前(验证或上架都算)按 [SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog) 涨号(同步上游新内容一般为 minor)
 
 已向上游反馈两处会进生产包的 `python3` 可执行命令（`delivery-gates.md` 的 `check_prototype.py`、`README.md` 的 `check_package.py`），建议把限定说明挪到命令前面。**上游 `1629ba8` 已采纳**：限定说明前置，并改为"确认有可用解释器才执行、不试运行系统 `python3` 探测、不为此装 Python 或 CLT"，`vue-echarts-delivery.md` 与回归用例同步。该提交的 `VALIDATION.md` 另记了一条跟进项「creator 的 `install.sh` 存在 `require_py`」—— 那是 v20 之前的代码，已由 [SPEC-DES-001 v20](fastui-vue-codegen-pipeline.md) 去掉，可回告上游关闭。
 

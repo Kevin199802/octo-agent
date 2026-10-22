@@ -309,7 +309,7 @@ question({ questions: [{
 | `scripts/doctor.mjs` | `LOG_PER_PROJECT` |
 | `SKILL.md` | §3.6 全部 |
 | `scripts/new-session.test.mjs`（新）、`scripts/verify.test.mjs` | §7.1 |
-| 版本 | 上架时 `fastui-vue-creator` 1.0.0 → 1.1.0，`chart-vue-creator` 1.1.0 → 1.2.0。按「上架涨号、不按提交涨号」，实现提交不改 `SKILL.md` 的 `version`，改动先记在 `docs/releases/skills/` 的「未发布」 |
+| 版本 | `fastui-vue-creator` 1.0.0 → 1.1.0，`chart-vue-creator` 1.1.0 → 1.2.0（2026-10-21 合入并打 tag）。验证期间的包当时没涨号，这是错误做法，规则已在 [SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog) 修正：凡进内网都先涨号，后续修复涨 patch（1.1.1 / 1.2.1……） |
 
 **UXAI**（一个 PR）：
 
@@ -379,7 +379,7 @@ question({ questions: [{
 
 #### 准备
 
-1. **版本**：Octo 用 UXAI 分支 `feat/fastui-workspace-layout` 打包；skill 用文档仓同名分支，两个 skill 都只覆盖 `SKILL.md` 与 `scripts/`（内网组装的 `template/`、`vendor/`、`design/` 不动）。验证阶段版本号还没涨，**不能靠 `version` 判断装的是不是新版**
+1. **版本**：Octo 用 UXAI 分支 `feat/fastui-workspace-layout` 打包；skill 用文档仓同名分支，两个 skill 都只覆盖 `SKILL.md` 与 `scripts/`（内网组装的 `template/`、`vendor/`、`design/` 不动）。验证用的包同样必须先涨号（[SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog)），装好后核对 `SKILL.md` 的 `version`
 2. **换完 skill 必须重启 Octo**（或在技能库页面操作一次触发刷新）：server 把 `SKILL.md` 内容解析后缓存在内存里，手工覆盖文件不会刷新；脚本则是每次现读磁盘。不重启就会出现「脚本是新的、模型读到的 SKILL.md 还是旧的」—— 2026-10-21 内网首轮就是这样，模型照旧版写法传 `--session-dir="<上一级>"`。**确认方法**：在第一条测试对话里展开「调用技能 fastui-vue-creator」，内容里有「选定工程」「`--list`」才是新版；是「每个会话建一次工程(幂等)」就是旧版
 3. **普通工作区（老数据）**：**升级 Octo 之前**，在旧版本上用一个工作区（例如 `D:\fastui-legacy`）完成：
    - 对话 L-A：生成一个页面，页面顶部写「这是 L-A」，留下能点开的预览卡片
