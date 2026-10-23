@@ -1,7 +1,7 @@
 ---
 name: fastui-vue-creator
 description: 用 fastui/lake 组件库生成 Vue 页面,在真实脚手架里编译渲染并交付可运行的工程。当用户要做页面、要改页面、要看效果、要拿代码时使用。
-version: 1.1.0
+version: 1.1.1
 ---
 
 # fastui-vue-creator
