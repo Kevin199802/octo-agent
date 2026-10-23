@@ -16,6 +16,8 @@
 
 未经用户确认,不 `git commit` / `git push` / 提 PR;完成后列变更等确认。
 
+提交前核对当前分支:工作分支只放与分支名主题相关的改动,无关改动从最新 `dev` 另开分支。
+
 push 前跑 test(pre-push hook 只跑 typecheck;insight 的用例 CI 也不跑)。
 
 ## 写 spec / 代码前
