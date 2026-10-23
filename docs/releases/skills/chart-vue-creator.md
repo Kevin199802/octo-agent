@@ -13,6 +13,18 @@
 
 (无)
 
+## 1.3.0 ｜ 2026-10-23 ｜ design/ 同步上游 v0.6.13
+
+| 组成 | 本版 |
+|---|---|
+| 外网代码 | tag `chart-vue-creator/v1.3.0`(commit 待补) |
+| 设计师上游(`design/`) | v0.6.13 @ `ed7dc37`(上游 tag `v0.6.13`;中间含 0.6.10–0.6.12) |
+| template | 同 1.0.0,未变 |
+
+- design/ 同步至上游 v0.6.13 @ `ed7dc37`(2026-10-23;上一版 v0.6.9 r9 @ `1d7ae38`)。设计师的改动见上游 [CHANGELOG](../../../skills/chart-vue-creator/design/CHANGELOG.md) 的 0.6.10–0.6.13 各条目([逐文件 diff](https://github.com/peterbobidu/chart-design-advisor/compare/1d7ae38...ed7dc37))。
+- 上游 0.6.10 起交付仓改为专供嵌入:原根 `SKILL.md` 去掉注册元数据后移到 `01-router/design-entry.md`,不再带 `description.md` 与 Python 脚本。我们因此:`design/` 与上游逐文件一致,不再有本地链接修正(`description.md` 随之删除);SKILL.md 硬门槛去掉已不存在的 `check_prototype.py`,并明确不读 `design-entry.md`(它保留"无承载工程时默认 Vite"分支,与本 skill 冲突,见 [SPEC-DES-006 §7.2](../../specs/design/chart-vue-creator-integration.md#72-upstream-同步))。
+- SKILL.md 上半段按需读取表随上游:规范读取覆盖到"修改图表"(含只改样式、数据或交互,局部修改只查受影响元素);ECharts 能力边界入口注明含 HTML 和业务封装。下半段与 `scripts/` 未动。
+
 ## 1.2.0 ｜ 2026-10-21 ｜ 工程与会话目录解耦,兼容代码工作区
 
 | 组成 | 本版 |
