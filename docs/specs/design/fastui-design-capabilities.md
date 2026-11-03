@@ -469,7 +469,7 @@ archiveUpload?: {
 
 ## 10. 实施顺序与改动清单
 
-按顺序做，一步一个 PR（遵守 `collab-pr-protocol.md`）。T1–T3、T5、T6 都要改 `fastui.tsx`、`subtype-config.ts`，不能同时进行。
+按顺序做，一步一个 PR（遵守 `collab-pr-protocol.md`）；T1、T2 改动小，可以连着做，仍分两个 PR。T1–T3、T5、T6 都要改 `fastui.tsx`、`subtype-config.ts`，不能同时进行。
 
 | 步 | 内容 | 依赖 | 风险 | 改动范围（UXAI，`make/` 指 `packages/app/octoapp/pages/make/`） | 验收 |
 |---|---|---|---|---|---|
@@ -571,7 +571,6 @@ http.createServer((_q, res) => { res.setHeader("content-type", "text/html; chars
 | # | 问题 | 找谁 | 影响 |
 |---|---|---|---|
 | Q2 | 历史在 controller 入口按 `historyFilePath` 映射 tab（§4.2 ②） | 做历史的同事 | 不阻塞：T3 的 PR 请同事 review 这一处 |
-| Q4 | Design 的 fastui 归档用「普通文件交付件」（§7.1 第二类接口），web 端展示为文件而不是设计稿预览，是否符合预期 | 做归档的同事 | T2 开工前确认 |
 | Q3 | `yarn build` 产物能否预览（§13） | 脚手架开发（稍后对齐） | 不阻塞 T1–T6 |
 
 已关闭：
@@ -579,7 +578,7 @@ http.createServer((_q, res) => { res.setHeader("content-type", "text/html; chars
 - `__file` 可用，工程文件为 `src/` 开头的相对路径；element-plus 只有文件名（2026-10-20 内网）
 - 生成页面元素命中 `src/views/`（2026-10-26 内网）
 - 工程定位：用现成 `fastuiResolve`，新老目录都由主进程处理（2026-10-26）
-- 归档只传源码 zip，复用选目录弹窗（2026-10-20 与归档同事对齐）
+- 归档只传源码 zip，复用选目录弹窗（2026-10-20 与归档同事对齐）；以「普通文件交付件」上传、web 端展示为文件而非设计稿预览，符合预期（2026-11-03 确认：产物不是 HTML）
 - 不修 WDS 连接（2026-10-21）；画布编辑延后（2026-10-20）
 
 ## 13. 与 `yarn build` 方案的关系
