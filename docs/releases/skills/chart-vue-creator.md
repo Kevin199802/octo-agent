@@ -13,6 +13,17 @@
 
 (无)
 
+## 1.4.0 ｜ 2026-11-05 ｜ design/ 同步上游 v0.8.2
+
+| 组成 | 本版 |
+|---|---|
+| 外网代码 | tag `chart-vue-creator/v1.4.0`(commit 提交后补) |
+| 设计师上游(`design/`) | v0.8.2 @ `6ba5113`(上游 tag `v0.8.2`;中间含 0.6.14–0.6.16、0.7.0、0.8.0、0.8.1) |
+| template | 同 1.0.0,未变 |
+
+- design/ 同步至上游 v0.8.2 @ `6ba5113`(2026-11-05;上一版 v0.6.13 @ `ed7dc37`)。设计师的改动见上游 [CHANGELOG](../../../skills/chart-vue-creator/design/CHANGELOG.md) 的 0.6.14–0.8.2 各条目([逐文件 diff](https://github.com/peterbobidu/chart-design-advisor/compare/ed7dc37...6ba5113))。`design/` 仍与上游逐文件一致,无本地修正。
+- SKILL.md 上半段随上游入口规则(`design-entry.md`)调整:推荐方法用"编号＋展示名称";ECharts 能力核对改为主动告知"无法实现 / 需其他技术配合 / 尚待确认"三类;产物门槛"未执行不计通过",对应节名「最终状态」→「结果与完成条件」;Tooltip 入口随上游移到 `chart-spec/common/tooltip.md`(上游删了 `components/`);数据语义入口补安全区隐藏 / 坐标变换、基线 / 目标对照、堆叠;新增 Method 07(数据尺度适配)的组合读取规则。上游把四箱体骨架指引移进了 Method 03,我们的硬门槛里那条"只取适用部分、不照搬 Vite 配置"是本环境约束,保留。下半段与 `scripts/` 未动。
+
 ## 1.3.0 ｜ 2026-10-23 ｜ design/ 同步上游 v0.6.13
 
 | 组成 | 本版 |

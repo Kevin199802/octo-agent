@@ -13,10 +13,10 @@
 | | 状态 |
 |---|---|
 | skill 骨架（SKILL.md 两段式、scripts、design 实体化） | ✅ 已合入 dev |
-| 上游同步 | ✅ `design/` = 上游 v0.6.13 @ `ed7dc37`（2026-10-23；上一次 v0.6.9 r9 @ `1d7ae38`）。上游 0.6.10 起交付仓专供嵌入（原 `SKILL.md` 改为 `01-router/design-entry.md`，不再带 `description.md` 与 Python 脚本），`design/` 与上游逐文件一致，详见 §7.2。随 skill `1.3.0` 发布 |
+| 上游同步 | ✅ `design/` = 上游 v0.8.2 @ `6ba5113`（2026-11-05；上一次 v0.6.13 @ `ed7dc37`）。上游 0.6.10 起交付仓专供嵌入（原 `SKILL.md` 改为 `01-router/design-entry.md`，不再带 `description.md` 与 Python 脚本），`design/` 与上游逐文件一致，详见 §7.2。随 skill `1.4.0` 发布 |
 | 内网组装 + 端到端跑通 | ✅ 2026-10-13，柱状图，`verify` 返回 OK、预览出图 |
 | echarts 在老 webpack 上可用 | ✅ 内网实测（产物带 `_echarts_instance` attr） |
-| 外网自动验证 | ✅ 链接 0 死链、`lint.test` 31/31、`verify.test` 13/13、`new-session.test` 13/13（2026-10-23，v0.6.13 同步后重跑） |
+| 外网自动验证 | ✅ 链接 0 死链、`lint.test` 31/31、`verify.test` 13/13、`new-session.test` 13/13（2026-11-05，v0.8.2 同步后重跑） |
 | 样式写法约束 | ✅ 同步自组件 skill 1.0.7（SKILL.md 硬约束 3.2，golden example 同步改写；只取写法、不取视觉值，§4.4）。内网待验 N8 |
 | 版本管理 / 首次上架 | ✅ 2026-10-19 定 `1.0.0`(design/ = 上游 v0.6.8 @ `1629ba8`),按 [SPEC-DES-001 §5.2.4](fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog):`doctor` 改读 frontmatter、删 `env.manifest.json` 的 `skillVersion`(两份 `scripts/` 重新只差 `ensure-env.mjs` 一行 hint)。版本记录见 [docs/releases/skills/chart-vue-creator.md](../../releases/skills/chart-vue-creator.md) |
 
@@ -247,7 +247,7 @@ shasum -a 256 <文档仓>/skills/fastui-vue-creator/template/yarn.lock \
 
 | | |
 |---|---|
-| 当前同步版本 | **v0.6.13**（上游 commit `ed7dc37`，tag `v0.6.13`，同步于 2026-10-23；上一次 v0.6.9 r9 @ `1d7ae38`，2026-10-21） |
+| 当前同步版本 | **v0.8.2**（上游 commit `6ba5113`，tag `v0.8.2`，同步于 2026-11-05；上一次 v0.6.13 @ `ed7dc37`，2026-10-23） |
 
 **搬进来时做了什么**：整目录平移，相对关系不变 —— 上游文件之间的 `../02-methods/`、`../chart-spec/index.md` 这类链接全部仍然成立。v0.6.13 起**一个字节不改**：此前唯一的本地修正（`description.md` 指向包根 SKILL.md 的链接）随上游 0.6.10 删掉该文件而消失。
 
