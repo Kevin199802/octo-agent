@@ -8,7 +8,8 @@
 
 ## 未发布
 
-(无)
+- **分享导入的工程在本机接手**([SPEC-DES-009](../../specs/design/fastui-shared-session-adopt.md)):`new-session` 遇到工程根没有 `node_modules` 的工程(会话分享导入、尚未接手),不带 `--reuse` 也直接接手 —— 记上本会话、标记改为本机路径、建链接、清掉发送方的 `.octo-fastui/`、从 template 补回 `packages/portal/node_modules/.bin`,输出 `REUSED_FROM: imported`;`--list` 把这类工程标为 `this-session: yes`;本对话会话 `outputs` 里有同名工程时优先用它(与宿主查找顺序一致)。SKILL.md ② 加一句 `REUSED_FROM: imported` 的处理
+- 配套 Octo 改动(UXAI `feat/fastui-shared-session-adopt`):点预览卡片时宿主调本 skill 脚本完成接手;分享导出保留 `.octo-fastui.json`、排除 `.octo-fastui/`。两边须一起发
 
 ## 1.1.1 ｜ 2026-10-22 ｜ template 去掉预览容器 padding 白边
 

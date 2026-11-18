@@ -112,6 +112,8 @@ RESULT: FAIL | YARN_INSTALL_FAILED: …                                       �
 | `[exit]` | setup-env | 子进程退出码 |
 | `[warn]` | 各处 | 不阻塞，但常是根因的前兆（例：`找不到 yarn 的 JS 入口`） |
 | `[stage]` `[wait]` | verify | 编译进行到哪一阶段 / 正在等 dev server |
+| `[locate]` | new-session | 本对话的会话 `outputs` 里已有同名工程，改用它而不是 `--artifact-dir` 下那份（与宿主查找顺序一致；分享导入到代码工作区时会出现两份副本，[SPEC-DES-009](specs/design/fastui-shared-session-adopt.md) §1） |
+| `[adopt]` | new-session | 分享导入的工程已在本机接手（工程根原本没有 `node_modules`）。此时契约行带 `REUSED_FROM: imported`；标记里的环境路径已改为本机、链接已建、发送方的运行时目录已清 |
 
 ---
 
