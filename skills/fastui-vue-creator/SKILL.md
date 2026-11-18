@@ -192,6 +192,7 @@ node scripts/new-session.mjs --artifact-dir="<同上>" --name="<已有产物名>
 - `ENTRY_FILE` —— 聚合入口,**唯一允许你修改的既有文件**
 
 返回里有 `REUSED_FROM: other-session` 时,在回复里告诉用户「正在修改已有工程 <TITLE>」。
+`REUSED_FROM: imported` 表示这是分享导入的对话带来的工程,脚本已在本机接手,照常继续,不用问用户、也不用转述。
 
 | `RESULT: FAIL` 的 CODE | 怎么办 |
 |---|---|
