@@ -6,7 +6,7 @@
  *   2. 旧布局:目录形如 `<会话目录>/outputs/<产物名>`、含 `packages/portal`,且会话目录下有旧状态文件
  * 两条都不满足的目录一律不碰 —— 工作区是设计师随手选的目录,同名的普通文件夹很常见。
  */
-import { existsSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, lstatSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { MARKER_FILE, readJson, within } from "./paths.mjs"
 
@@ -58,6 +58,22 @@ export function envInfoOf(id) {
   return id.kind === "marker" ? id.marker : id.legacy.state
 }
 
+/**
+ * 分享导入、尚未在本机接手的工程(SPEC-DES-009 §3.2):工程根没有 `node_modules`。
+ *
+ * 判据是确定的:本机 new-session 建 / 复用工程时一定会建这个链接,而会话分享导出一定不带它
+ * (链接被跳过、`node_modules` 被过滤)。用户手工删了链接也会落进来,后果只是接手一次 ——
+ * 重建链接、把当前对话记进 `sessions`,不碰代码。
+ */
+export function isUnadopted(projectDir) {
+  try {
+    lstatSync(path.join(projectDir, "node_modules"))
+    return false
+  } catch {
+    return true
+  }
+}
+
 function sessionsOf(id) {
   return id.kind === "marker" ? (Array.isArray(id.marker.sessions) ? id.marker.sessions : []) : [id.legacy.sessionId]
 }
@@ -97,7 +113,8 @@ export function listProjects(artifactDir, { skillName, sessionId } = {}) {
       dir,
       title: (id.kind === "marker" && id.marker.title) || e.name,
       updatedAt: updatedAtOf(dir, id),
-      thisSession: sessionId ? sessionsOf(id).includes(sessionId) : null,
+      // 未接手的导入工程算本对话的:导入它的就是这个对话,接着改时不该再问一次(SPEC-DES-009 §3.3)
+      thisSession: sessionId ? sessionsOf(id).includes(sessionId) || isUnadopted(dir) : null,
       legacy: id.kind === "legacy",
     })
   }

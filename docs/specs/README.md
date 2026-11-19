@@ -19,6 +19,7 @@
 | 006 | insight/ 自建组件轻审计 | 草案（诊断报告，非实现 spec） | ui/insight | [insight-component-audit.md](ui/insight-component-audit.md) |
 | 007 | 产品流程改版：预置提示词 + promptAsync + 输入区整改 | ✅ 主体已落地 | ui/insight | [insight-prompt-redesign.md](ui/insight-prompt-redesign.md) |
 | 008 | 引用型 MCP 工具的设计 | 草案 | ui + agent contract | [insight-references.md](ui/insight-references.md) |
+| 009 | 分享过来的对话：fastui / chart 产物在本机接手后预览 —— 会话分享把对话与产物带到对方机器后，预览卡片打不开、也没法 @skill 接着改：代码工作区导出丢了工程标记、标记里是发送方的环境绝对路径、`node_modules` 链接不随包、对方可能没装环境、导入后会话 ID 变了。采纳**打开时按需接手**（否决导入时还原 / 静态构建快照；提示词触发只作次入口）：点卡片时宿主发现「工程根没有 `node_modules`」即先调 skill 脚本（`ensure-env` → 需要时安装脚本 → `new-session --reuse`）补环境、改写标记、重建链接，遮罩「首次在本机打开，正在准备预览环境…」，再照常起服务；@skill 时 `new-session` 自动认出导入工程并接手，且与宿主同序先查会话 `outputs`（消除「普通→代码工作区」导入产生的两份副本分叉）。分享侧 `portable.ts` 放行 `.octo-fastui.json`、排除 `.octo-fastui/`；旧客户端导入含标记的包会失败（已接受）。一套方案覆盖两个 skill | 已合入（2026-11-19，内网验证通过；skill fastui 1.2.0 / chart 1.5.0） | infra/design | [fastui-shared-session-adopt.md](design/fastui-shared-session-adopt.md) |
 | 009 | 任务面板按需弹出（ResultViewer reveal） | 草案 | ui/insight | [insight-result-panel-reveal.md](ui/insight-result-panel-reveal.md) |
 | 010 | Insight 独立化：放弃 cowork 接线层，自包含可挂载模块 | ✅ 主体已落地（PR1/PR2 + D10/D11） | ui/insight | [insight-standalone-extraction.md](ui/insight-standalone-extraction.md) |
 | 011 | Insight 内网调试可观测工具（debug-observer） | 草案 | ui/insight | [insight-debug-toolkit.md](ui/insight-debug-toolkit.md) |
@@ -52,7 +53,7 @@
 
 ---
 
-## 已编号 · Design / octo_make（SPEC-DES-001 ~ 008）
+## 已编号 · Design / octo_make（SPEC-DES-001 ~ 009）
 
 | 编号 | 标题 | 状态 | 领域 | 文件 |
 |---|---|---|---|---|

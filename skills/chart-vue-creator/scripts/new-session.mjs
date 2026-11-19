@@ -26,7 +26,7 @@ import {
 } from "./lib/paths.mjs"
 import { HOST_LAYOUT, hostLayout, hostPresent, pidAlive, postRequest } from "./lib/host.mjs"
 import { ensureDirLink } from "./lib/link.mjs"
-import { MARKER_SCHEMA, formatProjects, identify, listProjects, safeToRemove, writeMarker } from "./lib/project.mjs"
+import { MARKER_SCHEMA, formatProjects, identify, isUnadopted, listProjects, safeToRemove, writeMarker } from "./lib/project.mjs"
 
 const args = parseArgs()
 // 契约行同时落盘 —— 宿主 UI 未必把 stdout 展示给人看,失败了要能事后查。
@@ -50,14 +50,25 @@ if (ctx.workspaceDir && !within(artifactDir, ctx.workspaceDir)) {
   })
 }
 
-const projectsBlock = () => ({
-  name: "PROJECTS",
-  text: formatProjects(listProjects(artifactDir, { skillName, sessionId: ctx.sessionId })),
-})
+// 本对话的会话 outputs。宿主找工程时先查这里、再查工作区(SPEC-DES-008 §3.7),脚本按同一顺序:
+// 分享导入到代码工作区时,同一个工程会同时出现在这里和工作区根下(SPEC-DES-009 §1),
+// 两边若各认一份,模型改的和卡片显示的就不是同一份
+const sessionOutputs =
+  ctx.sessionId && ctx.workspaceDir ? path.join(ctx.workspaceDir, ".octo", ctx.sessionId, "outputs") : null
+const extraScope = sessionOutputs && path.resolve(sessionOutputs) !== artifactDir ? sessionOutputs : null
+
+/** 同名时会话 outputs 那份优先,与宿主一致 */
+function allProjects() {
+  const opts = { skillName, sessionId: ctx.sessionId }
+  const first = extraScope ? listProjects(extraScope, opts) : []
+  const seen = new Set(first.map((p) => p.name))
+  return [...first, ...listProjects(artifactDir, opts).filter((p) => !seen.has(p.name))]
+}
+
+const projectsBlock = () => ({ name: "PROJECTS", text: formatProjects(allProjects()) })
 
 if (args.list) {
-  const count = listProjects(artifactDir, { skillName, sessionId: ctx.sessionId }).length
-  ok({ ARTIFACT_DIR: artifactDir, PROJECT_COUNT: count }, { blocks: [projectsBlock()] })
+  ok({ ARTIFACT_DIR: artifactDir, PROJECT_COUNT: allProjects().length }, { blocks: [projectsBlock()] })
 }
 
 const name = str(args.name)
@@ -77,7 +88,11 @@ if (hostPresent(P.root) && hostLayout(P.root) !== HOST_LAYOUT) {
   })
 }
 
-const projectDir = path.join(artifactDir, name)
+// 会话 outputs 里有同名工程就用它(见 sessionOutputs 的注释);代码工作区下本机自建的工程
+// 不会出现在那里,所以只影响分享导入的工程与旧布局工程
+const baseDir = extraScope && identify(path.join(extraScope, name)) ? path.resolve(extraScope) : artifactDir
+if (baseDir !== artifactDir) log(`[locate] 本对话的会话目录里已有同名工程,用它: ${path.join(baseDir, name)}`)
+const projectDir = path.join(baseDir, name)
 const PP = projectPaths(projectDir)
 const tempPrefix = `.${name}.creating-`
 
@@ -95,7 +110,7 @@ const missingFiles = (root) => REQUIRED_FILES.filter((rel) => !exists(path.join(
 
 /** 删除只走这里,并且每次都过护栏(SKILL.md 硬约束 0 禁止 agent 自己删,合法出口在脚本里) */
 function removeOrFail(dir, code) {
-  if (!safeToRemove(dir, { artifactDir, workspaceDir: ctx.workspaceDir, tempPrefix })) {
+  if (!safeToRemove(dir, { artifactDir: baseDir, workspaceDir: ctx.workspaceDir, tempPrefix })) {
     fail("UNSAFE_CLEANUP", `拒绝删除 ${dir} —— 它不是本 skill 建的工程`, {
       hint: "请手工确认该目录内容后再决定怎么处理,不要让脚本删,也不要自己执行删除命令",
     })
@@ -112,10 +127,10 @@ function removeOrFail(dir, code) {
 
 // 上次创建中途被杀留下的临时目录(进程已不在才清,同名并发创建时不误伤对方)
 try {
-  for (const e of readdirSync(artifactDir, { withFileTypes: true })) {
+  for (const e of readdirSync(baseDir, { withFileTypes: true })) {
     if (!e.isDirectory() || !e.name.startsWith(tempPrefix)) continue
     if (pidAlive(Number(e.name.slice(tempPrefix.length)))) continue
-    removeOrFail(path.join(artifactDir, e.name), "CLEANUP_FAILED")
+    removeOrFail(path.join(baseDir, e.name), "CLEANUP_FAILED")
     log(`[cleanup] 清掉上次中断留下的临时目录: ${e.name}`)
   }
 } catch {
@@ -127,6 +142,7 @@ const nameTaken = (reason, hint) =>
 
 let mode = "created"
 let reusedFrom
+let imported = false
 let sessions = ctx.sessionId ? [ctx.sessionId] : []
 let createdAt = new Date().toISOString()
 let title = str(args.title) || name
@@ -157,14 +173,17 @@ if (exists(projectDir)) {
 
   // 旧布局的会话目录名就是会话 id,所以它属于哪个对话同样是确定的
   const prev = id.kind === "marker" ? (Array.isArray(id.marker.sessions) ? id.marker.sessions : []) : [id.legacy.sessionId]
-  const mine = !ctx.sessionId || prev.includes(ctx.sessionId)
+  // 分享导入、还没在本机接手的工程算本对话的(SPEC-DES-009 §3.3):导入它的就是这个对话
+  imported = isUnadopted(projectDir)
+  const mine = !ctx.sessionId || prev.includes(ctx.sessionId) || imported
   if (!mine && !args.reuse) {
     nameTaken(
       `${name} 是另一个对话建的工程`,
       "先确认用户是要接着改这个工程还是新建:接着改就加 --reuse 重跑,新建就换一个产物名",
     )
   }
-  if (!mine) reusedFrom = "other-session"
+  if (imported) reusedFrom = "imported"
+  else if (!mine) reusedFrom = "other-session"
   sessions = [...new Set([...prev, ...sessions])]
   if (id.kind === "marker") {
     createdAt = id.marker.createdAt ?? createdAt
@@ -201,8 +220,8 @@ const marker = {
 if (mode === "created") {
   // 原子创建:先复制到同级临时目录,校验齐全、写好标记后再改名。
   // 最终目录要么完整、要么不存在 —— 复制中断不会留下一个"已存在但残缺"的工程
-  const tmp = path.join(artifactDir, `${tempPrefix}${process.pid}`)
-  mkdirSync(artifactDir, { recursive: true })
+  const tmp = path.join(baseDir, `${tempPrefix}${process.pid}`)
+  mkdirSync(baseDir, { recursive: true })
   try {
     cpSync(TEMPLATE_DIR, tmp, { recursive: true, dereference: false, errorOnExist: true, force: false })
   } catch (e) {
@@ -228,6 +247,33 @@ if (mode === "created") {
   }
 } else {
   writeMarker(projectDir, marker)
+}
+
+if (mode === "reused" && imported) adoptImported()
+
+/**
+ * 在本机接手分享导入的工程(SPEC-DES-009 §3.3)。标记已按本机重写(上面),链接在下面建;这里补另外两样:
+ *   - 发送方的运行时目录(日志、带对方 pid / 端口的服务记录)。旧版导出会把它带过来,留着会误导 verify。
+ *     路径由脚本从已过标记校验的工程目录拼出,不接受参数 —— safeToRemove 是工程级护栏,不适用于这里
+ *   - `packages/portal/node_modules/.bin`:分享导出按 `node_modules` 过滤掉了它。宿主起服务直连 cli 不需要,
+ *     但交付给开发后 `yarn serve` 要用(SPEC-DES-001 §2.3)
+ */
+function adoptImported() {
+  try {
+    rmSync(PP.runtime, { recursive: true, force: true })
+  } catch (e) {
+    warn(`清不掉导入带来的运行时目录(不影响预览): ${e.message}`)
+  }
+  const bin = path.join(PP.portal, "node_modules")
+  const tplBin = path.join(TEMPLATE_DIR, "packages", "portal", "node_modules")
+  if (!exists(bin) && exists(tplBin)) {
+    try {
+      cpSync(tplBin, bin, { recursive: true, dereference: false })
+    } catch (e) {
+      warn(`补不回 packages/portal/node_modules(不影响预览,只影响交付后 yarn serve): ${e.message}`)
+    }
+  }
+  log(`[adopt] 已在本机接手分享导入的工程: ${projectDir}`)
 }
 
 // 工程目录确定了,日志改写工程内 —— 与 dev server 日志同目录,一处就能看全

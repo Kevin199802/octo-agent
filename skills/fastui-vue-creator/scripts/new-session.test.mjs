@@ -11,6 +11,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { readSkillName } from "./lib/paths.mjs"
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SKILL_SRC = path.dirname(HERE)
@@ -227,6 +228,71 @@ test("A13:别的 skill 的工程 —— 带 --reuse 也不复用,--list 不列�
   expect(r.result.includes("NAME_TAKEN") && r.out.includes("some-other-skill"), `期望 NAME_TAKEN,实际 ${r.result}`, r)
   const list = newSession(sb, [`--artifact-dir=${sb.ws}`, "--list"], s1(sb))
   expect(field(list.out, "PROJECT_COUNT") === "0", "别的 skill 的工程不应列出", list)
+})
+
+/** 模拟分享导入的工程:带标记但记的是发送方的路径与会话,没有 node_modules,带着发送方的运行时目录 */
+function importedProject(dir, { name = path.basename(dir), sessions = ["ses_sender"] } = {}) {
+  for (const rel of TEMPLATE_FILES) {
+    const p = path.join(dir, ...rel.split("/"))
+    mkdirSync(path.dirname(p), { recursive: true })
+    writeFileSync(p, rel.endsWith("index.vue") ? "<template><div>发送方的页面</div></template>" : "{}")
+  }
+  const foreign = "/Users/sender/Library/Application Support/octo/fastui-env"
+  writeFileSync(
+    path.join(dir, ".octo-fastui.json"),
+    JSON.stringify({
+      schema: 1, skill: readSkillName(), name, title: "发送方的工程", sessions,
+      envDir: foreign, depsDir: `${foreign}/deps/node_modules`, nodeBin: `${foreign}/node/bin/node`, skillDir: "/Users/sender/skill",
+    }),
+  )
+  mkdirSync(path.join(dir, ".octo-fastui"), { recursive: true })
+  writeFileSync(path.join(dir, ".octo-fastui", "devserver.json"), JSON.stringify({ pid: 4242, port: 8090 }))
+}
+
+test("B1:分享导入的工程 —— 不带 --reuse 也直接接手:标记改为本机、记上本会话、建链接、清掉对方的运行时、补回 .bin", () => {
+  const sb = sandbox()
+  const tplBin = path.join(sb.skill, "template", "packages", "portal", "node_modules", ".bin", "turbo-ui-cli-service")
+  mkdirSync(path.dirname(tplBin), { recursive: true })
+  writeFileSync(tplBin, "#!/bin/sh")
+  const dir = path.join(sb.ws, "alpha")
+  importedProject(dir)
+  const r = newSession(sb, [`--artifact-dir=${sb.ws}`, "--name=alpha"], s1(sb))
+  expect(r.result === "RESULT: OK", `期望 OK,实际 ${r.result}`, r)
+  expect(field(r.out, "MODE") === "reused" && field(r.out, "REUSED_FROM") === "imported", "应按导入工程接手", r)
+  const m = marker(dir)
+  expect(JSON.stringify(m.sessions) === '["ses_sender","s1"]', `sessions 不对:${m.sessions}`)
+  expect(m.envDir === sb.env && m.depsDir.startsWith(sb.env) && m.skillDir === sb.skill, `标记应改为本机路径:${JSON.stringify(m)}`)
+  expect(m.title === "发送方的工程", "应保留原标题")
+  expect(lstatSync(path.join(dir, "node_modules")).isSymbolicLink(), "应建好依赖链接")
+  expect(!existsSync(path.join(dir, ".octo-fastui", "devserver.json")), "发送方的服务记录应被清掉")
+  expect(existsSync(path.join(dir, "packages", "portal", "node_modules", ".bin", "turbo-ui-cli-service")), "应从模板补回 .bin")
+  expect(readFileSync(path.join(dir, "packages", "portal", "src", "views", "index.vue"), "utf8").includes("发送方的页面"), "代码不应被动")
+
+  const again = newSession(sb, [`--artifact-dir=${sb.ws}`, "--name=alpha"], s1(sb))
+  expect(field(again.out, "MODE") === "reused" && !field(again.out, "REUSED_FROM"), "接手后再跑就是普通的本对话复用", again)
+  const other = newSession(sb, [`--artifact-dir=${sb.ws}`, "--name=alpha"], s2(sb))
+  expect(other.result.includes("NAME_TAKEN"), `接手后别的对话不带 --reuse 仍应 NAME_TAKEN,实际 ${other.result}`, other)
+})
+
+test("B2:--list —— 未接手的导入工程标为本对话的", () => {
+  const sb = sandbox()
+  importedProject(path.join(sb.ws, "alpha"))
+  const r = newSession(sb, [`--artifact-dir=${sb.ws}`, "--list"], s1(sb))
+  expect(/^alpha \| 发送方的工程 \|.*this-session: yes$/m.test(r.out), "导入工程应标 this-session: yes", r)
+})
+
+test("B3:普通工作区的分享导入到代码工作区(两份副本)—— 用会话 outputs 那份,与宿主一致", () => {
+  const sb = sandbox()
+  const inSession = path.join(sb.ws, ".octo", "s1", "outputs", "alpha")
+  const inWorkspace = path.join(sb.ws, "alpha")
+  importedProject(inSession)
+  importedProject(inWorkspace)
+  const before = snapshot(inWorkspace)
+  const r = newSession(sb, [`--artifact-dir=${sb.ws}`, "--name=alpha"], s1(sb))
+  expect(r.result === "RESULT: OK" && field(r.out, "PROJECT_DIR") === inSession, `应用会话 outputs 那份,实际 ${field(r.out, "PROJECT_DIR")}`, r)
+  expect(snapshot(inWorkspace) === before, "工作区根下那份不应被动")
+  const list = newSession(sb, [`--artifact-dir=${sb.ws}`, "--list"], s1(sb))
+  expect(field(list.out, "PROJECT_COUNT") === "1", "同名只列一份", list)
 })
 
 test("E1:export-zip —— 不带依赖链接、运行时目录与标记,zip 落在工程的运行时目录", () => {
