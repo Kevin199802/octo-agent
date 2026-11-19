@@ -1,6 +1,6 @@
 # SPEC-DES-009 — 分享过来的对话：fastui / chart 产物在本机接手后预览
 
-> 状态：已实现待验证（2026-11-18；UXAI 与本仓各一个分支 `feat/fastui-shared-session-adopt`，**两个 PR 一起测、一起合**，skill 改动随下一版 fastui / chart 发布） · 优先级 P1（会话分享上线后，带 fastui / chart 产物的对话在接收方打不开预览） · 规模 [M] · 领域 infra/design
+> 状态：已合入（2026-11-19；内网验证通过，UXAI PR #1163 / octo-agent PR #36 一起合入；skill 随 fastui-vue-creator 1.2.0 / chart-vue-creator 1.5.0 发布，须与含本改动的 Octo 一起上线） · 优先级 P1（会话分享上线后，带 fastui / chart 产物的对话在接收方打不开预览） · 规模 [M] · 领域 infra/design
 >
 > 上游已实现：✗ —— 会话导入导出 / 分享是 octoapp 自建（UXAI `packages/opencode/src/session/portable*.ts`），fastui 预览宿主是 Design 侧自建（SPEC-DES-003 / 004 / 008）
 >

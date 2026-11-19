@@ -8,6 +8,18 @@
 
 ## 未发布
 
+(无)
+
+## 1.2.0 ｜ 2026-11-19 ｜ 分享导入的工程在本机接手
+
+| 组成 | 本版 |
+|---|---|
+| 外网代码 | tag `fastui-vue-creator/v1.2.0`(合入后补 commit) |
+| 组件 skill(`vendor/`) | 1.0.7(同 1.0.0,未变) |
+| template | 同 1.1.1,未变 |
+
+> 2026-11-19 内网验证通过（测试同学基于 UXAI / octo-agent 两个 `feat/fastui-shared-session-adopt` 分支，用例见 UXAI PR #1163）。⚠️ 验证包没有按 [SPEC-DES-001 §5.2.4](../../specs/design/fastui-vue-codegen-pipeline.md#524-发布版本号与-changelog) 先涨号，装的是旧版本号；本版与验证包的差别只有 `SKILL.md` 的 `version` 一行。
+
 - **分享导入的工程在本机接手**([SPEC-DES-009](../../specs/design/fastui-shared-session-adopt.md)):`new-session` 遇到工程根没有 `node_modules` 的工程(会话分享导入、尚未接手),不带 `--reuse` 也直接接手 —— 记上本会话、标记改为本机路径、建链接、清掉发送方的 `.octo-fastui/`、从 template 补回 `packages/portal/node_modules/.bin`,输出 `REUSED_FROM: imported`;`--list` 把这类工程标为 `this-session: yes`;本对话会话 `outputs` 里有同名工程时优先用它(与宿主查找顺序一致)。SKILL.md ② 加一句 `REUSED_FROM: imported` 的处理
 - 配套 Octo 改动(UXAI `feat/fastui-shared-session-adopt`):点预览卡片时宿主调本 skill 脚本完成接手;分享导出保留 `.octo-fastui.json`、排除 `.octo-fastui/`。两边须一起发
 
