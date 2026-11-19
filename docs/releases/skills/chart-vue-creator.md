@@ -17,7 +17,7 @@
 
 | 组成 | 本版 |
 |---|---|
-| 外网代码 | tag `chart-vue-creator/v1.5.0`(合入后补 commit) |
+| 外网代码 | tag `chart-vue-creator/v1.5.0`(`80e5210`) |
 | 设计师上游(`design/`) | v0.8.2 @ `6ba5113`(同 1.4.0,未变) |
 | template | 同 1.0.0,未变 |
 

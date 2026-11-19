@@ -14,7 +14,7 @@
 
 | 组成 | 本版 |
 |---|---|
-| 外网代码 | tag `fastui-vue-creator/v1.2.0`(合入后补 commit) |
+| 外网代码 | tag `fastui-vue-creator/v1.2.0`(`80e5210`) |
 | 组件 skill(`vendor/`) | 1.0.7(同 1.0.0,未变) |
 | template | 同 1.1.1,未变 |
 
